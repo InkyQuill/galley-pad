@@ -1,0 +1,18 @@
+[package]
+name = "galley-pad"
+version = "0.1.0"
+description = "A simple desktop Markdown editor powered by Galley."
+authors = ["Inky Quill"]
+edition = "2021"
+
+[lib]
+name = "galley_pad_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

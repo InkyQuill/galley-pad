@@ -1,0 +1,41 @@
+{
+  "name": "galley-pad",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.10.0",
+    "@codemirror/lang-markdown": "^6.5.0",
+    "@codemirror/language": "^6.12.0",
+    "@codemirror/state": "^6.6.0",
+    "@codemirror/view": "^6.41.0",
+    "@inky/galley-editor": "0.9.1",
+    "@lezer/highlight": "^1.2.0",
+    "@lezer/markdown": "^1.6.0",
+    "@tauri-apps/api": "^2.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "@testing-library/jest-dom": "^6.4.8",
+    "@testing-library/react": "^16.0.1",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "jsdom": "^24.1.1",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.0",
+    "vitest": "^2.0.5"
+  }
+}
