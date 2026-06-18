@@ -1,6 +1,6 @@
 # Desktop Skeleton Scaffold Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]` / `- [x]`) syntax for tracking.
 
 **Goal:** Build the first runnable Galley Pad desktop skeleton: a Tauri + React + TypeScript app that launches and renders Galley Editor as the only main document surface.
 
@@ -51,6 +51,8 @@ Create these files:
 - `tsconfig.json` - shared TypeScript compiler settings.
 - `tsconfig.node.json` - TypeScript settings for Vite config.
 - `vite.config.ts` - Vite React and Vitest configuration.
+- `scripts/tauri-info.mjs` - portable Tauri info task wrapper for mise.
+- `scripts/verify.mjs` - portable sequential verification task for mise.
 - `scripts/with-timeout.mjs` - portable Node-based timeout wrapper for mise tasks.
 - `src/main.tsx` - React root bootstrap.
 - `src/App.tsx` - top-level app shell and document state wiring.
@@ -90,31 +92,51 @@ Do not modify these files:
 - Create: `index.html`
 - Create: `mise.toml`
 - Create: `package.json`
+- Create: `scripts/tauri-info.mjs`
+- Create: `scripts/verify.mjs`
 - Create: `scripts/with-timeout.mjs`
 - Create: `tsconfig.json`
 - Create: `tsconfig.node.json`
 - Create: `vite.config.ts`
 
-- [ ] **Step 1: Create `.gitignore`**
+- [x] **Step 1: Create `.gitignore`**
 
 Create `.gitignore` with this exact content:
 
 ```gitignore
+# Dependencies
 node_modules/
+
+# Build and test output
 dist/
 dist-ssr/
 coverage/
 .vite/
 
+# Tauri/Rust generated output
 src-tauri/target/
 src-tauri/gen/
 
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Editor/OS noise
 .DS_Store
 Thumbs.db
+.idea/
+.vscode/
+
+# Logs
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 ```
 
-- [ ] **Step 2: Create `index.html`**
+- [x] **Step 2: Create `index.html`**
 
 Create `index.html` with this exact content:
 
@@ -133,7 +155,7 @@ Create `index.html` with this exact content:
 </html>
 ```
 
-- [ ] **Step 3: Add `assets/app-icon.png`**
+- [x] **Step 3: Add `assets/app-icon.png`**
 
 Use the committed PNG app icon at `assets/app-icon.png`. Do not generate this icon from inline shell code.
 
@@ -145,7 +167,7 @@ file assets/app-icon.png
 
 Expected: `assets/app-icon.png` is reported as PNG image data.
 
-- [ ] **Step 4: Create `AGENTS.md`**
+- [x] **Step 4: Create `AGENTS.md`**
 
 Create `AGENTS.md` with this exact content:
 
@@ -254,7 +276,7 @@ If an implementation concern appears to be inside Galley Editor itself, do not w
 If `../galley-editor` does not exist, record the concern in `docs/known-issues.md` and make clear that it belongs to the Galley Editor package.
 ````
 
-- [ ] **Step 5: Create `scripts/with-timeout.mjs`**
+- [x] **Step 5: Create `scripts/with-timeout.mjs`**
 
 Create `scripts/with-timeout.mjs` with this exact content:
 
@@ -299,7 +321,86 @@ child.on("close", (code, signal) => {
 });
 ```
 
-- [ ] **Step 6: Create `mise.toml`**
+- [x] **Step 6: Create `scripts/tauri-info.mjs`**
+
+Create `scripts/tauri-info.mjs` with this exact content:
+
+```js
+import { spawnSync } from "node:child_process";
+
+const result = spawnSync(
+  process.execPath,
+  ["scripts/with-timeout.mjs", "30", "npm", "run", "tauri", "--", "info"],
+  { stdio: "inherit" },
+);
+
+if (result.error) {
+  console.error(result.error.message);
+  process.exit(1);
+}
+
+if (result.status === 124) {
+  console.log("tauri info timed out during network metadata checks; continuing to tauri-build");
+  process.exit(0);
+}
+
+if (result.signal) {
+  process.exit(1);
+}
+
+process.exit(result.status ?? 0);
+```
+
+- [x] **Step 7: Create `scripts/verify.mjs`**
+
+Create `scripts/verify.mjs` with this exact content:
+
+```js
+import { spawnSync } from "node:child_process";
+
+function run(command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    stdio: "inherit",
+    shell: options.shell ?? process.platform === "win32",
+  });
+
+  if (result.error) {
+    console.error(result.error.message);
+    process.exit(1);
+  }
+
+  if (result.signal) {
+    process.exit(1);
+  }
+
+  if (result.status !== 0) {
+    process.exit(result.status ?? 1);
+  }
+}
+
+run("npm", ["audit", "--json"]);
+run("npm", ["test"]);
+run("npm", ["run", "build"]);
+run("cargo", ["fmt", "--manifest-path", "src-tauri/Cargo.toml", "--", "--check"]);
+run(process.execPath, ["scripts/tauri-info.mjs"], { shell: false });
+run(
+  process.execPath,
+  [
+    "scripts/with-timeout.mjs",
+    "120",
+    "npm",
+    "run",
+    "tauri",
+    "--",
+    "build",
+    "--debug",
+    "--no-bundle",
+  ],
+  { shell: false },
+);
+```
+
+- [x] **Step 8: Create `mise.toml`**
 
 Create `mise.toml` with this exact content:
 
@@ -326,17 +427,7 @@ run = "cargo fmt --manifest-path src-tauri/Cargo.toml -- --check"
 
 [tasks.tauri-info]
 description = "Print Tauri environment and app configuration"
-run = """
-set +e
-node scripts/with-timeout.mjs 30 npm run tauri -- info
-status=$?
-set -e
-if [ "$status" -eq 124 ]; then
-  echo "tauri info timed out during network metadata checks; continuing to tauri-build"
-  exit 0
-fi
-exit "$status"
-"""
+run = "node scripts/tauri-info.mjs"
 
 [tasks.tauri-build]
 description = "Build the Tauri debug app without bundling"
@@ -348,25 +439,10 @@ run = "npm audit --json"
 
 [tasks.verify]
 description = "Run the scaffold verification suite"
-run = """
-npm audit --json
-npm test
-npm run build
-cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
-set +e
-node scripts/with-timeout.mjs 30 npm run tauri -- info
-tauri_info_status=$?
-set -e
-if [ "$tauri_info_status" -eq 124 ]; then
-  echo "tauri info timed out during network metadata checks; continuing to tauri-build"
-elif [ "$tauri_info_status" -ne 0 ]; then
-  exit "$tauri_info_status"
-fi
-node scripts/with-timeout.mjs 120 npm run tauri -- build --debug --no-bundle
-"""
+run = "node scripts/verify.mjs"
 ```
 
-- [ ] **Step 7: Create `package.json`**
+- [x] **Step 9: Create `package.json`**
 
 Create `package.json` with this exact content:
 
@@ -414,7 +490,7 @@ Create `package.json` with this exact content:
 }
 ```
 
-- [ ] **Step 8: Create `tsconfig.json`**
+- [x] **Step 10: Create `tsconfig.json`**
 
 Create `tsconfig.json` with this exact content:
 
@@ -443,7 +519,7 @@ Create `tsconfig.json` with this exact content:
 }
 ```
 
-- [ ] **Step 9: Create `tsconfig.node.json`**
+- [x] **Step 11: Create `tsconfig.node.json`**
 
 Create `tsconfig.node.json` with this exact content:
 
@@ -461,7 +537,7 @@ Create `tsconfig.node.json` with this exact content:
 }
 ```
 
-- [ ] **Step 10: Create `vite.config.ts`**
+- [x] **Step 12: Create `vite.config.ts`**
 
 Create `vite.config.ts` with this exact content:
 
@@ -473,6 +549,7 @@ export default defineConfig({
   plugins: [react()],
   clearScreen: false,
   server: {
+    host: "127.0.0.1",
     strictPort: true,
     port: 1420,
   },
@@ -485,12 +562,12 @@ export default defineConfig({
 });
 ```
 
-- [ ] **Step 11: Commit frontend project config**
+- [x] **Step 13: Commit frontend project config**
 
 Run:
 
 ```bash
-git add .gitignore AGENTS.md assets/app-icon.png index.html mise.toml package.json scripts/with-timeout.mjs tsconfig.json tsconfig.node.json vite.config.ts
+git add .gitignore AGENTS.md assets/app-icon.png index.html mise.toml package.json scripts/tauri-info.mjs scripts/verify.mjs scripts/with-timeout.mjs tsconfig.json tsconfig.node.json vite.config.ts
 git commit -m "chore: initialize frontend scaffold"
 ```
 
@@ -504,7 +581,7 @@ Expected: if the repository has not been initialized, `git commit` fails with `f
 - Create after install: `package-lock.json`
 - Modify after install: `node_modules/`
 
-- [ ] **Step 1: Create `.npmrc`**
+- [x] **Step 1: Create `.npmrc`**
 
 Create `.npmrc` with this exact content:
 
@@ -512,7 +589,7 @@ Create `.npmrc` with this exact content:
 @inky:registry=https://git.inkyquill.net/api/v4/packages/npm/
 ```
 
-- [ ] **Step 2: Install npm dependencies**
+- [x] **Step 2: Install npm dependencies**
 
 Run:
 
@@ -534,7 +611,7 @@ npm view @inky/galley-editor version
 
 Then update only the `@inky/galley-editor` version in `package.json` to the reported version and run `npm install` again.
 
-- [ ] **Step 3: Verify package metadata**
+- [x] **Step 3: Verify package metadata**
 
 Run:
 
@@ -544,7 +621,7 @@ npm ls @inky/galley-editor react react-dom @codemirror/state @codemirror/view
 
 Expected: npm prints the installed dependency tree without `missing` or `invalid` entries.
 
-- [ ] **Step 4: Commit dependency setup**
+- [x] **Step 4: Commit dependency setup**
 
 Run:
 
@@ -565,7 +642,7 @@ Expected: if the repository has not been initialized, `git commit` fails with `f
 - Create: `src/styles.css`
 - Create: `src/vite-env.d.ts`
 
-- [ ] **Step 1: Create `src/components/DocumentView.tsx`**
+- [x] **Step 1: Create `src/components/DocumentView.tsx`**
 
 Create `src/components/DocumentView.tsx` with this exact content:
 
@@ -594,7 +671,7 @@ rg -n "type GalleyEditor|interface GalleyEditor|GalleyEditorProps|onChange|value
 
 Then adapt only `DocumentView.tsx` to the actual exported prop names. Keep the component contract `content` and `onContentChange` unchanged so the rest of the app remains stable.
 
-- [ ] **Step 2: Create `src/App.tsx`**
+- [x] **Step 2: Create `src/App.tsx`**
 
 Create `src/App.tsx` with this exact content:
 
@@ -636,7 +713,7 @@ export default function App() {
 }
 ```
 
-- [ ] **Step 3: Create `src/main.tsx`**
+- [x] **Step 3: Create `src/main.tsx`**
 
 Create `src/main.tsx` with this exact content:
 
@@ -654,7 +731,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
 );
 ```
 
-- [ ] **Step 4: Create `src/styles.css`**
+- [x] **Step 4: Create `src/styles.css`**
 
 Create `src/styles.css` with this exact content:
 
@@ -779,7 +856,7 @@ textarea {
 }
 ```
 
-- [ ] **Step 5: Create `src/vite-env.d.ts`**
+- [x] **Step 5: Create `src/vite-env.d.ts`**
 
 Create `src/vite-env.d.ts` with this exact content:
 
@@ -789,7 +866,7 @@ Create `src/vite-env.d.ts` with this exact content:
 declare module "*.css";
 ```
 
-- [ ] **Step 6: Run TypeScript build**
+- [x] **Step 6: Run TypeScript build**
 
 Run:
 
@@ -801,7 +878,7 @@ Expected: build completes and writes frontend output to `dist/`.
 
 If TypeScript fails on `GalleyEditor` prop names, complete the package type inspection from Task 3 Step 1, adapt `DocumentView.tsx`, and rerun `npm run build`.
 
-- [ ] **Step 7: Commit app shell**
+- [x] **Step 7: Commit app shell**
 
 Run:
 
@@ -820,7 +897,7 @@ Expected: if the repository has not been initialized, `git commit` fails with `f
 - Create: `src/components/DocumentView.test.tsx`
 - Create: `src/App.test.tsx`
 
-- [ ] **Step 1: Create Testing Library setup**
+- [x] **Step 1: Create Testing Library setup**
 
 Create `src/test/setup.ts` with this exact content:
 
@@ -828,7 +905,7 @@ Create `src/test/setup.ts` with this exact content:
 import "@testing-library/jest-dom/vitest";
 ```
 
-- [ ] **Step 2: Create failing `DocumentView` unit tests**
+- [x] **Step 2: Create failing `DocumentView` unit tests**
 
 Create `src/components/DocumentView.test.tsx` with this exact content:
 
@@ -877,7 +954,7 @@ describe("DocumentView", () => {
 });
 ```
 
-- [ ] **Step 3: Create failing `App` integration tests**
+- [x] **Step 3: Create failing `App` integration tests**
 
 Create `src/App.test.tsx` with this exact content:
 
@@ -933,7 +1010,7 @@ describe("App", () => {
 });
 ```
 
-- [ ] **Step 4: Run tests to verify they fail before implementation if Task 3 has not been applied**
+- [x] **Step 4: Run tests to verify they fail before implementation if Task 3 has not been applied**
 
 If `src/App.tsx` and `src/components/DocumentView.tsx` do not exist yet, run:
 
@@ -951,7 +1028,9 @@ npm test
 
 Expected: tests pass. Record in the task notes that the test-first red phase was not possible for the already-created scaffold files, and do not add more production behavior without a failing test first.
 
-- [ ] **Step 5: Run frontend unit and integration tests**
+Completion note: Task 3 had already been applied when this plan was rechecked, so the red phase was not reproducible; `npm test` passed with the existing scaffold implementation.
+
+- [x] **Step 5: Run frontend unit and integration tests**
 
 Run:
 
@@ -961,7 +1040,7 @@ npm test
 
 Expected: `DocumentView` unit tests and `App` integration tests pass.
 
-- [ ] **Step 6: Run frontend build again**
+- [x] **Step 6: Run frontend build again**
 
 Run:
 
@@ -971,7 +1050,7 @@ npm run build
 
 Expected: TypeScript and Vite build pass.
 
-- [ ] **Step 7: Commit frontend tests**
+- [x] **Step 7: Commit frontend tests**
 
 Run:
 
@@ -986,6 +1065,8 @@ Expected: if the repository has not been initialized, `git commit` fails with `f
 
 This is a conditional fallback step, not part of the required sequential path. Execute Task 4A only if the Task 4 tests fail and inspection shows the Task 3 implementation is incomplete or incorrect. If Task 4 passes, skip this entire section and continue to Task 5.
 
+Completion note: Task 4 tests pass, so Task 4A was completed as a skipped fallback. No app shell implementation changes were required here.
+
 **Files:**
 
 - Modify: `src/App.tsx`
@@ -993,7 +1074,7 @@ This is a conditional fallback step, not part of the required sequential path. E
 - Test: `src/App.test.tsx`
 - Test: `src/components/DocumentView.test.tsx`
 
-- [ ] **Step 1: Run the focused frontend tests**
+- [x] **Step 1: Run the focused frontend tests**
 
 Run:
 
@@ -1003,7 +1084,7 @@ npm test -- src/App.test.tsx src/components/DocumentView.test.tsx
 
 Expected: both test files pass if Task 3 already matches the specified behavior.
 
-- [ ] **Step 2: If tests fail because implementation is missing, create `DocumentView`**
+- [x] **Step 2: If tests fail because implementation is missing, create `DocumentView`**
 
 If `src/components/DocumentView.tsx` is missing or does not satisfy the tests, replace it with this exact content:
 
@@ -1032,7 +1113,7 @@ rg -n "type GalleyEditor|interface GalleyEditor|GalleyEditorProps|onChange|value
 
 Then adapt only the `GalleyEditor` prop usage inside `DocumentView.tsx`. Keep `DocumentViewProps` unchanged.
 
-- [ ] **Step 3: If tests fail because implementation is missing, create `App`**
+- [x] **Step 3: If tests fail because implementation is missing, create `App`**
 
 If `src/App.tsx` is missing or does not satisfy the tests, replace it with this exact content:
 
@@ -1074,7 +1155,7 @@ export default function App() {
 }
 ```
 
-- [ ] **Step 4: Re-run focused frontend tests**
+- [x] **Step 4: Re-run focused frontend tests**
 
 Run:
 
@@ -1084,7 +1165,7 @@ npm test -- src/App.test.tsx src/components/DocumentView.test.tsx
 
 Expected: `DocumentView` unit tests and `App` integration tests pass.
 
-- [ ] **Step 5: Commit implementation fixes if any were needed**
+- [x] **Step 5: Commit implementation fixes if any were needed**
 
 Run:
 
@@ -1095,7 +1176,7 @@ git commit -m "fix: satisfy scaffold editor tests"
 
 Expected: if no implementation files changed, there is nothing to commit. If the repository has not been initialized, `git commit` fails with `fatal: not a git repository`; skip only the commit step and continue.
 
-- [ ] **Step 6: Run frontend build again**
+- [x] **Step 6: Run frontend build again**
 
 Run:
 
@@ -1117,7 +1198,7 @@ Expected: TypeScript and Vite build pass.
 - Create: `src-tauri/src/main.rs`
 - Create: `src-tauri/tauri.conf.json`
 
-- [ ] **Step 1: Create Tauri directories**
+- [x] **Step 1: Create Tauri directories**
 
 Run:
 
@@ -1127,7 +1208,7 @@ mkdir -p src-tauri/src src-tauri/capabilities src-tauri/icons
 
 Expected: `src-tauri/src/`, `src-tauri/capabilities/`, and `src-tauri/icons/` exist.
 
-- [ ] **Step 2: Create `src-tauri/Cargo.toml`**
+- [x] **Step 2: Create `src-tauri/Cargo.toml`**
 
 Create `src-tauri/Cargo.toml` with this exact content:
 
@@ -1152,7 +1233,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ```
 
-- [ ] **Step 3: Create `src-tauri/build.rs`**
+- [x] **Step 3: Create `src-tauri/build.rs`**
 
 Create `src-tauri/build.rs` with this exact content:
 
@@ -1162,7 +1243,7 @@ fn main() {
 }
 ```
 
-- [ ] **Step 4: Create `src-tauri/src/lib.rs`**
+- [x] **Step 4: Create `src-tauri/src/lib.rs`**
 
 Create `src-tauri/src/lib.rs` with this exact content:
 
@@ -1175,7 +1256,7 @@ pub fn run() {
 }
 ```
 
-- [ ] **Step 5: Create `src-tauri/src/main.rs`**
+- [x] **Step 5: Create `src-tauri/src/main.rs`**
 
 Create `src-tauri/src/main.rs` with this exact content:
 
@@ -1185,7 +1266,7 @@ fn main() {
 }
 ```
 
-- [ ] **Step 6: Create `src-tauri/capabilities/default.json`**
+- [x] **Step 6: Create `src-tauri/capabilities/default.json`**
 
 Create `src-tauri/capabilities/default.json` with this exact content:
 
@@ -1199,7 +1280,7 @@ Create `src-tauri/capabilities/default.json` with this exact content:
 }
 ```
 
-- [ ] **Step 7: Create `src-tauri/tauri.conf.json`**
+- [x] **Step 7: Create `src-tauri/tauri.conf.json`**
 
 Create `src-tauri/tauri.conf.json` with this exact content:
 
@@ -1211,7 +1292,7 @@ Create `src-tauri/tauri.conf.json` with this exact content:
   "identifier": "net.inkyquill.galley-pad",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://127.0.0.1:1420",
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
@@ -1244,7 +1325,7 @@ Create `src-tauri/tauri.conf.json` with this exact content:
 }
 ```
 
-- [ ] **Step 8: Create Tauri icon from committed app icon**
+- [x] **Step 8: Create Tauri icon from committed app icon**
 
 Create `src-tauri/icons/icon.png` by copying the committed app icon asset. Tauri requires a valid PNG at this path during context generation.
 
@@ -1256,7 +1337,7 @@ cp assets/app-icon.png src-tauri/icons/icon.png
 
 Expected: `src-tauri/icons/icon.png` exists and is a PNG file matching `assets/app-icon.png`.
 
-- [ ] **Step 9: Verify Rust formatting**
+- [x] **Step 9: Verify Rust formatting**
 
 Run:
 
@@ -1266,7 +1347,7 @@ cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 
 Expected: formatting check passes.
 
-- [ ] **Step 10: Verify Tauri config**
+- [x] **Step 10: Verify Tauri config**
 
 Run:
 
@@ -1276,7 +1357,7 @@ node scripts/with-timeout.mjs 30 npm run tauri -- info
 
 Expected: Tauri prints environment and app information without config parse errors. This command performs network package metadata checks and can exceed short timeouts; keep the Node timeout wrapper, and if it exits with timeout code 124, continue with the remaining verification and record or reference the issue in `docs/known-issues.md`.
 
-- [ ] **Step 11: Commit Tauri shell**
+- [x] **Step 11: Commit Tauri shell**
 
 Run:
 
@@ -1293,13 +1374,19 @@ Expected: if the repository has not been initialized, `git commit` fails with `f
 
 - Modify: `README.md`
 
-- [ ] **Step 1: Add development section to `README.md`**
+- [x] **Step 1: Add development section to `README.md`**
 
 Append this exact section to `README.md`:
 
 ````markdown
 
 ## Development
+
+Install and activate project toolchains:
+
+```bash
+mise install
+```
 
 Install dependencies:
 
@@ -1324,19 +1411,25 @@ Run the desktop app in development:
 ```bash
 npm run tauri:dev
 ```
+
+Run the full verification suite:
+
+```bash
+mise run verify
+```
 ````
 
-- [ ] **Step 2: Verify README links and commands**
+- [x] **Step 2: Verify README links and commands**
 
 Run:
 
 ```bash
-rg -n "npm install|npm test|npm run build|npm run tauri:dev" README.md
+rg -n "mise install|npm install|npm test|npm run build|npm run tauri:dev|mise run verify" README.md
 ```
 
-Expected: all four development commands are present.
+Expected: all six development commands are present.
 
-- [ ] **Step 3: Commit README update**
+- [x] **Step 3: Commit README update**
 
 Run:
 
@@ -1358,7 +1451,7 @@ Expected: if the repository has not been initialized, `git commit` fails with `f
 - Read: `src/components/DocumentView.tsx`
 - Read: `src-tauri/tauri.conf.json`
 
-- [ ] **Step 1: Run tests**
+- [x] **Step 1: Run tests**
 
 Run:
 
@@ -1368,7 +1461,7 @@ npm test
 
 Expected: all Vitest tests pass.
 
-- [ ] **Step 2: Run frontend production build**
+- [x] **Step 2: Run frontend production build**
 
 Run:
 
@@ -1378,7 +1471,7 @@ npm run build
 
 Expected: TypeScript and Vite build pass.
 
-- [ ] **Step 3: Run Rust formatting check**
+- [x] **Step 3: Run Rust formatting check**
 
 Run:
 
@@ -1388,7 +1481,7 @@ cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 
 Expected: formatting check passes.
 
-- [ ] **Step 4: Run Tauri information check**
+- [x] **Step 4: Run Tauri information check**
 
 Run:
 
@@ -1398,7 +1491,7 @@ node scripts/with-timeout.mjs 30 npm run tauri -- info
 
 Expected: Tauri reports app and environment information without configuration errors. This command performs network package metadata checks and can exceed short timeouts; keep the Node timeout wrapper. If it exits with timeout code 124, continue with the rest of verification and reference `docs/known-issues.md`.
 
-- [ ] **Step 5: Launch the desktop app**
+- [x] **Step 5: Launch the desktop app**
 
 Run:
 
@@ -1408,20 +1501,20 @@ npm run tauri:dev
 
 Expected:
 
-- Vite starts on `http://localhost:1420`.
+- Vite starts on `http://127.0.0.1:1420`.
 - A native window titled `Galley Pad` opens.
 - The first visible screen is the editor surface.
 - The editor shows the starter Markdown text.
 - Typing into the editor changes the document content.
 - There is no sidebar, dashboard, project tree, or workspace prompt.
 
-- [ ] **Step 6: Stop the dev app**
+- [x] **Step 6: Stop the dev app**
 
 Stop the running Tauri process with `Ctrl+C` in the terminal where `npm run tauri:dev` is running.
 
 Expected: the dev server and Tauri process exit cleanly.
 
-- [ ] **Step 7: Record known Stage 1 issues**
+- [x] **Step 7: Record known Stage 1 issues**
 
 If any of the verification commands fail, create `docs/known-issues.md` with this exact structure and fill in only observed failures. A `node scripts/with-timeout.mjs 30 npm run tauri -- info` timeout with exit code 124 is an expected network or environment issue; if it occurs, document it here and continue with verification instead of blocking indefinitely.
 
@@ -1441,9 +1534,9 @@ If all commands pass and the expected Tauri info hang does not occur, do not cre
 
 ## Self-Review Checklist
 
-- [ ] Stage 1 scope is covered: scaffold, registry, install, editor render, theme, unit tests, integration tests, verification.
-- [ ] Stage 2 behavior is excluded: no open/save, dirty state, native dialogs, recent files, or CLI handling.
-- [ ] The React app has a stable `DocumentView` boundary around Galley Editor.
-- [ ] The plan uses exact paths and exact command lines.
-- [ ] The plan has no `TBD`, `TODO`, `FIXME`, or vague placeholder steps.
-- [ ] The plan warns that git commit steps are skipped if the folder is not a git repository.
+- [x] Stage 1 scope is covered: scaffold, registry, install, editor render, theme, unit tests, integration tests, verification.
+- [x] Stage 2 behavior is excluded: no open/save, dirty state, native dialogs, recent files, or CLI handling.
+- [x] The React app has a stable `DocumentView` boundary around Galley Editor.
+- [x] The plan uses exact paths and exact command lines.
+- [x] The plan has no `TBD`, `TODO`, `FIXME`, or vague placeholder steps.
+- [x] The plan warns that git commit steps are skipped if the folder is not a git repository.

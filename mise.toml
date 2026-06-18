@@ -20,17 +20,7 @@ run = "cargo fmt --manifest-path src-tauri/Cargo.toml -- --check"
 
 [tasks.tauri-info]
 description = "Print Tauri environment and app configuration"
-run = """
-set +e
-node scripts/with-timeout.mjs 30 npm run tauri -- info
-status=$?
-set -e
-if [ "$status" -eq 124 ]; then
-  echo "tauri info timed out during network metadata checks; continuing to tauri-build"
-  exit 0
-fi
-exit "$status"
-"""
+run = "node scripts/tauri-info.mjs"
 
 [tasks.tauri-build]
 description = "Build the Tauri debug app without bundling"
@@ -42,19 +32,4 @@ run = "npm audit --json"
 
 [tasks.verify]
 description = "Run the scaffold verification suite"
-run = """
-npm audit --json
-npm test
-npm run build
-cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
-set +e
-node scripts/with-timeout.mjs 30 npm run tauri -- info
-tauri_info_status=$?
-set -e
-if [ "$tauri_info_status" -eq 124 ]; then
-  echo "tauri info timed out during network metadata checks; continuing to tauri-build"
-elif [ "$tauri_info_status" -ne 0 ]; then
-  exit "$tauri_info_status"
-fi
-node scripts/with-timeout.mjs 120 npm run tauri -- build --debug --no-bundle
-"""
+run = "node scripts/verify.mjs"
