@@ -21,9 +21,11 @@ function run(command, args, options = {}) {
 }
 
 run("npm", ["audit", "--json"]);
-run("npm", ["test"]);
+run("npm", ["run", "test:unit"]);
+run("npm", ["run", "test:integration"]);
 run("npm", ["run", "build"]);
 run("cargo", ["fmt", "--manifest-path", "src-tauri/Cargo.toml", "--", "--check"]);
+run("cargo", ["test", "--manifest-path", "src-tauri/Cargo.toml"]);
 run(process.execPath, ["scripts/tauri-info.mjs"], { shell: false });
 run(
   process.execPath,

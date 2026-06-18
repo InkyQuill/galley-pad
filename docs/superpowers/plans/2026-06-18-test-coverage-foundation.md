@@ -407,6 +407,7 @@ git commit -m "test: add rust test baseline"
 **Files:**
 - Modify: `scripts/verify.mjs`
 - Modify: `mise.toml`
+- Modify: `vite.config.ts`
 
 - [ ] **Step 1: Update `scripts/verify.mjs`**
 
@@ -505,7 +506,17 @@ description = "Run the full verification suite"
 run = "node scripts/verify.mjs"
 ```
 
-- [ ] **Step 3: Run all verification**
+- [ ] **Step 3: Keep Vitest scoped to unit tests**
+
+In the existing `test` config in `vite.config.ts`, keep `environment`, `setupFiles`, and `globals`, and add:
+
+```ts
+include: ["src/**/*.test.{ts,tsx}"],
+```
+
+This keeps Playwright as the exclusive owner of `tests/integration`.
+
+- [ ] **Step 4: Run all verification**
 
 Run:
 
@@ -524,10 +535,10 @@ test result: ok
 
 The Tauri info and build steps should also complete or fail with a specific actionable error.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add scripts/verify.mjs mise.toml
+git add scripts/verify.mjs mise.toml vite.config.ts docs/superpowers/plans/2026-06-18-test-coverage-foundation.md
 git commit -m "test: run all coverage layers in verify"
 ```
 
