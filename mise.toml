@@ -1,0 +1,35 @@
+[tools]
+node = "26"
+rust = "stable"
+
+[tasks.install]
+description = "Install JavaScript dependencies from package-lock.json"
+run = "npm ci"
+
+[tasks.test]
+description = "Run frontend tests"
+run = "npm test"
+
+[tasks.build]
+description = "Build the frontend"
+run = "npm run build"
+
+[tasks.fmt-rust]
+description = "Check Rust formatting"
+run = "cargo fmt --manifest-path src-tauri/Cargo.toml -- --check"
+
+[tasks.tauri-info]
+description = "Print Tauri environment and app configuration"
+run = "node scripts/tauri-info.mjs"
+
+[tasks.tauri-build]
+description = "Build the Tauri debug app without bundling"
+run = "node scripts/with-timeout.mjs 120 npm run tauri -- build --debug --no-bundle"
+
+[tasks.audit]
+description = "Check npm security advisories"
+run = "npm audit --json"
+
+[tasks.verify]
+description = "Run the scaffold verification suite"
+run = "node scripts/verify.mjs"
