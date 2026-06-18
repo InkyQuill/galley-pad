@@ -8,7 +8,7 @@ export default defineConfig({
     strictPort: true,
     port: 1420,
   },
-  envPrefix: ["VITE_", "TAURI_"],
+  envPrefix: ["VITE_", "TAURI_ENV_"],
   test: {
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],

@@ -42,6 +42,8 @@ Excluded:
 Create these files:
 
 - `.gitignore` - ignores dependency, build, Tauri, editor, and OS artifacts.
+- `AGENTS.md` - agent guide with setup, verification, and Galley Editor issue routing.
+- `mise.toml` - project toolchain and verification task configuration.
 - `.npmrc` - points the `@inky` scope to the public GitLab package registry.
 - `index.html` - Vite HTML entrypoint.
 - `package.json` - npm scripts and frontend dependencies.
@@ -55,6 +57,7 @@ Create these files:
 - `src/components/DocumentView.test.tsx` - tests for editor wrapper behavior.
 - `src/test/setup.ts` - Testing Library setup.
 - `src/styles.css` - app layout, system theme, and editor container styling.
+- `src/vite-env.d.ts` - Vite and CSS import declarations for TypeScript.
 - `src-tauri/Cargo.toml` - Rust package manifest for the Tauri app.
 - `src-tauri/build.rs` - Tauri build script.
 - `src-tauri/capabilities/default.json` - baseline Tauri permissions.
@@ -80,7 +83,9 @@ Do not modify these files:
 **Files:**
 
 - Create: `.gitignore`
+- Create: `AGENTS.md`
 - Create: `index.html`
+- Create: `mise.toml`
 - Create: `package.json`
 - Create: `tsconfig.json`
 - Create: `tsconfig.node.json`
@@ -150,24 +155,24 @@ Create `package.json` with this exact content:
     "@codemirror/language": "^6.12.0",
     "@codemirror/state": "^6.6.0",
     "@codemirror/view": "^6.41.0",
-    "@inky/galley-editor": "^0.1.0",
+    "@inky/galley-editor": "0.9.1",
     "@lezer/highlight": "^1.2.0",
     "@lezer/markdown": "^1.6.0",
-    "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/api": "^2.11.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.0.0",
-    "@testing-library/jest-dom": "^6.4.8",
-    "@testing-library/react": "^16.0.1",
+    "@tauri-apps/cli": "^2.11.2",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
-    "@vitejs/plugin-react": "^4.3.1",
-    "jsdom": "^24.1.1",
-    "typescript": "^5.5.4",
-    "vite": "^5.4.0",
-    "vitest": "^2.0.5"
+    "@vitejs/plugin-react": "^6.0.2",
+    "jsdom": "^29.1.1",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16",
+    "vitest": "^4.1.9"
   }
 }
 ```
@@ -189,12 +194,12 @@ Create `tsconfig.json` with this exact content:
     "strict": true,
     "forceConsistentCasingInFileNames": true,
     "module": "ESNext",
-    "moduleResolution": "Node",
+    "moduleResolution": "Bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
-    "types": ["vitest/globals", "@testing-library/jest-dom"]
+    "types": ["vitest/globals", "@testing-library/jest-dom/vitest"]
   },
   "include": ["src"],
   "references": [{ "path": "./tsconfig.node.json" }]
@@ -211,7 +216,7 @@ Create `tsconfig.node.json` with this exact content:
     "composite": true,
     "skipLibCheck": true,
     "module": "ESNext",
-    "moduleResolution": "Node",
+    "moduleResolution": "Bundler",
     "allowSyntheticDefaultImports": true,
     "strict": true
   },
@@ -234,7 +239,7 @@ export default defineConfig({
     strictPort: true,
     port: 1420,
   },
-  envPrefix: ["VITE_", "TAURI_"],
+  envPrefix: ["VITE_", "TAURI_ENV_"],
   test: {
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
@@ -248,7 +253,7 @@ export default defineConfig({
 Run:
 
 ```bash
-git add .gitignore index.html package.json tsconfig.json tsconfig.node.json vite.config.ts
+git add .gitignore AGENTS.md index.html mise.toml package.json tsconfig.json tsconfig.node.json vite.config.ts
 git commit -m "chore: initialize frontend scaffold"
 ```
 
@@ -321,6 +326,7 @@ Expected: if the repository has not been initialized, `git commit` fails with `f
 - Create: `src/App.tsx`
 - Create: `src/components/DocumentView.tsx`
 - Create: `src/styles.css`
+- Create: `src/vite-env.d.ts`
 
 - [ ] **Step 1: Create `src/components/DocumentView.tsx`**
 
@@ -536,7 +542,17 @@ textarea {
 }
 ```
 
-- [ ] **Step 5: Run TypeScript build**
+- [ ] **Step 5: Create `src/vite-env.d.ts`**
+
+Create `src/vite-env.d.ts` with this exact content:
+
+```ts
+/// <reference types="vite/client" />
+
+declare module "*.css";
+```
+
+- [ ] **Step 6: Run TypeScript build**
 
 Run:
 
@@ -548,12 +564,12 @@ Expected: build completes and writes frontend output to `dist/`.
 
 If TypeScript fails on `GalleyEditor` prop names, complete the package type inspection from Task 3 Step 1, adapt `DocumentView.tsx`, and rerun `npm run build`.
 
-- [ ] **Step 6: Commit app shell**
+- [ ] **Step 7: Commit app shell**
 
 Run:
 
 ```bash
-git add src/main.tsx src/App.tsx src/components/DocumentView.tsx src/styles.css
+git add src/main.tsx src/App.tsx src/components/DocumentView.tsx src/styles.css src/vite-env.d.ts
 git commit -m "feat: render galley editor shell"
 ```
 
@@ -729,7 +745,9 @@ git commit -m "test: cover scaffold editor behavior"
 
 Expected: if the repository has not been initialized, `git commit` fails with `fatal: not a git repository`. In that case, skip only the commit step and continue.
 
-## Task 4A: Adapt App Shell To Tests If Needed
+## Task 4A: Conditional Fix - Only If Task 4 Tests Fail
+
+This is a conditional fallback step, not part of the required sequential path. Execute Task 4A only if the Task 4 tests fail and inspection shows the Task 3 implementation is incomplete or incorrect. If Task 4 passes, skip this entire section and continue to Task 5.
 
 **Files:**
 
@@ -973,7 +991,12 @@ Create `src-tauri/tauri.conf.json` with this exact content:
       }
     ],
     "security": {
-      "csp": null
+      "csp": {
+        "default-src": "'self'",
+        "connect-src": "ipc: http://ipc.localhost",
+        "img-src": "'self' asset: http://asset.localhost data:",
+        "style-src": "'self'"
+      }
     }
   },
   "bundle": {
@@ -986,12 +1009,12 @@ Create `src-tauri/tauri.conf.json` with this exact content:
 
 - [ ] **Step 8: Create minimal placeholder icon**
 
-Create `src-tauri/icons/icon.png` as a valid placeholder PNG. This can be a minimal generated PNG; it only exists because `tauri::generate_context!()` opens the default icon path during validation.
+Create `src-tauri/icons/icon.png` as a valid placeholder PNG. This embedded base64 image is a minimal generated PNG; it only exists because `tauri::generate_context!()` opens the default icon path during validation.
 
 Run:
 
 ```bash
-node -e "const fs=require('fs'),z=require('zlib');function c(t,d){const b=Buffer.concat([Buffer.from(t),d]);let r=~0;for(const x of b){r^=x;for(let k=0;k<8;k++)r=(r>>>1)^(0xedb88320&-(r&1));}const o=Buffer.alloc(4);o.writeUInt32BE((~r)>>>0);return o}function chunk(t,d){const l=Buffer.alloc(4);l.writeUInt32BE(d.length);return Buffer.concat([l,Buffer.from(t),d,c(t,d)])}const sig=Buffer.from([137,80,78,71,13,10,26,10]);const ihdr=Buffer.alloc(13);ihdr.writeUInt32BE(1,0);ihdr.writeUInt32BE(1,4);ihdr[8]=8;ihdr[9]=6;const idat=z.deflateSync(Buffer.from([0,31,37,35,255]));fs.writeFileSync('src-tauri/icons/icon.png',Buffer.concat([sig,chunk('IHDR',ihdr),chunk('IDAT',idat),chunk('IEND',Buffer.alloc(0))]));"
+node -e "require('fs').writeFileSync('src-tauri/icons/icon.png', Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGMMKSoqBwADmgFGLXJ3AwAAAABJRU5ErkJggg==', 'base64'))"
 ```
 
 Expected: `src-tauri/icons/icon.png` exists and is a PNG file. Replace it with real app icon assets in the packaging stage.
@@ -1011,10 +1034,10 @@ Expected: formatting check passes.
 Run:
 
 ```bash
-npm run tauri -- info
+timeout 30 npm run tauri -- info
 ```
 
-Expected: Tauri prints environment and app information without config parse errors.
+Expected: Tauri prints environment and app information without config parse errors. This command performs network package metadata checks and can exceed short timeouts; keep the timeout wrapper, and if it times out, continue with the remaining verification and record or reference the issue in `docs/known-issues.md`.
 
 - [ ] **Step 11: Commit Tauri shell**
 
@@ -1133,10 +1156,10 @@ Expected: formatting check passes.
 Run:
 
 ```bash
-npm run tauri -- info
+timeout 30 npm run tauri -- info
 ```
 
-Expected: Tauri reports app and environment information without configuration errors.
+Expected: Tauri reports app and environment information without configuration errors. This command performs network package metadata checks and can exceed short timeouts; keep the timeout wrapper. If it times out after printing useful diagnostics, continue with the rest of verification and reference `docs/known-issues.md`.
 
 - [ ] **Step 5: Launch the desktop app**
 
@@ -1163,7 +1186,7 @@ Expected: the dev server and Tauri process exit cleanly.
 
 - [ ] **Step 7: Record known Stage 1 issues**
 
-If any of the verification commands fail, create `docs/known-issues.md` with this exact structure and fill in only observed failures:
+If any of the verification commands fail, create `docs/known-issues.md` with this exact structure and fill in only observed failures. A `timeout 30 npm run tauri -- info` timeout after environment output is an expected network or environment issue; if it occurs, document it here and continue with verification instead of blocking indefinitely.
 
 ```markdown
 # Known Issues
@@ -1177,7 +1200,7 @@ If any of the verification commands fail, create `docs/known-issues.md` with thi
 - Next action:
 ```
 
-If all commands pass, do not create `docs/known-issues.md`.
+If all commands pass and the expected Tauri info hang does not occur, do not create `docs/known-issues.md`.
 
 ## Self-Review Checklist
 

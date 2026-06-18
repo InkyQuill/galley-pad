@@ -1,0 +1,60 @@
+[tools]
+node = "26"
+rust = "stable"
+
+[tasks.install]
+description = "Install JavaScript dependencies from package-lock.json"
+run = "npm ci"
+
+[tasks.test]
+description = "Run frontend tests"
+run = "npm test"
+
+[tasks.build]
+description = "Build the frontend"
+run = "npm run build"
+
+[tasks.fmt-rust]
+description = "Check Rust formatting"
+run = "cargo fmt --manifest-path src-tauri/Cargo.toml -- --check"
+
+[tasks.tauri-info]
+description = "Print Tauri environment and app configuration"
+run = """
+set +e
+timeout 30 npm run tauri -- info
+status=$?
+set -e
+if [ "$status" -eq 124 ]; then
+  echo "tauri info timed out during network metadata checks; continuing to tauri-build"
+  exit 0
+fi
+exit "$status"
+"""
+
+[tasks.tauri-build]
+description = "Build the Tauri debug app without bundling"
+run = "timeout 120 npm run tauri -- build --debug --no-bundle"
+
+[tasks.audit]
+description = "Check npm security advisories"
+run = "npm audit --json"
+
+[tasks.verify]
+description = "Run the scaffold verification suite"
+run = """
+npm audit --json
+npm test
+npm run build
+cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+set +e
+timeout 30 npm run tauri -- info
+tauri_info_status=$?
+set -e
+if [ "$tauri_info_status" -eq 124 ]; then
+  echo "tauri info timed out during network metadata checks; continuing to tauri-build"
+elif [ "$tauri_info_status" -ne 0 ]; then
+  exit "$tauri_info_status"
+fi
+timeout 120 npm run tauri -- build --debug --no-bundle
+"""

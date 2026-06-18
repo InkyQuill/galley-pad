@@ -26,6 +26,12 @@ Double-click a Markdown file. It opens quickly into a pleasant editable live pre
 
 ## Development
 
+Install and activate project toolchains:
+
+```bash
+mise install
+```
+
 Install dependencies:
 
 ```bash
@@ -48,4 +54,10 @@ Run the desktop app in development:
 
 ```bash
 npm run tauri:dev
+```
+
+Run the full verification suite:
+
+```bash
+mise run verify
 ```
