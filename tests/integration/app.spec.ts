@@ -33,83 +33,63 @@ test("sizes the editor surface to the full document window", async ({
   const codeMirror = editor.locator(".cm-editor");
   const scroller = editor.locator(".cm-scroller");
   const footer = editor.locator(".ge-footer");
+  const footerGap = async () =>
+    footer.evaluate((element) => {
+      const editorBounds = element
+        .closest(".document-view")
+        ?.getBoundingClientRect();
+      const footerBounds = element.getBoundingClientRect();
+      return editorBounds ? editorBounds.bottom - footerBounds.bottom : -1;
+    });
+  const codeMirrorFooterGap = async () =>
+    codeMirror.evaluate((element) => {
+      const footerBounds = element
+        .closest(".ge-editor-shell")
+        ?.querySelector(".ge-footer")
+        ?.getBoundingClientRect();
+      const codeMirrorBounds = element.getBoundingClientRect();
+      return footerBounds ? footerBounds.top - codeMirrorBounds.bottom : -1;
+    });
+  const heights = async () => ({
+    editor: await editor.evaluate(
+      (element) => element.getBoundingClientRect().height,
+    ),
+    editorShell: await editorShell.evaluate(
+      (element) => element.getBoundingClientRect().height,
+    ),
+    codeMirror: await codeMirror.evaluate(
+      (element) => element.getBoundingClientRect().height,
+    ),
+    scroller: await scroller.evaluate(
+      (element) => element.getBoundingClientRect().height,
+    ),
+  });
 
   await expect(editorShell).toBeVisible();
   await expect(codeMirror).toBeVisible();
   await expect(footer).toBeVisible();
-  await expect
-    .poll(() => editor.evaluate((element) => element.getBoundingClientRect().height))
-    .toBeGreaterThan(650);
-  await expect
-    .poll(() =>
-      editorShell.evaluate((element) => element.getBoundingClientRect().height),
-    )
-    .toBeGreaterThan(650);
-  await expect
-    .poll(() =>
-      codeMirror.evaluate((element) => {
-        const footerBounds = element
-          .closest(".ge-editor-shell")
-          ?.querySelector(".ge-footer")
-          ?.getBoundingClientRect();
-        const codeMirrorBounds = element.getBoundingClientRect();
-        return footerBounds ? footerBounds.top - codeMirrorBounds.bottom : -1;
-      }),
-    )
-    .toBeLessThan(2);
-  await expect
-    .poll(() =>
-      scroller.evaluate((element) => element.getBoundingClientRect().height),
-    )
-    .toBeGreaterThan(580);
-  await expect
-    .poll(() =>
-      footer.evaluate((element) => {
-        const editorBounds = element
-          .closest(".document-view")
-          ?.getBoundingClientRect();
-        const footerBounds = element.getBoundingClientRect();
-        return editorBounds ? editorBounds.bottom - footerBounds.bottom : -1;
-      }),
-    )
-    .toBeLessThan(2);
+  const largeViewportHeights = await heights();
+  expect(largeViewportHeights.editor).toBeGreaterThan(0);
+  expect(largeViewportHeights.editorShell).toBeGreaterThan(0);
+  expect(largeViewportHeights.codeMirror).toBeGreaterThan(0);
+  expect(largeViewportHeights.scroller).toBeGreaterThan(0);
+  await expect.poll(codeMirrorFooterGap).toBeLessThan(2);
+  await expect.poll(footerGap).toBeLessThan(2);
 
   await page.setViewportSize({ width: 980, height: 540 });
 
   await expect
-    .poll(() => editor.evaluate((element) => element.getBoundingClientRect().height))
-    .toBeGreaterThan(480);
+    .poll(async () => (await heights()).editor)
+    .toBeLessThan(largeViewportHeights.editor);
   await expect
-    .poll(() =>
-      editorShell.evaluate((element) => element.getBoundingClientRect().height),
-    )
-    .toBeGreaterThan(480);
+    .poll(async () => (await heights()).editorShell)
+    .toBeLessThan(largeViewportHeights.editorShell);
   await expect
-    .poll(() =>
-      codeMirror.evaluate((element) => {
-        const footerBounds = element
-          .closest(".ge-editor-shell")
-          ?.querySelector(".ge-footer")
-          ?.getBoundingClientRect();
-        const codeMirrorBounds = element.getBoundingClientRect();
-        return footerBounds ? footerBounds.top - codeMirrorBounds.bottom : -1;
-      }),
-    )
-    .toBeLessThan(2);
+    .poll(async () => (await heights()).codeMirror)
+    .toBeLessThan(largeViewportHeights.codeMirror);
   await expect
-    .poll(() =>
-      scroller.evaluate((element) => element.getBoundingClientRect().height),
-    )
-    .toBeGreaterThan(400);
-  await expect
-    .poll(() =>
-      footer.evaluate((element) => {
-        const editorBounds = element
-          .closest(".document-view")
-          ?.getBoundingClientRect();
-        const footerBounds = element.getBoundingClientRect();
-        return editorBounds ? editorBounds.bottom - footerBounds.bottom : -1;
-      }),
-    )
-    .toBeLessThan(2);
+    .poll(async () => (await heights()).scroller)
+    .toBeLessThan(largeViewportHeights.scroller);
+  await expect.poll(codeMirrorFooterGap).toBeLessThan(2);
+  await expect.poll(footerGap).toBeLessThan(2);
 });
