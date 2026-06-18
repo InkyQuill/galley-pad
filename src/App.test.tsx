@@ -2,21 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import App from "./App";
 
-vi.mock("@inky/galley-editor", () => ({
-  GalleyEditor: ({
-    value,
-    onChange,
-  }: {
-    value: string;
-    onChange: (content: string) => void;
-  }) => (
-    <textarea
-      aria-label="Mock Galley Editor"
-      value={value}
-      onChange={(event) => onChange(event.currentTarget.value)}
-    />
-  ),
-}));
+vi.mock("@inky/galley-editor", () => import("./test/galley-editor.mock"));
 
 describe("App", () => {
   it("renders the single-document editor shell with starter Markdown", () => {

@@ -38,10 +38,22 @@ Install dependencies:
 npm install
 ```
 
-Run frontend tests:
+Run frontend unit tests:
 
 ```bash
-npm test
+npm run test:unit
+```
+
+Run browser integration tests:
+
+```bash
+npm run test:integration
+```
+
+Run Rust tests:
+
+```bash
+cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
 Build the frontend:

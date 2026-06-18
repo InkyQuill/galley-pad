@@ -79,6 +79,20 @@ Run the full verification suite through mise:
 mise run verify
 ```
 
+## Testing Contract
+
+Every new feature needs both unit and integration coverage.
+
+- Unit tests live next to the TypeScript module or inside Rust `#[cfg(test)]` modules.
+- Frontend integration tests live in `tests/integration/` and run through Playwright against Vite.
+- Rust integration tests live in `src-tauri/tests/`.
+- Use `npm run test:unit` for frontend unit tests.
+- Use `npm run test:integration` for browser integration tests.
+- Use `cargo test --manifest-path src-tauri/Cargo.toml` for Rust tests.
+- Use `mise run verify` before committing.
+
+Do not mock `@inky/galley-editor` in Playwright tests. Unit tests may mock it when testing Galley Pad state management or wrappers.
+
 ## Verification Notes
 
 - `npm run tauri -- info` checks Tauri/Rust package metadata over the network and can stall before printing output. Use the Node timeout wrapper above and continue with `tauri-build` if it exits with timeout code 124.

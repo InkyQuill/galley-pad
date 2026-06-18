@@ -7,8 +7,20 @@ description = "Install JavaScript dependencies from package-lock.json"
 run = "npm ci"
 
 [tasks.test]
-description = "Run frontend tests"
-run = "npm test"
+description = "Run all automated tests"
+depends = ["test-unit", "test-integration", "test-rust"]
+
+[tasks.test-unit]
+description = "Run frontend unit tests"
+run = "npm run test:unit"
+
+[tasks.test-integration]
+description = "Run browser integration tests"
+run = "npm run test:integration"
+
+[tasks.test-rust]
+description = "Run Rust unit and integration tests"
+run = "cargo test --manifest-path src-tauri/Cargo.toml"
 
 [tasks.build]
 description = "Build the frontend"
@@ -31,5 +43,5 @@ description = "Check npm security advisories"
 run = "npm audit --json"
 
 [tasks.verify]
-description = "Run the scaffold verification suite"
+description = "Run the full verification suite"
 run = "node scripts/verify.mjs"

@@ -12,4 +12,4 @@
 - Expected: Vite starts on `http://127.0.0.1:1420/` and a native window titled `Galley Pad` opens.
 - Actual: In this local KDE Wayland session, the default run reaches `target/debug/galley-pad`, then exits with `Gdk-Message: Error 71 (Protocol error) dispatching to Wayland display`.
 - Owner: Local desktop display environment.
-- Next action: Use `GDK_BACKEND=x11 npm run tauri:dev` for local verification; this opened a native `Galley Pad` window in this environment.
+- Next action: Galley Pad now disables WebKitGTK's DMABUF renderer automatically on Linux Wayland when `WEBKIT_DISABLE_DMABUF_RENDERER` is not already configured. Use the normal `npm run tauri:dev` Wayland path first. If a compositor-specific issue still prevents launch, use `GDK_BACKEND=x11 npm run tauri:dev` only as a fallback.
