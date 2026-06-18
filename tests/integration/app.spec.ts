@@ -118,6 +118,7 @@ test("shows file commands and creates a fresh document", async ({ page }) => {
   await page.goto("/");
 
   const fileCommands = page.getByRole("toolbar", { name: "File commands" });
+  const documentState = page.locator(".document-state");
 
   await expect(fileCommands.getByRole("button", { name: "New" })).toBeVisible();
   await expect(fileCommands.getByRole("button", { name: "Open" })).toBeVisible();
@@ -130,7 +131,7 @@ test("shows file commands and creates a fresh document", async ({ page }) => {
 
   await page.locator(".cm-content").click();
   await page.keyboard.type("\nTemporary draft");
-  await expect(page.locator(".document-state")).toHaveText("Unsaved");
+  await expect(documentState).toHaveText("Unsaved");
 
   const dialogPromise = page.waitForEvent("dialog");
   const clickPromise = fileCommands.getByRole("button", { name: "New" }).click();
@@ -139,6 +140,8 @@ test("shows file commands and creates a fresh document", async ({ page }) => {
   await dialog.accept();
   await clickPromise;
 
-  await expect(page.locator(".document-state")).toHaveText("Draft");
+  await expect(documentState).toBeVisible();
+  await expect(documentState).toHaveText("Draft");
+  await expect(documentState).not.toHaveText("Unsaved");
   await expect(page.getByLabel("Document statistics")).toHaveText("4 words");
 });
