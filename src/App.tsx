@@ -152,11 +152,17 @@ export default function App() {
         </span>
       </div>
 
-      {commandError ? (
-        <div className="command-error" role="alert" aria-label="File command error">
-          {commandError}
-        </div>
-      ) : null}
+      <div className="command-error-slot">
+        {commandError ? (
+          <div
+            className="command-error"
+            role="alert"
+            aria-label="File command error"
+          >
+            {commandError}
+          </div>
+        ) : null}
+      </div>
 
       <DocumentView
         content={document.content}

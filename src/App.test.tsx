@@ -27,7 +27,7 @@ describe("App", () => {
   });
 
   it("renders the single-document editor shell with file commands", () => {
-    render(<App />);
+    const { container } = render(<App />);
 
     expect(screen.getByRole("button", { name: "New" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open" })).toBeInTheDocument();
@@ -45,6 +45,13 @@ describe("App", () => {
       "4 words",
     );
     expect(document.title).toBe("Untitled.md - Galley Pad");
+
+    const appShell = container.querySelector(".app-shell");
+    expect(appShell?.children.item(2)).toHaveClass("command-error-slot");
+    expect(appShell?.children.item(3)).toHaveClass("document-view");
+    expect(
+      screen.queryByRole("alert", { name: "File command error" }),
+    ).not.toBeInTheDocument();
   });
 
   it("marks the session dirty when editor content changes and updates the title", () => {
