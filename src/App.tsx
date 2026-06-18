@@ -51,6 +51,8 @@ export default function App() {
     name: CommandName,
     command: () => Promise<DocumentSession | null> | DocumentSession | null,
   ) {
+    const commandSnapshot = document;
+
     setCommandError(null);
     setPendingCommand(name);
 
@@ -60,7 +62,9 @@ export default function App() {
         void result
           .then((next) => {
             if (next) {
-              setDocument(next);
+              setDocument((current) =>
+                applyCommandResult(name, commandSnapshot, next, current),
+              );
             }
           })
           .catch((error: unknown) => {
@@ -73,7 +77,9 @@ export default function App() {
       }
 
       if (result) {
-        setDocument(result);
+        setDocument(
+          applyCommandResult(name, commandSnapshot, result, commandSnapshot),
+        );
       }
       setPendingCommand(null);
     } catch (error) {
@@ -106,7 +112,7 @@ export default function App() {
         </div>
       </header>
 
-      <div className="commandbar" aria-label="File commands">
+      <div className="commandbar" role="toolbar" aria-label="File commands">
         <button
           type="button"
           disabled={busy}
@@ -180,6 +186,35 @@ function errorMessage(error: unknown): string {
   }
 
   return String(error);
+}
+
+function applyCommandResult(
+  name: CommandName,
+  commandSnapshot: DocumentSession,
+  next: DocumentSession,
+  current: DocumentSession,
+): DocumentSession {
+  if (!isSaveCommand(name)) {
+    return next;
+  }
+
+  if (current.id !== commandSnapshot.id) {
+    return current;
+  }
+
+  if (current.content === commandSnapshot.content) {
+    return next;
+  }
+
+  return {
+    ...next,
+    content: current.content,
+    dirty: current.content !== next.savedContent,
+  };
+}
+
+function isSaveCommand(name: CommandName): boolean {
+  return name === "Save" || name === "Save As";
 }
 
 function isPromiseLike(

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { pickOpenFile, pickSaveFile } from "./tauri/dialogs";
@@ -33,6 +33,9 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "Open" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save As" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("toolbar", { name: "File commands" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("Untitled.md")).toBeInTheDocument();
     expect(screen.getByText("Draft")).toBeInTheDocument();
     expect(
@@ -158,6 +161,62 @@ describe("App", () => {
     expect(screen.getByText("Saved")).toBeInTheDocument();
   });
 
+  it("keeps edits made while Save is pending", async () => {
+    const pendingWrite = deferred<{
+      path: string;
+      lineEnding: "lf";
+      lastModifiedAt: number;
+    }>();
+    pickOpenFileMock.mockResolvedValue("/tmp/opened.md");
+    readTextFileMock
+      .mockResolvedValueOnce({
+        path: "/tmp/opened.md",
+        content: "# Opened\n",
+        lineEnding: "lf",
+        lastModifiedAt: 10,
+      })
+      .mockResolvedValueOnce({
+        path: "/tmp/opened.md",
+        content: "# Opened\n",
+        lineEnding: "lf",
+        lastModifiedAt: 10,
+      });
+    writeTextFileMock.mockImplementation(() => pendingWrite.promise);
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    await screen.findByText("opened.md");
+    fireEvent.change(screen.getByLabelText("Mock Galley Editor"), {
+      target: { value: "# Opened\n\nFirst edit.\n" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => {
+      expect(writeTextFileMock).toHaveBeenCalledWith(
+        "/tmp/opened.md",
+        "# Opened\n\nFirst edit.\n",
+      );
+    });
+
+    fireEvent.change(screen.getByLabelText("Mock Galley Editor"), {
+      target: { value: "# Opened\n\nSecond edit.\n" },
+    });
+
+    await act(async () => {
+      pendingWrite.resolve({
+        path: "/tmp/opened.md",
+        lineEnding: "lf",
+        lastModifiedAt: 11,
+      });
+      await pendingWrite.promise;
+    });
+
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
+      "# Opened\n\nSecond edit.\n",
+    );
+    expect(screen.getByText("Unsaved")).toBeInTheDocument();
+    expect(document.title).toBe("* opened.md - Galley Pad");
+  });
+
   it("saves an untitled document through Save As", async () => {
     pickSaveFileMock.mockResolvedValue("/tmp/new.md");
     writeTextFileMock.mockResolvedValue({
@@ -212,3 +271,12 @@ describe("App", () => {
     expect(writeTextFileMock).not.toHaveBeenCalled();
   });
 });
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+
+  return { promise, resolve };
+}
