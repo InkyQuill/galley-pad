@@ -32,7 +32,7 @@ textarea {
 
 .app-shell {
   display: grid;
-  grid-template-rows: 44px minmax(0, 1fr);
+  grid-template-rows: 44px 40px auto minmax(0, 1fr);
   width: 100%;
   height: 100%;
   background: #f6f4ef;
@@ -74,6 +74,47 @@ textarea {
 
 .document-meta {
   flex: 0 0 auto;
+}
+
+.commandbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px 12px;
+  border-bottom: 1px solid #ded8cb;
+  background: #f7f4ee;
+}
+
+.commandbar button {
+  min-width: 64px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid #c7c0b3;
+  border-radius: 6px;
+  background: #fffdf8;
+  color: #1f2523;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.commandbar button:disabled {
+  color: #8b928f;
+  cursor: wait;
+}
+
+.command-status {
+  min-width: 72px;
+  color: #69726e;
+  font-size: 12px;
+}
+
+.command-error {
+  padding: 8px 12px;
+  border-bottom: 1px solid #e2b8ad;
+  background: #fff1ed;
+  color: #7a2317;
+  font-size: 12px;
 }
 
 .document-view {
@@ -146,6 +187,28 @@ textarea {
   .document-state,
   .document-meta {
     color: #a8b0ac;
+  }
+
+  .commandbar {
+    border-bottom-color: #343936;
+    background: #1d211f;
+  }
+
+  .commandbar button {
+    border-color: #4a504c;
+    background: #252a27;
+    color: #f1ece3;
+  }
+
+  .commandbar button:disabled,
+  .command-status {
+    color: #8e9793;
+  }
+
+  .command-error {
+    border-bottom-color: #63352d;
+    background: #321f1b;
+    color: #ffb8a8;
   }
 
   .document-view {
