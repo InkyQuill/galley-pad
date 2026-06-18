@@ -10,30 +10,34 @@ fn app_title() -> &'static str {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
-enum LineEnding {
+pub enum LineEnding {
     Lf,
     Crlf,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct FileReadResult {
-    path: String,
-    content: String,
-    line_ending: LineEnding,
-    last_modified_at: Option<u64>,
+pub struct FileReadResult {
+    pub path: String,
+    pub content: String,
+    pub line_ending: LineEnding,
+    pub last_modified_at: Option<u64>,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct FileWriteResult {
-    path: String,
-    line_ending: LineEnding,
-    last_modified_at: Option<u64>,
+pub struct FileWriteResult {
+    pub path: String,
+    pub line_ending: LineEnding,
+    pub last_modified_at: Option<u64>,
 }
 
 #[tauri::command]
 fn read_text_file(path: String) -> Result<FileReadResult, String> {
+    read_text_file_from_path(path)
+}
+
+pub fn read_text_file_from_path(path: String) -> Result<FileReadResult, String> {
     let content = fs::read_to_string(&path)
         .map_err(|error| format!("Failed to read text file '{path}': {error}"))?;
     let last_modified_at = last_modified_at_ms(&path)?;
@@ -48,6 +52,10 @@ fn read_text_file(path: String) -> Result<FileReadResult, String> {
 
 #[tauri::command]
 fn write_text_file(path: String, content: String) -> Result<FileWriteResult, String> {
+    write_text_file_to_path(path, content)
+}
+
+pub fn write_text_file_to_path(path: String, content: String) -> Result<FileWriteResult, String> {
     fs::write(&path, &content)
         .map_err(|error| format!("Failed to write text file '{path}': {error}"))?;
     let last_modified_at = last_modified_at_ms(&path)?;
@@ -135,8 +143,8 @@ mod tests {
         let path = directory.path().join("draft.md");
         std::fs::write(&path, "# Draft\r\n\r\nBody\r\n").expect("write test markdown");
 
-        let result =
-            super::read_text_file(path.to_string_lossy().into_owned()).expect("read text file");
+        let result = super::read_text_file_from_path(path.to_string_lossy().into_owned())
+            .expect("read text file");
 
         assert_eq!(result.path, path.to_string_lossy());
         assert_eq!(result.content, "# Draft\r\n\r\nBody\r\n");
@@ -149,7 +157,7 @@ mod tests {
         let directory = tempfile::tempdir().expect("create temp dir");
         let path = directory.path().join("saved.md");
 
-        let result = super::write_text_file(
+        let result = super::write_text_file_to_path(
             path.to_string_lossy().into_owned(),
             "Saved\nText\n".to_string(),
         )

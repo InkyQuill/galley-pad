@@ -22,6 +22,18 @@ test("loads the Galley Editor integration without a unit-test mock", async ({
   await expect(editor).toContainText("Untitled");
 });
 
+test("marks the document unsaved after editor changes", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(page.getByText("Draft")).toBeVisible();
+
+  await page.locator(".cm-content").click();
+  await page.keyboard.type("\nAdditional text");
+
+  await expect(page.getByText("Unsaved")).toBeVisible();
+  await expect(page.getByLabel("Document statistics")).toHaveText("6 words");
+});
+
 test("sizes the editor surface to the full document window", async ({
   page,
 }) => {
