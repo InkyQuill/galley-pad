@@ -38,8 +38,12 @@ test("sizes the editor surface to the full document window", async ({
       const editorBounds = element
         .closest(".document-view")
         ?.getBoundingClientRect();
+      if (!editorBounds) {
+        throw new Error("Expected Galley Editor footer to be inside .document-view");
+      }
+
       const footerBounds = element.getBoundingClientRect();
-      return editorBounds ? editorBounds.bottom - footerBounds.bottom : -1;
+      return editorBounds.bottom - footerBounds.bottom;
     });
   const codeMirrorFooterGap = async () =>
     codeMirror.evaluate((element) => {
@@ -47,8 +51,12 @@ test("sizes the editor surface to the full document window", async ({
         .closest(".ge-editor-shell")
         ?.querySelector(".ge-footer")
         ?.getBoundingClientRect();
+      if (!footerBounds) {
+        throw new Error("Expected Galley Editor shell to contain .ge-footer");
+      }
+
       const codeMirrorBounds = element.getBoundingClientRect();
-      return footerBounds ? footerBounds.top - codeMirrorBounds.bottom : -1;
+      return footerBounds.top - codeMirrorBounds.bottom;
     });
   const heights = async () => ({
     editor: await editor.evaluate(
