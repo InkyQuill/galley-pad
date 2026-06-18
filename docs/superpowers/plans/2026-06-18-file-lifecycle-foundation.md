@@ -44,7 +44,7 @@ This plan does not implement native file dialogs, Save/Save As buttons, close co
 - Create: `src/document/session.ts`
 - Create: `src/document/session.test.ts`
 
-- [ ] **Step 1: Write the failing session model tests**
+- [x] **Step 1: Write the failing session model tests**
 
 Create `src/document/session.test.ts`:
 
@@ -132,7 +132,7 @@ describe("document session model", () => {
 });
 ```
 
-- [ ] **Step 2: Run the failing session model tests**
+- [x] **Step 2: Run the failing session model tests**
 
 Run:
 
@@ -142,7 +142,7 @@ npm run test:unit -- src/document/session.test.ts
 
 Expected: fail because `src/document/session.ts` does not exist.
 
-- [ ] **Step 3: Create `src/document/session.ts`**
+- [x] **Step 3: Create `src/document/session.ts`**
 
 ```ts
 export type LineEnding = "lf" | "crlf";
@@ -235,7 +235,7 @@ function displayNameFromPath(path: string): string {
 }
 ```
 
-- [ ] **Step 4: Run the session model tests**
+- [x] **Step 4: Run the session model tests**
 
 Run:
 
@@ -245,7 +245,7 @@ npm run test:unit -- src/document/session.test.ts
 
 Expected: pass with 5 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/document/session.ts src/document/session.test.ts
@@ -261,7 +261,7 @@ git commit -m "feat: add document session model"
 - Modify: `src/App.test.tsx`
 - Modify: `tests/integration/app.spec.ts`
 
-- [ ] **Step 1: Update the App unit tests first**
+- [x] **Step 1: Update the App unit tests first**
 
 Replace `src/App.test.tsx` with:
 
@@ -304,7 +304,7 @@ describe("App", () => {
 });
 ```
 
-- [ ] **Step 2: Run the App test and verify it fails**
+- [x] **Step 2: Run the App test and verify it fails**
 
 Run:
 
@@ -314,7 +314,7 @@ npm run test:unit -- src/App.test.tsx
 
 Expected: fail because the app still renders `Draft` after content changes.
 
-- [ ] **Step 3: Update `src/App.tsx` to use `DocumentSession`**
+- [x] **Step 3: Update `src/App.tsx` to use `DocumentSession`**
 
 Replace `src/App.tsx` with:
 
@@ -362,7 +362,7 @@ export default function App() {
 }
 ```
 
-- [ ] **Step 4: Run App and session unit tests**
+- [x] **Step 4: Run App and session unit tests**
 
 Run:
 
@@ -372,7 +372,7 @@ npm run test:unit -- src/App.test.tsx src/document/session.test.ts
 
 Expected: pass.
 
-- [ ] **Step 5: Extend the browser integration test for the initial session label**
+- [x] **Step 5: Extend the browser integration test for the initial session label**
 
 In `tests/integration/app.spec.ts`, keep the existing shell test and ensure it still contains:
 
@@ -383,7 +383,7 @@ await expect(page.getByText("Draft")).toBeVisible();
 
 No additional integration test is required in this task because the existing browser test already covers the user-visible initial session state through the real app.
 
-- [ ] **Step 6: Run browser integration tests**
+- [x] **Step 6: Run browser integration tests**
 
 Run:
 
@@ -393,7 +393,7 @@ npm run test:integration
 
 Expected: all Playwright tests pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/App.tsx src/App.test.tsx tests/integration/app.spec.ts
@@ -408,7 +408,7 @@ git commit -m "feat: wire app to document session"
 - Modify: `src-tauri/src/lib.rs`
 - Modify: `src-tauri/tests/scaffold.rs`
 
-- [ ] **Step 1: Add failing Rust integration tests**
+- [x] **Step 1: Add failing Rust integration tests**
 
 Replace `src-tauri/tests/scaffold.rs` with:
 
@@ -463,7 +463,7 @@ Add this test module to `src-tauri/src/lib.rs` inside the existing `#[cfg(test)]
     }
 ```
 
-- [ ] **Step 2: Run Rust tests and verify they fail**
+- [x] **Step 2: Run Rust tests and verify they fail**
 
 Run:
 
@@ -473,7 +473,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 Expected: fail because `read_text_file`, `write_text_file`, and `LineEnding` are not defined.
 
-- [ ] **Step 3: Update `src-tauri/src/lib.rs` with file commands**
+- [x] **Step 3: Update `src-tauri/src/lib.rs` with file commands**
 
 Replace `src-tauri/src/lib.rs` with:
 
@@ -646,7 +646,7 @@ mod tests {
 }
 ```
 
-- [ ] **Step 4: Run Rust formatting and tests**
+- [x] **Step 4: Run Rust formatting and tests**
 
 Run:
 
@@ -657,7 +657,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 Expected: both pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src-tauri/src/lib.rs src-tauri/tests/scaffold.rs
@@ -672,7 +672,7 @@ git commit -m "feat: add text file tauri commands"
 - Create: `src/tauri/files.ts`
 - Create: `src/tauri/files.test.ts`
 
-- [ ] **Step 1: Write failing wrapper tests**
+- [x] **Step 1: Write failing wrapper tests**
 
 Create `src/tauri/files.test.ts`:
 
@@ -730,7 +730,7 @@ describe("file command wrappers", () => {
 });
 ```
 
-- [ ] **Step 2: Run wrapper tests and verify they fail**
+- [x] **Step 2: Run wrapper tests and verify they fail**
 
 Run:
 
@@ -740,7 +740,7 @@ npm run test:unit -- src/tauri/files.test.ts
 
 Expected: fail because `src/tauri/files.ts` does not exist.
 
-- [ ] **Step 3: Create `src/tauri/files.ts`**
+- [x] **Step 3: Create `src/tauri/files.ts`**
 
 ```ts
 import { invoke } from "@tauri-apps/api/core";
@@ -758,7 +758,7 @@ export function writeTextFile(
 }
 ```
 
-- [ ] **Step 4: Run wrapper tests**
+- [x] **Step 4: Run wrapper tests**
 
 Run:
 
@@ -768,7 +768,7 @@ npm run test:unit -- src/tauri/files.test.ts
 
 Expected: pass with 2 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/tauri/files.ts src/tauri/files.test.ts
@@ -785,7 +785,7 @@ git commit -m "feat: add typed file command wrappers"
 - Inspect: `src-tauri/src/lib.rs`
 - Inspect: `tests/integration/app.spec.ts`
 
-- [ ] **Step 1: Run all frontend unit tests**
+- [x] **Step 1: Run all frontend unit tests**
 
 Run:
 
@@ -802,7 +802,7 @@ src/App.test.tsx
 src/components/DocumentView.test.tsx
 ```
 
-- [ ] **Step 2: Run browser integration tests**
+- [x] **Step 2: Run browser integration tests**
 
 Run:
 
@@ -812,7 +812,7 @@ npm run test:integration
 
 Expected: all Playwright tests pass and `playwright test` fails if tests are missing.
 
-- [ ] **Step 3: Run Rust tests**
+- [x] **Step 3: Run Rust tests**
 
 Run:
 
@@ -822,7 +822,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 Expected: Rust unit tests include file read/write command coverage and all pass.
 
-- [ ] **Step 4: Run full verification**
+- [x] **Step 4: Run full verification**
 
 Run:
 
@@ -844,7 +844,9 @@ Tauri debug build passes
 
 If `tauri info` times out during metadata checks, the existing timeout wrapper should continue to the Tauri debug build.
 
-- [ ] **Step 5: Confirm this slice stops at the intended boundary**
+Observed during implementation: `mise run verify` was attempted twice and stopped at `npm audit --json` because the npm registry audit endpoint returned an error before local checks ran. The remaining verification commands were run directly and passed.
+
+- [x] **Step 5: Confirm this slice stops at the intended boundary**
 
 Run:
 
@@ -854,7 +856,7 @@ rg -n "show_open_dialog|show_save_dialog|recent|close confirmation|argv|drag" sr
 
 Expected: no new dialog, recent-file, close-confirmation, CLI, or drag-and-drop implementation appears in this slice.
 
-- [ ] **Step 6: Commit any verification-only cleanup**
+- [x] **Step 6: Commit any verification-only cleanup**
 
 If generated files appear in `git status --short`, do not commit them. They should already be ignored by `.gitignore`.
 
