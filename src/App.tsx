@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DocumentView } from "./components/DocumentView";
 import {
   createLifecycleDependencies,
@@ -22,6 +22,7 @@ export default function App() {
   const [document, setDocument] = useState(() => createUntitledSession());
   const [pendingCommand, setPendingCommand] = useState<CommandName | null>(null);
   const [commandError, setCommandError] = useState<string | null>(null);
+  const latestDocument = useRef(document);
   const dependencies = useMemo<LifecycleDependencies>(
     () =>
       createLifecycleDependencies({
@@ -32,6 +33,8 @@ export default function App() {
       }),
     [],
   );
+
+  latestDocument.current = document;
 
   const wordCount = useMemo(() => {
     const words = document.content
@@ -62,9 +65,16 @@ export default function App() {
         void result
           .then((next) => {
             if (next) {
-              setDocument((current) =>
-                applyCommandResult(name, commandSnapshot, next, current),
+              const applied = applyCommandResult(
+                name,
+                commandSnapshot,
+                next,
+                latestDocument.current,
               );
+              setDocument(applied.document);
+              if (applied.error) {
+                setCommandError(applied.error);
+              }
             }
           })
           .catch((error: unknown) => {
@@ -77,9 +87,16 @@ export default function App() {
       }
 
       if (result) {
-        setDocument(
-          applyCommandResult(name, commandSnapshot, result, commandSnapshot),
+        const applied = applyCommandResult(
+          name,
+          commandSnapshot,
+          result,
+          commandSnapshot,
         );
+        setDocument(applied.document);
+        if (applied.error) {
+          setCommandError(applied.error);
+        }
       }
       setPendingCommand(null);
     } catch (error) {
@@ -193,28 +210,53 @@ function applyCommandResult(
   commandSnapshot: DocumentSession,
   next: DocumentSession,
   current: DocumentSession,
-): DocumentSession {
+): { document: DocumentSession; error: string | null } {
+  if (isReplacementCommand(name)) {
+    if (hasSessionChanged(current, commandSnapshot)) {
+      return {
+        document: current,
+        error: `${name} was ignored because the document changed while the command was pending.`,
+      };
+    }
+
+    return { document: next, error: null };
+  }
+
   if (!isSaveCommand(name)) {
-    return next;
+    return { document: next, error: null };
   }
 
   if (current.id !== commandSnapshot.id) {
-    return current;
+    return { document: current, error: null };
   }
 
   if (current.content === commandSnapshot.content) {
-    return next;
+    return { document: next, error: null };
   }
 
   return {
-    ...next,
-    content: current.content,
-    dirty: current.content !== next.savedContent,
+    document: {
+      ...next,
+      content: current.content,
+      dirty: current.content !== next.savedContent,
+    },
+    error: null,
   };
 }
 
 function isSaveCommand(name: CommandName): boolean {
   return name === "Save" || name === "Save As";
+}
+
+function isReplacementCommand(name: CommandName): boolean {
+  return name === "New" || name === "Open";
+}
+
+function hasSessionChanged(
+  current: DocumentSession,
+  snapshot: DocumentSession,
+): boolean {
+  return current.id !== snapshot.id || current.content !== snapshot.content;
 }
 
 function isPromiseLike(

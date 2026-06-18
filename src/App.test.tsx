@@ -123,6 +123,47 @@ describe("App", () => {
     expect(document.title).toBe("opened.md - Galley Pad");
   });
 
+  it("keeps edits made while Open is pending", async () => {
+    const pendingRead = deferred<{
+      path: string;
+      content: string;
+      lineEnding: "lf";
+      lastModifiedAt: number;
+    }>();
+    pickOpenFileMock.mockResolvedValue("/tmp/opened.md");
+    readTextFileMock.mockImplementation(() => pendingRead.promise);
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    await waitFor(() => {
+      expect(readTextFileMock).toHaveBeenCalledWith("/tmp/opened.md");
+    });
+
+    fireEvent.change(screen.getByLabelText("Mock Galley Editor"), {
+      target: { value: "User edit while opening" },
+    });
+
+    await act(async () => {
+      pendingRead.resolve({
+        path: "/tmp/opened.md",
+        content: "# Opened from disk\n",
+        lineEnding: "lf",
+        lastModifiedAt: 10,
+      });
+      await pendingRead.promise;
+    });
+
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
+      "User edit while opening",
+    );
+    expect(screen.getByText("Untitled.md")).toBeInTheDocument();
+    expect(screen.queryByText("opened.md")).not.toBeInTheDocument();
+    expect(screen.getByText("Unsaved")).toBeInTheDocument();
+    expect(
+      screen.getByRole("alert", { name: "File command error" }),
+    ).toHaveTextContent("Open was ignored because the document changed");
+  });
+
   it("saves a dirty file-backed document", async () => {
     pickOpenFileMock.mockResolvedValue("/tmp/opened.md");
     readTextFileMock
@@ -239,6 +280,48 @@ describe("App", () => {
     });
     expect(screen.getByText("new.md")).toBeInTheDocument();
     expect(screen.getByText("Saved")).toBeInTheDocument();
+  });
+
+  it("keeps edits made while Save As is pending", async () => {
+    const pendingWrite = deferred<{
+      path: string;
+      lineEnding: "lf";
+      lastModifiedAt: number;
+    }>();
+    pickSaveFileMock.mockResolvedValue("/tmp/new.md");
+    writeTextFileMock.mockImplementation(() => pendingWrite.promise);
+    render(<App />);
+    fireEvent.change(screen.getByLabelText("Mock Galley Editor"), {
+      target: { value: "# First save as edit\n" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Save As" }));
+    await waitFor(() => {
+      expect(writeTextFileMock).toHaveBeenCalledWith(
+        "/tmp/new.md",
+        "# First save as edit\n",
+      );
+    });
+
+    fireEvent.change(screen.getByLabelText("Mock Galley Editor"), {
+      target: { value: "# Second save as edit\n" },
+    });
+
+    await act(async () => {
+      pendingWrite.resolve({
+        path: "/tmp/new.md",
+        lineEnding: "lf",
+        lastModifiedAt: 20,
+      });
+      await pendingWrite.promise;
+    });
+
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
+      "# Second save as edit\n",
+    );
+    expect(screen.getByText("new.md")).toBeInTheDocument();
+    expect(screen.getByText("Unsaved")).toBeInTheDocument();
+    expect(document.title).toBe("* new.md - Galley Pad");
   });
 
   it("shows an error when Save detects an external file change", async () => {
