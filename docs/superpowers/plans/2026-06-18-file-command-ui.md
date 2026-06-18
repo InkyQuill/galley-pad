@@ -78,7 +78,7 @@ Tauri dialog plugin reference:
 - Modify: `src-tauri/src/lib.rs`
 - Modify: `src-tauri/capabilities/default.json`
 
-- [ ] **Step 1: Install the latest dialog packages**
+- [x] **Step 1: Install the latest dialog packages**
 
 Run:
 
@@ -94,7 +94,7 @@ package.json and package-lock.json include @tauri-apps/plugin-dialog
 src-tauri/Cargo.toml and src-tauri/Cargo.lock include tauri-plugin-dialog
 ```
 
-- [ ] **Step 2: Register the Rust plugin**
+- [x] **Step 2: Register the Rust plugin**
 
 In `src-tauri/src/lib.rs`, update the builder in `run()` so it includes the dialog plugin before the invoke handler:
 
@@ -106,7 +106,7 @@ In `src-tauri/src/lib.rs`, update the builder in `run()` so it includes the dial
         .unwrap_or_else(|error| panic!("error while running {}: {error}", app_title()));
 ```
 
-- [ ] **Step 3: Allow dialog permissions**
+- [x] **Step 3: Allow dialog permissions**
 
 Replace `src-tauri/capabilities/default.json` with:
 
@@ -120,7 +120,7 @@ Replace `src-tauri/capabilities/default.json` with:
 }
 ```
 
-- [ ] **Step 4: Verify Rust plugin registration compiles**
+- [x] **Step 4: Verify Rust plugin registration compiles**
 
 Run:
 
@@ -135,7 +135,7 @@ Rust unit tests pass
 Rust integration test text_file_commands_round_trip_markdown_content passes
 ```
 
-- [ ] **Step 5: Verify frontend dependencies resolve**
+- [x] **Step 5: Verify frontend dependencies resolve**
 
 Run:
 
@@ -150,7 +150,7 @@ TypeScript compiles
 Vite production build completes
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add package.json package-lock.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/src/lib.rs src-tauri/capabilities/default.json
@@ -165,7 +165,7 @@ git commit -m "feat: add native dialog plugin"
 - Create: `src/tauri/dialogs.ts`
 - Create: `src/tauri/dialogs.test.ts`
 
-- [ ] **Step 1: Write failing dialog wrapper tests**
+- [x] **Step 1: Write failing dialog wrapper tests**
 
 Create `src/tauri/dialogs.test.ts`:
 
@@ -253,7 +253,7 @@ describe("dialog wrappers", () => {
 });
 ```
 
-- [ ] **Step 2: Run the failing tests**
+- [x] **Step 2: Run the failing tests**
 
 Run:
 
@@ -267,7 +267,7 @@ Expected:
 FAIL because src/tauri/dialogs.ts does not exist
 ```
 
-- [ ] **Step 3: Create `src/tauri/dialogs.ts`**
+- [x] **Step 3: Create `src/tauri/dialogs.ts`**
 
 ```ts
 import { open, save } from "@tauri-apps/plugin-dialog";
@@ -312,7 +312,7 @@ export async function pickSaveFile(
 }
 ```
 
-- [ ] **Step 4: Run wrapper tests**
+- [x] **Step 4: Run wrapper tests**
 
 Run:
 
@@ -326,7 +326,7 @@ Expected:
 4 tests pass
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/tauri/dialogs.ts src/tauri/dialogs.test.ts
@@ -341,7 +341,7 @@ git commit -m "feat: add typed dialog wrappers"
 - Create: `src/document/lifecycle.ts`
 - Create: `src/document/lifecycle.test.ts`
 
-- [ ] **Step 1: Write failing lifecycle tests**
+- [x] **Step 1: Write failing lifecycle tests**
 
 Create `src/document/lifecycle.test.ts`:
 
@@ -511,7 +511,7 @@ describe("document lifecycle commands", () => {
 });
 ```
 
-- [ ] **Step 2: Run the failing lifecycle tests**
+- [x] **Step 2: Run the failing lifecycle tests**
 
 Run:
 
@@ -525,7 +525,7 @@ Expected:
 FAIL because src/document/lifecycle.ts does not exist
 ```
 
-- [ ] **Step 3: Create `src/document/lifecycle.ts`**
+- [x] **Step 3: Create `src/document/lifecycle.ts`**
 
 ```ts
 import {
@@ -626,7 +626,7 @@ async function assertFileUnchanged(
 }
 ```
 
-- [ ] **Step 4: Run lifecycle tests**
+- [x] **Step 4: Run lifecycle tests**
 
 Run:
 
@@ -640,7 +640,7 @@ Expected:
 7 tests pass
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/document/lifecycle.ts src/document/lifecycle.test.ts
@@ -656,7 +656,7 @@ git commit -m "feat: add document lifecycle commands"
 - Modify: `src/App.test.tsx`
 - Modify: `src/styles.css`
 
-- [ ] **Step 1: Replace App tests with command coverage**
+- [x] **Step 1: Replace App tests with command coverage**
 
 Replace `src/App.test.tsx` with:
 
@@ -870,7 +870,7 @@ describe("App", () => {
 });
 ```
 
-- [ ] **Step 2: Run the failing App tests**
+- [x] **Step 2: Run the failing App tests**
 
 Run:
 
@@ -884,7 +884,7 @@ Expected:
 FAIL because command buttons and command wiring do not exist
 ```
 
-- [ ] **Step 3: Replace `src/App.tsx`**
+- [x] **Step 3: Replace `src/App.tsx`**
 
 ```tsx
 import { useEffect, useMemo, useState } from "react";
@@ -1048,7 +1048,7 @@ function errorMessage(error: unknown): string {
 }
 ```
 
-- [ ] **Step 4: Update app shell CSS**
+- [x] **Step 4: Update app shell CSS**
 
 In `src/styles.css`, change the app grid and add command styles.
 
@@ -1149,7 +1149,7 @@ Inside the existing dark-mode block, add:
   }
 ```
 
-- [ ] **Step 5: Run App unit tests**
+- [x] **Step 5: Run App unit tests**
 
 Run:
 
@@ -1165,7 +1165,7 @@ lifecycle tests pass
 dialog wrapper tests pass
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/App.tsx src/App.test.tsx src/styles.css
@@ -1179,7 +1179,7 @@ git commit -m "feat: wire file commands into app shell"
 **Files:**
 - Modify: `tests/integration/app.spec.ts`
 
-- [ ] **Step 1: Add browser coverage for the visible command bar and New flow**
+- [x] **Step 1: Add browser coverage for the visible command bar and New flow**
 
 Append this test to `tests/integration/app.spec.ts`:
 
@@ -1208,7 +1208,7 @@ test("shows file commands and creates a fresh document", async ({ page }) => {
 });
 ```
 
-- [ ] **Step 2: Run browser integration tests**
+- [x] **Step 2: Run browser integration tests**
 
 Run:
 
@@ -1222,7 +1222,7 @@ Expected:
 All Playwright tests pass
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tests/integration/app.spec.ts
@@ -1240,7 +1240,7 @@ git commit -m "test: cover file command browser flow"
 - Inspect: `src-tauri/src/lib.rs`
 - Inspect: `src-tauri/capabilities/default.json`
 
-- [ ] **Step 1: Run all unit tests**
+- [x] **Step 1: Run all unit tests**
 
 Run:
 
@@ -1254,7 +1254,7 @@ Expected:
 All Vitest test files pass
 ```
 
-- [ ] **Step 2: Run browser integration tests**
+- [x] **Step 2: Run browser integration tests**
 
 Run:
 
@@ -1268,7 +1268,7 @@ Expected:
 All Playwright tests pass
 ```
 
-- [ ] **Step 3: Run frontend build**
+- [x] **Step 3: Run frontend build**
 
 Run:
 
@@ -1282,7 +1282,7 @@ Expected:
 TypeScript and Vite production build pass
 ```
 
-- [ ] **Step 4: Run Rust formatting and tests**
+- [x] **Step 4: Run Rust formatting and tests**
 
 Run:
 
@@ -1298,7 +1298,7 @@ Rust formatting passes
 Rust unit and integration tests pass
 ```
 
-- [ ] **Step 5: Run Tauri metadata and debug build checks**
+- [x] **Step 5: Run Tauri metadata and debug build checks**
 
 Run:
 
@@ -1314,7 +1314,7 @@ tauri info completes or times out with the documented known-issue handling
 Tauri debug build passes
 ```
 
-- [ ] **Step 6: Attempt full verify**
+- [x] **Step 6: Attempt full verify**
 
 Run:
 
@@ -1336,7 +1336,9 @@ Tauri debug build passes
 
 If the npm registry audit endpoint returns an error before local checks run, retry `npm audit --json` once. If it still fails with a registry endpoint error, document the external failure in the PR and rely on Steps 1-5 for local verification evidence.
 
-- [ ] **Step 7: Confirm this slice stops at the intended boundary**
+Observed during implementation: `mise run verify` stopped at `npm audit --json` because the npm registry audit endpoint returned an error before local checks ran. A standalone `npm audit --json` retry failed the same way. Steps 1-5 were run directly and passed.
+
+- [x] **Step 7: Confirm this slice stops at the intended boundary**
 
 Run:
 
@@ -1350,7 +1352,7 @@ Expected:
 No recent-file, drag-and-drop, CLI argv, native close-confirmation, native menu, global shortcut, or file-association implementation appears in this slice.
 ```
 
-- [ ] **Step 8: Commit verification-only cleanup**
+- [x] **Step 8: Commit verification-only cleanup**
 
 If only plan checkboxes changed, commit them:
 
