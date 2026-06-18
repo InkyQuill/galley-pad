@@ -6,6 +6,11 @@ dist/
 dist-ssr/
 coverage/
 .vite/
+test-results/
+playwright-report/
+*.tsbuildinfo
+vite.config.d.ts
+vite.config.js
 
 # Tauri/Rust generated output
 src-tauri/target/

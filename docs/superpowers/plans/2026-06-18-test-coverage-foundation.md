@@ -49,7 +49,7 @@ If a test cannot be automated because it depends on a native desktop shell, reco
 - Modify: `package-lock.json`
 - Create: `playwright.config.ts`
 
-- [ ] **Step 1: Install latest Playwright test tooling**
+- [x] **Step 1: Install latest Playwright test tooling**
 
 Run:
 
@@ -64,7 +64,7 @@ added ... packages
 found 0 vulnerabilities
 ```
 
-- [ ] **Step 2: Install Playwright Chromium browser**
+- [x] **Step 2: Install Playwright Chromium browser**
 
 Run:
 
@@ -80,7 +80,7 @@ Downloading Chromium ...
 
 If Chromium is already installed, Playwright may exit without downloading.
 
-- [ ] **Step 3: Update `package.json` scripts**
+- [x] **Step 3: Update `package.json` scripts**
 
 Replace the `scripts` block with:
 
@@ -99,7 +99,7 @@ Replace the `scripts` block with:
 }
 ```
 
-- [ ] **Step 4: Create `playwright.config.ts`**
+- [x] **Step 4: Create `playwright.config.ts`**
 
 ```ts
 import { defineConfig, devices } from "@playwright/test";
@@ -127,7 +127,7 @@ export default defineConfig({
 });
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add package.json package-lock.json playwright.config.ts
@@ -143,7 +143,7 @@ git commit -m "test: add browser integration tooling"
 - Modify: `src/App.test.tsx`
 - Modify: `src/components/DocumentView.test.tsx`
 
-- [ ] **Step 1: Create `src/test/galley-editor.mock.tsx`**
+- [x] **Step 1: Create `src/test/galley-editor.mock.tsx`**
 
 ```tsx
 export function GalleyEditor({
@@ -163,7 +163,7 @@ export function GalleyEditor({
 }
 ```
 
-- [ ] **Step 2: Update `src/App.test.tsx` to use the shared mock**
+- [x] **Step 2: Update `src/App.test.tsx` to use the shared mock**
 
 ```tsx
 import { fireEvent, render, screen } from "@testing-library/react";
@@ -203,7 +203,7 @@ describe("App", () => {
 });
 ```
 
-- [ ] **Step 3: Update `src/components/DocumentView.test.tsx` to use the shared mock**
+- [x] **Step 3: Update `src/components/DocumentView.test.tsx` to use the shared mock**
 
 ```tsx
 import { fireEvent, render, screen } from "@testing-library/react";
@@ -236,7 +236,7 @@ describe("DocumentView", () => {
 });
 ```
 
-- [ ] **Step 4: Run frontend unit tests**
+- [x] **Step 4: Run frontend unit tests**
 
 Run:
 
@@ -251,7 +251,7 @@ Test Files  2 passed
 Tests  4 passed
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/test/galley-editor.mock.tsx src/App.test.tsx src/components/DocumentView.test.tsx
@@ -265,7 +265,7 @@ git commit -m "test: share frontend editor mock"
 **Files:**
 - Create: `tests/integration/app.spec.ts`
 
-- [ ] **Step 1: Create `tests/integration/app.spec.ts`**
+- [x] **Step 1: Create `tests/integration/app.spec.ts`**
 
 ```ts
 import { expect, test } from "@playwright/test";
@@ -294,7 +294,7 @@ test("loads the Galley Editor integration without a unit-test mock", async ({
 });
 ```
 
-- [ ] **Step 2: Run browser integration tests**
+- [x] **Step 2: Run browser integration tests**
 
 Run:
 
@@ -310,7 +310,7 @@ Expected:
 
 If the second test fails because Galley Editor renders the starter Markdown through non-text editor internals, replace only the final assertion with the nearest stable visible signal from the real rendered editor. Do not mock `@inky/galley-editor` in Playwright tests.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tests/integration/app.spec.ts
@@ -326,7 +326,7 @@ git commit -m "test: cover app shell in browser"
 - Modify: `src-tauri/src/lib.rs`
 - Create: `src-tauri/tests/scaffold.rs`
 
-- [ ] **Step 1: Add Rust dev dependency**
+- [x] **Step 1: Add Rust dev dependency**
 
 In `src-tauri/Cargo.toml`, add:
 
@@ -335,7 +335,7 @@ In `src-tauri/Cargo.toml`, add:
 tempfile = "3"
 ```
 
-- [ ] **Step 2: Add a unit-testable helper and unit test in `src-tauri/src/lib.rs`**
+- [x] **Step 2: Add a unit-testable helper and unit test in `src-tauri/src/lib.rs`**
 
 Replace `src-tauri/src/lib.rs` with:
 
@@ -362,7 +362,7 @@ mod tests {
 }
 ```
 
-- [ ] **Step 3: Create `src-tauri/tests/scaffold.rs`**
+- [x] **Step 3: Create `src-tauri/tests/scaffold.rs`**
 
 ```rust
 use std::fs;
@@ -379,7 +379,7 @@ fn rust_integration_tests_can_use_temp_files() {
 }
 ```
 
-- [ ] **Step 4: Run Rust tests**
+- [x] **Step 4: Run Rust tests**
 
 Run:
 
@@ -393,7 +393,7 @@ Expected:
 test result: ok
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/src/lib.rs src-tauri/tests/scaffold.rs
@@ -409,7 +409,7 @@ git commit -m "test: add rust test baseline"
 - Modify: `mise.toml`
 - Modify: `vite.config.ts`
 
-- [ ] **Step 1: Update `scripts/verify.mjs`**
+- [x] **Step 1: Update `scripts/verify.mjs`**
 
 Replace the file with:
 
@@ -460,7 +460,7 @@ run(
 );
 ```
 
-- [ ] **Step 2: Update `mise.toml` test tasks**
+- [x] **Step 2: Update `mise.toml` test tasks**
 
 Replace the task section from `[tasks.test]` through `[tasks.verify]` with:
 
@@ -506,7 +506,7 @@ description = "Run the full verification suite"
 run = "node scripts/verify.mjs"
 ```
 
-- [ ] **Step 3: Keep Vitest scoped to unit tests**
+- [x] **Step 3: Keep Vitest scoped to unit tests**
 
 In the existing `test` config in `vite.config.ts`, keep `environment`, `setupFiles`, and `globals`, and add:
 
@@ -516,7 +516,7 @@ include: ["src/**/*.test.{ts,tsx}"],
 
 This keeps Playwright as the exclusive owner of `tests/integration`.
 
-- [ ] **Step 4: Run all verification**
+- [x] **Step 4: Run all verification**
 
 Run:
 
@@ -535,7 +535,7 @@ test result: ok
 
 The Tauri info and build steps should also complete or fail with a specific actionable error.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add scripts/verify.mjs mise.toml vite.config.ts docs/superpowers/plans/2026-06-18-test-coverage-foundation.md
@@ -550,7 +550,7 @@ git commit -m "test: run all coverage layers in verify"
 - Modify: `AGENTS.md`
 - Modify: `README.md`
 
-- [ ] **Step 1: Add testing guidance to `AGENTS.md`**
+- [x] **Step 1: Add testing guidance to `AGENTS.md`**
 
 Add this section after `## Common Commands`:
 
@@ -570,7 +570,7 @@ Every new feature needs both unit and integration coverage.
 Do not mock `@inky/galley-editor` in Playwright tests. Unit tests may mock it when testing Galley Pad state management or wrappers.
 ```
 
-- [ ] **Step 2: Add testing commands to `README.md`**
+- [x] **Step 2: Add testing commands to `README.md`**
 
 Replace the current frontend test command block with this Markdown content:
 
@@ -592,7 +592,7 @@ Run Rust unit and integration tests:
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-- [ ] **Step 3: Run documentation-safe verification**
+- [x] **Step 3: Run documentation-safe verification**
 
 Run:
 
@@ -611,7 +611,7 @@ frontend build passes
 Tauri debug build passes
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add AGENTS.md README.md
@@ -630,7 +630,7 @@ git commit -m "docs: document testing contract"
 - Inspect: `src-tauri/tests/scaffold.rs`
 - Inspect: `AGENTS.md`
 
-- [ ] **Step 1: Confirm every layer has a command**
+- [x] **Step 1: Confirm every layer has a command**
 
 Run:
 
@@ -643,7 +643,7 @@ mise run verify
 
 Expected: every command exits `0`.
 
-- [ ] **Step 2: Confirm Stage 2 test rule is documented**
+- [x] **Step 2: Confirm Stage 2 test rule is documented**
 
 Run:
 
@@ -653,7 +653,7 @@ rg -n "Every new feature needs both unit and integration coverage|tests/integrat
 
 Expected: output includes both `AGENTS.md` and `README.md`.
 
-- [ ] **Step 3: Confirm no generated reports were accidentally staged**
+- [x] **Step 3: Confirm no generated reports were accidentally staged**
 
 Run:
 
@@ -663,7 +663,7 @@ git status --short
 
 Expected: only intentional source, docs, lockfile, and config changes are present before each commit. Generated Playwright reports should not be committed.
 
-- [ ] **Step 4: Add generated Playwright output ignores if needed**
+- [x] **Step 4: Add generated Playwright output ignores if needed**
 
 If `git status --short` shows `playwright-report/` or `test-results/`, add this to `.gitignore`:
 
@@ -679,7 +679,7 @@ git add .gitignore
 git commit -m "chore: ignore playwright test output"
 ```
 
-- [ ] **Step 5: Final verification**
+- [x] **Step 5: Final verification**
 
 Run:
 
