@@ -22,7 +22,7 @@ run = "cargo fmt --manifest-path src-tauri/Cargo.toml -- --check"
 description = "Print Tauri environment and app configuration"
 run = """
 set +e
-timeout 30 npm run tauri -- info
+node scripts/with-timeout.mjs 30 npm run tauri -- info
 status=$?
 set -e
 if [ "$status" -eq 124 ]; then
@@ -34,7 +34,7 @@ exit "$status"
 
 [tasks.tauri-build]
 description = "Build the Tauri debug app without bundling"
-run = "timeout 120 npm run tauri -- build --debug --no-bundle"
+run = "node scripts/with-timeout.mjs 120 npm run tauri -- build --debug --no-bundle"
 
 [tasks.audit]
 description = "Check npm security advisories"
@@ -48,7 +48,7 @@ npm test
 npm run build
 cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 set +e
-timeout 30 npm run tauri -- info
+node scripts/with-timeout.mjs 30 npm run tauri -- info
 tauri_info_status=$?
 set -e
 if [ "$tauri_info_status" -eq 124 ]; then
@@ -56,5 +56,5 @@ if [ "$tauri_info_status" -eq 124 ]; then
 elif [ "$tauri_info_status" -ne 0 ]; then
   exit "$tauri_info_status"
 fi
-timeout 120 npm run tauri -- build --debug --no-bundle
+node scripts/with-timeout.mjs 120 npm run tauri -- build --debug --no-bundle
 """

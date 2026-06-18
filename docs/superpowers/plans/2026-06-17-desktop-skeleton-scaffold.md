@@ -45,11 +45,13 @@ Create these files:
 - `AGENTS.md` - agent guide with setup, verification, and Galley Editor issue routing.
 - `mise.toml` - project toolchain and verification task configuration.
 - `.npmrc` - points the `@inky` scope to the public GitLab package registry.
+- `assets/app-icon.png` - committed app icon source asset.
 - `index.html` - Vite HTML entrypoint.
 - `package.json` - npm scripts and frontend dependencies.
 - `tsconfig.json` - shared TypeScript compiler settings.
 - `tsconfig.node.json` - TypeScript settings for Vite config.
 - `vite.config.ts` - Vite React and Vitest configuration.
+- `scripts/with-timeout.mjs` - portable Node-based timeout wrapper for mise tasks.
 - `src/main.tsx` - React root bootstrap.
 - `src/App.tsx` - top-level app shell and document state wiring.
 - `src/App.test.tsx` - integration tests for the composed app shell.
@@ -61,7 +63,7 @@ Create these files:
 - `src-tauri/Cargo.toml` - Rust package manifest for the Tauri app.
 - `src-tauri/build.rs` - Tauri build script.
 - `src-tauri/capabilities/default.json` - baseline Tauri permissions.
-- `src-tauri/icons/icon.png` - minimal placeholder icon required by Tauri context generation.
+- `src-tauri/icons/icon.png` - Tauri icon copied from the committed app icon asset.
 - `src-tauri/src/lib.rs` - Tauri application builder.
 - `src-tauri/src/main.rs` - native binary entrypoint.
 - `src-tauri/tauri.conf.json` - Tauri app configuration.
@@ -84,9 +86,11 @@ Do not modify these files:
 
 - Create: `.gitignore`
 - Create: `AGENTS.md`
+- Create: `assets/app-icon.png`
 - Create: `index.html`
 - Create: `mise.toml`
 - Create: `package.json`
+- Create: `scripts/with-timeout.mjs`
 - Create: `tsconfig.json`
 - Create: `tsconfig.node.json`
 - Create: `vite.config.ts`
@@ -129,7 +133,240 @@ Create `index.html` with this exact content:
 </html>
 ```
 
-- [ ] **Step 3: Create `package.json`**
+- [ ] **Step 3: Add `assets/app-icon.png`**
+
+Use the committed PNG app icon at `assets/app-icon.png`. Do not generate this icon from inline shell code.
+
+Run:
+
+```bash
+file assets/app-icon.png
+```
+
+Expected: `assets/app-icon.png` is reported as PNG image data.
+
+- [ ] **Step 4: Create `AGENTS.md`**
+
+Create `AGENTS.md` with this exact content:
+
+````markdown
+# Agent Guide
+
+## Project
+
+Galley Pad is a Tauri desktop Markdown editor. The frontend is React + Vite, and the editor surface is wrapped through `@inky/galley-editor`.
+
+## Important Paths
+
+- `src/` - React application code.
+- `src/components/DocumentView.tsx` - stable wrapper around `GalleyEditor`.
+- `src/test/setup.ts` - Vitest and Testing Library setup.
+- `src-tauri/` - Tauri shell, Rust entrypoints, capabilities, and app config.
+- `docs/` - product, architecture, roadmap, plans, references, and known issues.
+- `docs/known-issues.md` - known Galley Pad verification or environment issues.
+
+## Setup
+
+This project includes a `mise.toml` for toolchain switching. From the project root:
+
+```bash
+mise install
+```
+
+Install JavaScript dependencies from the lockfile:
+
+```bash
+npm ci
+```
+
+For dependency updates during scaffold work, use `npm install` so `package.json` and `package-lock.json` stay in sync.
+
+## Common Commands
+
+Run frontend tests:
+
+```bash
+npm test
+```
+
+Build the frontend:
+
+```bash
+npm run build
+```
+
+Check Rust formatting:
+
+```bash
+cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+```
+
+Print Tauri environment and config info:
+
+```bash
+node scripts/with-timeout.mjs 30 npm run tauri -- info
+```
+
+Build the Tauri debug app without bundling:
+
+```bash
+node scripts/with-timeout.mjs 120 npm run tauri -- build --debug --no-bundle
+```
+
+Run the desktop app during development:
+
+```bash
+npm run tauri:dev
+```
+
+Check npm advisories:
+
+```bash
+npm audit --json
+```
+
+Run the full verification suite through mise:
+
+```bash
+mise run verify
+```
+
+## Verification Notes
+
+- `npm run tauri -- info` checks Tauri/Rust package metadata over the network and can stall before printing output. Use the Node timeout wrapper above and continue with `tauri-build` if it exits with timeout code 124.
+- The app uses TypeScript 6, Vite 8, and Vitest 4. Keep `moduleResolution` set to `Bundler`.
+- CSS side-effect imports are declared in `src/vite-env.d.ts`.
+- Tauri CSP is enabled in `src-tauri/tauri.conf.json`; do not set `security.csp` back to `null`.
+- Vite `envPrefix` must not expose all `TAURI_` variables. Keep it restricted to `TAURI_ENV_`.
+
+## Galley Editor Boundary
+
+Treat `@inky/galley-editor` as an external editor package. Keep Galley Pad-specific integration code in `DocumentView`.
+
+If an implementation concern appears to be inside Galley Editor itself, do not work around it silently in this repo. If `../galley-editor` exists, record the concern in `../galley-editor/known-issues.md` with:
+
+- observed behavior
+- expected behavior
+- reproduction steps
+- Galley Pad impact
+- next action
+
+If `../galley-editor` does not exist, record the concern in `docs/known-issues.md` and make clear that it belongs to the Galley Editor package.
+````
+
+- [ ] **Step 5: Create `scripts/with-timeout.mjs`**
+
+Create `scripts/with-timeout.mjs` with this exact content:
+
+```js
+import { spawn } from "node:child_process";
+
+const [secondsArg, command, ...args] = process.argv.slice(2);
+const seconds = Number(secondsArg);
+
+if (!Number.isFinite(seconds) || seconds <= 0 || !command) {
+  console.error("Usage: node scripts/with-timeout.mjs <seconds> <command> [args...]");
+  process.exit(2);
+}
+
+const child = spawn(command, args, {
+  stdio: "inherit",
+  shell: process.platform === "win32",
+});
+
+let timedOut = false;
+const timer = setTimeout(() => {
+  timedOut = true;
+  child.kill();
+  setTimeout(() => child.kill("SIGKILL"), 5_000).unref();
+}, seconds * 1_000);
+
+child.on("error", (error) => {
+  clearTimeout(timer);
+  console.error(error.message);
+  process.exit(1);
+});
+
+child.on("close", (code, signal) => {
+  clearTimeout(timer);
+  if (timedOut) {
+    process.exit(124);
+  }
+  if (signal) {
+    process.exit(1);
+  }
+  process.exit(code ?? 0);
+});
+```
+
+- [ ] **Step 6: Create `mise.toml`**
+
+Create `mise.toml` with this exact content:
+
+```toml
+[tools]
+node = "26"
+rust = "stable"
+
+[tasks.install]
+description = "Install JavaScript dependencies from package-lock.json"
+run = "npm ci"
+
+[tasks.test]
+description = "Run frontend tests"
+run = "npm test"
+
+[tasks.build]
+description = "Build the frontend"
+run = "npm run build"
+
+[tasks.fmt-rust]
+description = "Check Rust formatting"
+run = "cargo fmt --manifest-path src-tauri/Cargo.toml -- --check"
+
+[tasks.tauri-info]
+description = "Print Tauri environment and app configuration"
+run = """
+set +e
+node scripts/with-timeout.mjs 30 npm run tauri -- info
+status=$?
+set -e
+if [ "$status" -eq 124 ]; then
+  echo "tauri info timed out during network metadata checks; continuing to tauri-build"
+  exit 0
+fi
+exit "$status"
+"""
+
+[tasks.tauri-build]
+description = "Build the Tauri debug app without bundling"
+run = "node scripts/with-timeout.mjs 120 npm run tauri -- build --debug --no-bundle"
+
+[tasks.audit]
+description = "Check npm security advisories"
+run = "npm audit --json"
+
+[tasks.verify]
+description = "Run the scaffold verification suite"
+run = """
+npm audit --json
+npm test
+npm run build
+cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+set +e
+node scripts/with-timeout.mjs 30 npm run tauri -- info
+tauri_info_status=$?
+set -e
+if [ "$tauri_info_status" -eq 124 ]; then
+  echo "tauri info timed out during network metadata checks; continuing to tauri-build"
+elif [ "$tauri_info_status" -ne 0 ]; then
+  exit "$tauri_info_status"
+fi
+node scripts/with-timeout.mjs 120 npm run tauri -- build --debug --no-bundle
+"""
+```
+
+- [ ] **Step 7: Create `package.json`**
 
 Create `package.json` with this exact content:
 
@@ -177,7 +414,7 @@ Create `package.json` with this exact content:
 }
 ```
 
-- [ ] **Step 4: Create `tsconfig.json`**
+- [ ] **Step 8: Create `tsconfig.json`**
 
 Create `tsconfig.json` with this exact content:
 
@@ -206,7 +443,7 @@ Create `tsconfig.json` with this exact content:
 }
 ```
 
-- [ ] **Step 5: Create `tsconfig.node.json`**
+- [ ] **Step 9: Create `tsconfig.node.json`**
 
 Create `tsconfig.node.json` with this exact content:
 
@@ -224,7 +461,7 @@ Create `tsconfig.node.json` with this exact content:
 }
 ```
 
-- [ ] **Step 6: Create `vite.config.ts`**
+- [ ] **Step 10: Create `vite.config.ts`**
 
 Create `vite.config.ts` with this exact content:
 
@@ -248,12 +485,12 @@ export default defineConfig({
 });
 ```
 
-- [ ] **Step 7: Commit frontend project config**
+- [ ] **Step 11: Commit frontend project config**
 
 Run:
 
 ```bash
-git add .gitignore AGENTS.md index.html mise.toml package.json tsconfig.json tsconfig.node.json vite.config.ts
+git add .gitignore AGENTS.md assets/app-icon.png index.html mise.toml package.json scripts/with-timeout.mjs tsconfig.json tsconfig.node.json vite.config.ts
 git commit -m "chore: initialize frontend scaffold"
 ```
 
@@ -1007,17 +1244,17 @@ Create `src-tauri/tauri.conf.json` with this exact content:
 }
 ```
 
-- [ ] **Step 8: Create minimal placeholder icon**
+- [ ] **Step 8: Create Tauri icon from committed app icon**
 
-Create `src-tauri/icons/icon.png` as a valid placeholder PNG. This embedded base64 image is a minimal generated PNG; it only exists because `tauri::generate_context!()` opens the default icon path during validation.
+Create `src-tauri/icons/icon.png` by copying the committed app icon asset. Tauri requires a valid PNG at this path during context generation.
 
 Run:
 
 ```bash
-node -e "require('fs').writeFileSync('src-tauri/icons/icon.png', Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGMMKSoqBwADmgFGLXJ3AwAAAABJRU5ErkJggg==', 'base64'))"
+cp assets/app-icon.png src-tauri/icons/icon.png
 ```
 
-Expected: `src-tauri/icons/icon.png` exists and is a PNG file. Replace it with real app icon assets in the packaging stage.
+Expected: `src-tauri/icons/icon.png` exists and is a PNG file matching `assets/app-icon.png`.
 
 - [ ] **Step 9: Verify Rust formatting**
 
@@ -1034,10 +1271,10 @@ Expected: formatting check passes.
 Run:
 
 ```bash
-timeout 30 npm run tauri -- info
+node scripts/with-timeout.mjs 30 npm run tauri -- info
 ```
 
-Expected: Tauri prints environment and app information without config parse errors. This command performs network package metadata checks and can exceed short timeouts; keep the timeout wrapper, and if it times out, continue with the remaining verification and record or reference the issue in `docs/known-issues.md`.
+Expected: Tauri prints environment and app information without config parse errors. This command performs network package metadata checks and can exceed short timeouts; keep the Node timeout wrapper, and if it exits with timeout code 124, continue with the remaining verification and record or reference the issue in `docs/known-issues.md`.
 
 - [ ] **Step 11: Commit Tauri shell**
 
@@ -1156,10 +1393,10 @@ Expected: formatting check passes.
 Run:
 
 ```bash
-timeout 30 npm run tauri -- info
+node scripts/with-timeout.mjs 30 npm run tauri -- info
 ```
 
-Expected: Tauri reports app and environment information without configuration errors. This command performs network package metadata checks and can exceed short timeouts; keep the timeout wrapper. If it times out after printing useful diagnostics, continue with the rest of verification and reference `docs/known-issues.md`.
+Expected: Tauri reports app and environment information without configuration errors. This command performs network package metadata checks and can exceed short timeouts; keep the Node timeout wrapper. If it exits with timeout code 124, continue with the rest of verification and reference `docs/known-issues.md`.
 
 - [ ] **Step 5: Launch the desktop app**
 
@@ -1186,7 +1423,7 @@ Expected: the dev server and Tauri process exit cleanly.
 
 - [ ] **Step 7: Record known Stage 1 issues**
 
-If any of the verification commands fail, create `docs/known-issues.md` with this exact structure and fill in only observed failures. A `timeout 30 npm run tauri -- info` timeout after environment output is an expected network or environment issue; if it occurs, document it here and continue with verification instead of blocking indefinitely.
+If any of the verification commands fail, create `docs/known-issues.md` with this exact structure and fill in only observed failures. A `node scripts/with-timeout.mjs 30 npm run tauri -- info` timeout with exit code 124 is an expected network or environment issue; if it occurs, document it here and continue with verification instead of blocking indefinitely.
 
 ```markdown
 # Known Issues

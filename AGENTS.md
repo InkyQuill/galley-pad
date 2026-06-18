@@ -52,13 +52,13 @@ cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 Print Tauri environment and config info:
 
 ```bash
-timeout 30 npm run tauri -- info
+node scripts/with-timeout.mjs 30 npm run tauri -- info
 ```
 
 Build the Tauri debug app without bundling:
 
 ```bash
-timeout 120 npm run tauri -- build --debug --no-bundle
+node scripts/with-timeout.mjs 120 npm run tauri -- build --debug --no-bundle
 ```
 
 Run the desktop app during development:
@@ -81,7 +81,7 @@ mise run verify
 
 ## Verification Notes
 
-- `npm run tauri -- info` checks Tauri/Rust package metadata over the network and can stall before printing output. Use the timeout wrapper above and continue with `tauri-build` if it exits with timeout code 124.
+- `npm run tauri -- info` checks Tauri/Rust package metadata over the network and can stall before printing output. Use the Node timeout wrapper above and continue with `tauri-build` if it exits with timeout code 124.
 - The app uses TypeScript 6, Vite 8, and Vitest 4. Keep `moduleResolution` set to `Bundler`.
 - CSS side-effect imports are declared in `src/vite-env.d.ts`.
 - Tauri CSP is enabled in `src-tauri/tauri.conf.json`; do not set `security.csp` back to `null`.
