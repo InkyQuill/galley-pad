@@ -5,7 +5,7 @@ import App from "./App";
 vi.mock("@inky/galley-editor", () => import("./test/galley-editor.mock"));
 
 describe("App", () => {
-  it("renders the single-document editor shell with starter Markdown", () => {
+  it("renders the single-document editor shell with a clean untitled session", () => {
     render(<App />);
 
     expect(screen.getByText("Untitled.md")).toBeInTheDocument();
@@ -21,13 +21,14 @@ describe("App", () => {
     );
   });
 
-  it("updates document statistics when editor content changes", () => {
+  it("marks the session dirty when editor content changes", () => {
     render(<App />);
 
     fireEvent.change(screen.getByLabelText("Mock Galley Editor"), {
       target: { value: "One two three" },
     });
 
+    expect(screen.getByText("Unsaved")).toBeInTheDocument();
     expect(screen.getByLabelText("Document statistics")).toHaveTextContent(
       "3 words",
     );
