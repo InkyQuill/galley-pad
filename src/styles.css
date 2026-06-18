@@ -99,6 +99,30 @@ textarea {
   min-height: 0;
 }
 
+.document-view .ge-editor-shell > div:not(.ge-toolbar):not(.ge-footer) {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.document-view .cm-editor {
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
+}
+
+.document-view .cm-scroller {
+  flex: 1 1 auto;
+  height: auto !important;
+  max-height: none !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+}
+
+.document-view .cm-content {
+  min-height: 100%;
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     background: #191c1b;
