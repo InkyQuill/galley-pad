@@ -21,7 +21,7 @@ This plan implements:
 - Dirty replacement confirmation before New/Open.
 - Conservative external-change protection before Save.
 - Window title updates with document name and dirty marker.
-- Unit and integration coverage for the new behavior.
+- Unit coverage for the file lifecycle behavior, plus browser integration coverage for the visible command controls and New flow.
 
 This plan does not implement:
 

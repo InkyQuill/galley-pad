@@ -78,4 +78,23 @@ describe("dialog wrappers", () => {
       ],
     });
   });
+
+  it("omits defaultPath when Save As default is only whitespace", async () => {
+    saveMock.mockResolvedValue(null);
+
+    await expect(pickSaveFile("   ")).resolves.toBeNull();
+
+    expect(saveMock).toHaveBeenCalledWith({
+      filters: [
+        {
+          name: "Markdown",
+          extensions: ["md", "markdown"],
+        },
+        {
+          name: "Text",
+          extensions: ["txt"],
+        },
+      ],
+    });
+  });
 });
