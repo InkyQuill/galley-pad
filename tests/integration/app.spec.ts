@@ -113,3 +113,35 @@ test("sizes the editor surface to the full document window", async ({
   await expect.poll(codeMirrorFooterGap).toBeLessThan(2);
   await expect.poll(footerGap).toBeLessThan(2);
 });
+
+test("shows file commands and creates a fresh document", async ({ page }) => {
+  await page.goto("/");
+
+  const fileCommands = page.getByRole("toolbar", { name: "File commands" });
+  const documentState = page.locator(".document-state");
+
+  await expect(fileCommands.getByRole("button", { name: "New" })).toBeVisible();
+  await expect(fileCommands.getByRole("button", { name: "Open" })).toBeVisible();
+  await expect(
+    fileCommands.getByRole("button", { name: "Save", exact: true }),
+  ).toBeVisible();
+  await expect(
+    fileCommands.getByRole("button", { name: "Save As" }),
+  ).toBeVisible();
+
+  await page.locator(".cm-content").click();
+  await page.keyboard.type("\nTemporary draft");
+  await expect(documentState).toHaveText("Unsaved");
+
+  const dialogPromise = page.waitForEvent("dialog");
+  const clickPromise = fileCommands.getByRole("button", { name: "New" }).click();
+  const dialog = await dialogPromise;
+  expect(dialog.message()).toBe("Discard unsaved changes to Untitled.md?");
+  await dialog.accept();
+  await clickPromise;
+
+  await expect(documentState).toBeVisible();
+  await expect(documentState).toHaveText("Draft");
+  await expect(documentState).not.toHaveText("Unsaved");
+  await expect(page.getByLabel("Document statistics")).toHaveText("4 words");
+});

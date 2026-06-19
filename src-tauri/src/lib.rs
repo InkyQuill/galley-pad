@@ -115,6 +115,7 @@ pub fn run() {
     configure_linux_webkit_wayland_renderer();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![read_text_file, write_text_file])
         .run(tauri::generate_context!())
         .unwrap_or_else(|error| panic!("error while running {}: {error}", app_title()));
