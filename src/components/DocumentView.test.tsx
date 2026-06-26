@@ -12,6 +12,26 @@ describe("DocumentView", () => {
       screen.getByRole("main", { name: "Markdown document editor" }),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("# Hello");
+    expect(
+      screen.queryByRole("toolbar", { name: "Mock Galley Toolbar" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders the Galley toolbar with icon overrides when requested", () => {
+    render(
+      <DocumentView
+        content="# Hello"
+        onContentChange={() => undefined}
+        toolbarVisible={true}
+      />,
+    );
+
+    expect(
+      screen.getByRole("toolbar", { name: "Mock Galley Toolbar" }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Mock toolbar icon count")).toHaveTextContent(
+      "15",
+    );
   });
 
   it("passes edited content through the stable app callback", () => {

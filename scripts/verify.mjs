@@ -22,6 +22,7 @@ function run(command, args, options = {}) {
 
 run("npm", ["audit", "--json"]);
 run("npm", ["run", "test:unit"]);
+run("npm", ["run", "test:scripts"]);
 run("npm", ["run", "test:integration"]);
 run("npm", ["run", "build"]);
 run("cargo", ["fmt", "--manifest-path", "src-tauri/Cargo.toml", "--", "--check"]);

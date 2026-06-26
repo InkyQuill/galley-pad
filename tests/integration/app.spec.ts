@@ -3,12 +3,15 @@ import { expect, test } from "@playwright/test";
 test("renders the document editor shell in a real browser", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.getByText("Untitled.md")).toBeVisible();
+  await expect(page).toHaveTitle("Untitled.md - Galley Pad");
   await expect(page.getByText("Draft")).toBeVisible();
   await expect(
     page.getByRole("main", { name: "Markdown document editor" }),
   ).toBeVisible();
   await expect(page.getByLabel("Document statistics")).toHaveText("4 words");
+  await expect(
+    page.getByRole("toolbar", { name: "File commands" }),
+  ).not.toBeVisible();
 });
 
 test("loads the Galley Editor integration without a unit-test mock", async ({
@@ -32,6 +35,30 @@ test("marks the document unsaved after editor changes", async ({ page }) => {
 
   await expect(page.getByText("Unsaved")).toBeVisible();
   await expect(page.getByLabel("Document statistics")).toHaveText("6 words");
+});
+
+test("creates and switches document tabs with the new document shortcut", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  await expect(page.getByRole("tab", { name: "Untitled.md" })).toHaveCount(1);
+
+  await page.evaluate(() => {
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "n",
+        ctrlKey: true,
+        bubbles: true,
+      }),
+    );
+  });
+
+  await expect(page.getByRole("tab", { name: "Untitled.md" })).toHaveCount(2);
+  await expect(page.getByRole("tab", { name: "Untitled.md" }).nth(1)).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
 });
 
 test("sizes the editor surface to the full document window", async ({
@@ -114,34 +141,51 @@ test("sizes the editor surface to the full document window", async ({
   await expect.poll(footerGap).toBeLessThan(2);
 });
 
-test("shows file commands and creates a fresh document", async ({ page }) => {
+test("hides the Galley toolbar by default and shows it with the toolbar shortcut", async ({
+  page,
+}) => {
   await page.goto("/");
 
-  const fileCommands = page.getByRole("toolbar", { name: "File commands" });
-  const documentState = page.locator(".document-state");
+  await expect(page.locator(".ge-toolbar")).not.toBeVisible();
 
-  await expect(fileCommands.getByRole("button", { name: "New" })).toBeVisible();
-  await expect(fileCommands.getByRole("button", { name: "Open" })).toBeVisible();
-  await expect(
-    fileCommands.getByRole("button", { name: "Save", exact: true }),
-  ).toBeVisible();
-  await expect(
-    fileCommands.getByRole("button", { name: "Save As" }),
-  ).toBeVisible();
+  await page.evaluate(() => {
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "T",
+        ctrlKey: true,
+        shiftKey: true,
+        bubbles: true,
+      }),
+    );
+  });
+
+  await expect(page.locator(".ge-toolbar")).toBeVisible();
+  await expect(page.locator(".ge-toolbar svg").first()).toBeVisible();
+});
+
+test("scrolls long Markdown content inside the editor surface", async ({ page }) => {
+  await page.setViewportSize({ width: 980, height: 540 });
+  await page.goto("/");
 
   await page.locator(".cm-content").click();
-  await page.keyboard.type("\nTemporary draft");
-  await expect(documentState).toHaveText("Unsaved");
+  await page.keyboard.insertText(
+    Array.from({ length: 120 }, (_, index) => `Line ${index + 1}`).join("\n"),
+  );
 
-  const dialogPromise = page.waitForEvent("dialog");
-  const clickPromise = fileCommands.getByRole("button", { name: "New" }).click();
-  const dialog = await dialogPromise;
-  expect(dialog.message()).toBe("Discard unsaved changes to Untitled.md?");
-  await dialog.accept();
-  await clickPromise;
+  const scroller = page.locator(".cm-scroller");
+  await expect
+    .poll(async () => {
+      const metrics = await scroller.evaluate((element) => ({
+        clientHeight: element.clientHeight,
+        scrollHeight: element.scrollHeight,
+      }));
+      return metrics.scrollHeight > metrics.clientHeight;
+    })
+    .toBe(true);
 
-  await expect(documentState).toBeVisible();
-  await expect(documentState).toHaveText("Draft");
-  await expect(documentState).not.toHaveText("Unsaved");
-  await expect(page.getByLabel("Document statistics")).toHaveText("4 words");
+  const scrollTop = await scroller.evaluate((element) => {
+    element.scrollTop = 240;
+    return element.scrollTop;
+  });
+  expect(scrollTop).toBeGreaterThan(0);
 });

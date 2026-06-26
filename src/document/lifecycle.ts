@@ -44,6 +44,13 @@ export async function openDocument(
     return null;
   }
 
+  return openDocumentPath(path, dependencies);
+}
+
+export async function openDocumentPath(
+  path: string,
+  dependencies: LifecycleDependencies,
+): Promise<DocumentSession> {
   return createSessionFromFile(await dependencies.readTextFile(path));
 }
 
