@@ -32,6 +32,26 @@ test("stages the app bundle and gpad symlink for a macOS package root", async ()
   );
 });
 
+test("validates the staged app bundle with the configured CLI name", async () => {
+  const temp = await mkdtemp(join(tmpdir(), "galley-pad-pkg-"));
+  const appPath = join(temp, "Galley Pad.app");
+  await mkdir(join(appPath, "Contents", "MacOS"), { recursive: true });
+  await writeFile(join(appPath, "Contents", "MacOS", "custom-pad"), "binary");
+
+  const rootDir = join(temp, "pkgroot");
+  await stagePackageRoot({
+    appPath,
+    rootDir,
+    appName: "Galley Pad.app",
+    cliName: "custom-pad",
+  });
+
+  assert.equal(
+    await readlink(join(rootDir, "usr", "local", "bin", "custom-pad")),
+    "/Applications/Galley Pad.app/Contents/MacOS/custom-pad",
+  );
+});
+
 test("builds pkgbuild arguments for installing at the filesystem root", () => {
   assert.deepEqual(
     pkgbuildArgs({

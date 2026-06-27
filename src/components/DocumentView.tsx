@@ -22,16 +22,26 @@ import {
 export type DocumentViewProps = {
   content: string;
   onContentChange: (content: string) => void;
+  panelId?: string;
+  labelledBy?: string;
   toolbarVisible?: boolean;
 };
 
 export function DocumentView({
   content,
   onContentChange,
+  panelId,
+  labelledBy,
   toolbarVisible = false,
 }: DocumentViewProps) {
   return (
-    <main className="document-view" aria-label="Markdown document editor">
+    <main
+      className="document-view"
+      id={panelId}
+      role="tabpanel"
+      aria-label={labelledBy ? undefined : "Markdown document editor"}
+      aria-labelledby={labelledBy}
+    >
       <GalleyEditor
         value={content}
         onChange={onContentChange}

@@ -9,12 +9,32 @@ describe("DocumentView", () => {
     render(<DocumentView content="# Hello" onContentChange={() => undefined} />);
 
     expect(
-      screen.getByRole("main", { name: "Markdown document editor" }),
+      screen.getByRole("tabpanel", { name: "Markdown document editor" }),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("# Hello");
     expect(
       screen.queryByRole("toolbar", { name: "Mock Galley Toolbar" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("links the document panel to its owning tab", () => {
+    render(
+      <DocumentView
+        content="# Hello"
+        onContentChange={() => undefined}
+        panelId="document-panel-tab-1"
+        labelledBy="document-tab-tab-1"
+      />,
+    );
+
+    expect(screen.getByRole("tabpanel")).toHaveAttribute(
+      "id",
+      "document-panel-tab-1",
+    );
+    expect(screen.getByRole("tabpanel")).toHaveAttribute(
+      "aria-labelledby",
+      "document-tab-tab-1",
+    );
   });
 
   it("renders the Galley toolbar with icon overrides when requested", () => {

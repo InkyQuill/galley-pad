@@ -6,7 +6,7 @@ test("renders the document editor shell in a real browser", async ({ page }) => 
   await expect(page).toHaveTitle("Untitled.md - Galley Pad");
   await expect(page.getByText("Draft")).toBeVisible();
   await expect(
-    page.getByRole("main", { name: "Markdown document editor" }),
+    page.getByRole("tabpanel", { name: "Untitled.md" }),
   ).toBeVisible();
   await expect(page.getByLabel("Document statistics")).toHaveText("4 words");
   await expect(
@@ -19,7 +19,7 @@ test("loads the Galley Editor integration without a unit-test mock", async ({
 }) => {
   await page.goto("/");
 
-  const editor = page.getByRole("main", { name: "Markdown document editor" });
+  const editor = page.getByRole("tabpanel", { name: "Untitled.md" });
 
   await expect(editor).toBeVisible();
   await expect(editor).toContainText("Untitled");
@@ -44,15 +44,8 @@ test("creates and switches document tabs with the new document shortcut", async 
 
   await expect(page.getByRole("tab", { name: "Untitled.md" })).toHaveCount(1);
 
-  await page.evaluate(() => {
-    window.dispatchEvent(
-      new KeyboardEvent("keydown", {
-        key: "n",
-        ctrlKey: true,
-        bubbles: true,
-      }),
-    );
-  });
+  await page.locator("body").click();
+  await page.keyboard.press("Control+N");
 
   await expect(page.getByRole("tab", { name: "Untitled.md" })).toHaveCount(2);
   await expect(page.getByRole("tab", { name: "Untitled.md" }).nth(1)).toHaveAttribute(
@@ -67,7 +60,7 @@ test("sizes the editor surface to the full document window", async ({
   await page.setViewportSize({ width: 980, height: 720 });
   await page.goto("/");
 
-  const editor = page.getByRole("main", { name: "Markdown document editor" });
+  const editor = page.getByRole("tabpanel", { name: "Untitled.md" });
   const editorShell = editor.locator(".ge-editor-shell");
   const codeMirror = editor.locator(".cm-editor");
   const scroller = editor.locator(".cm-scroller");
@@ -148,16 +141,8 @@ test("hides the Galley toolbar by default and shows it with the toolbar shortcut
 
   await expect(page.locator(".ge-toolbar")).not.toBeVisible();
 
-  await page.evaluate(() => {
-    window.dispatchEvent(
-      new KeyboardEvent("keydown", {
-        key: "T",
-        ctrlKey: true,
-        shiftKey: true,
-        bubbles: true,
-      }),
-    );
-  });
+  await page.locator("body").click();
+  await page.keyboard.press("Control+Shift+T");
 
   await expect(page.locator(".ge-toolbar")).toBeVisible();
   await expect(page.locator(".ge-toolbar svg").first()).toBeVisible();

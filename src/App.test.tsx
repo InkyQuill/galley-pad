@@ -71,13 +71,19 @@ describe("App", () => {
     ).not.toBeInTheDocument();
     expect(screen.getByText("Draft")).toBeInTheDocument();
     expect(screen.getByRole("tablist", { name: "Open documents" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Untitled.md" })).toHaveAttribute(
+    const activeTab = screen.getByRole("tab", { name: "Untitled.md" });
+    expect(activeTab).toHaveAttribute(
       "aria-selected",
       "true",
     );
+    expect(activeTab).toHaveAttribute("aria-controls");
     expect(
-      screen.getByRole("main", { name: "Markdown document editor" }),
+      screen.getByRole("tabpanel", { name: "Untitled.md" }),
     ).toBeInTheDocument();
+    expect(screen.getByRole("tabpanel", { name: "Untitled.md" })).toHaveAttribute(
+      "id",
+      activeTab.getAttribute("aria-controls"),
+    );
     expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
       "# Untitled\n\nStart writing Markdown.\n",
     );
@@ -244,12 +250,42 @@ describe("App", () => {
     act(() => {
       menuHandler?.("settings");
     });
+    await screen.findByRole("dialog", { name: "Settings" });
     fireEvent.click(screen.getByRole("radio", { name: "Separate windows" }));
 
     expect(localStorage.getItem("galley-pad.openMode")).toBe("windows");
     expect(
       screen.getByRole("radio", { name: "Separate windows" }),
     ).toBeChecked();
+  });
+
+  it("moves focus into settings and returns it when Escape closes the dialog", async () => {
+    let menuHandler: ((command: AppMenuCommand) => void) | null = null;
+    listenForAppMenuCommandMock.mockImplementation(async (handler) => {
+      menuHandler = handler;
+      return () => undefined;
+    });
+    render(<App />);
+    const tab = screen.getByRole("tab", { name: "Untitled.md" });
+    tab.focus();
+
+    await waitFor(() => {
+      expect(listenForAppMenuCommandMock).toHaveBeenCalled();
+    });
+    act(() => {
+      menuHandler?.("settings");
+    });
+    const dialog = await screen.findByRole("dialog", { name: "Settings" });
+
+    await waitFor(() => {
+      expect(screen.getByRole("radio", { name: "Tabs" })).toHaveFocus();
+    });
+    fireEvent.keyDown(dialog, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Settings" })).not.toBeInTheDocument();
+    });
+    expect(tab).toHaveFocus();
   });
 
   it("opens selected files in a separate window when window mode is enabled", async () => {

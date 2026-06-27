@@ -10,7 +10,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 #[cfg(desktop)]
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::Emitter;
 #[cfg(desktop)]
 use tauri::{AppHandle, WebviewUrl, WebviewWindowBuilder};
@@ -23,6 +23,7 @@ const MENU_SAVE_ID: &str = "app-menu-save";
 const MENU_SAVE_AS_ID: &str = "app-menu-save-as";
 const MENU_TOGGLE_TOOLBAR_ID: &str = "app-menu-toggle-toolbar";
 const MENU_SETTINGS_ID: &str = "app-menu-settings";
+const MAIN_WINDOW_LABEL: &str = "main";
 static MARKDOWN_WINDOW_INDEX: AtomicU64 = AtomicU64::new(1);
 
 fn app_title() -> &'static str {
@@ -220,9 +221,40 @@ fn menu_command_payload(menu_id: &str) -> Option<&'static str> {
 
 #[cfg(desktop)]
 fn build_native_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<Menu<R>> {
+    let pkg_info = app.package_info();
+    let config = app.config();
+    let about_metadata = AboutMetadata {
+        name: Some(pkg_info.name.clone()),
+        version: Some(pkg_info.version.to_string()),
+        copyright: config.bundle.copyright.clone(),
+        authors: config
+            .bundle
+            .publisher
+            .clone()
+            .map(|publisher| vec![publisher]),
+        ..Default::default()
+    };
+
     Menu::with_items(
         app,
         &[
+            #[cfg(target_os = "macos")]
+            &Submenu::with_items(
+                app,
+                pkg_info.name.clone(),
+                true,
+                &[
+                    &PredefinedMenuItem::about(app, None, Some(about_metadata))?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::services(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::hide(app, None)?,
+                    &PredefinedMenuItem::hide_others(app, None)?,
+                    &PredefinedMenuItem::show_all(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::quit(app, None)?,
+                ],
+            )?,
             &Submenu::with_items(
                 app,
                 "File",
@@ -239,6 +271,20 @@ fn build_native_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Res
                         true,
                         Some("CmdOrCtrl+Shift+S"),
                     )?,
+                ],
+            )?,
+            &Submenu::with_items(
+                app,
+                "Edit",
+                true,
+                &[
+                    &PredefinedMenuItem::undo(app, None)?,
+                    &PredefinedMenuItem::redo(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::cut(app, None)?,
+                    &PredefinedMenuItem::copy(app, None)?,
+                    &PredefinedMenuItem::paste(app, None)?,
+                    &PredefinedMenuItem::select_all(app, None)?,
                 ],
             )?,
             &Submenu::with_items(
@@ -298,7 +344,7 @@ pub fn run() {
         .manage(pending_markdown_file_open)
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             for path in markdown_paths_from_args(&args) {
-                let _ = app.emit(MARKDOWN_FILE_OPENED_EVENT, path);
+                let _ = app.emit_to(MAIN_WINDOW_LABEL, MARKDOWN_FILE_OPENED_EVENT, path);
             }
         }))
         .plugin(tauri_plugin_dialog::init())
@@ -321,7 +367,7 @@ pub fn run() {
         #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
         if let tauri::RunEvent::Opened { urls } = event {
             for path in markdown_paths_from_urls(&urls) {
-                let _ = app.emit(MARKDOWN_FILE_OPENED_EVENT, path);
+                let _ = app.emit_to(MAIN_WINDOW_LABEL, MARKDOWN_FILE_OPENED_EVENT, path);
             }
         }
     });

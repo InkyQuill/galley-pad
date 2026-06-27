@@ -50,6 +50,8 @@ export default function App() {
   const [toolbarVisible, setToolbarVisible] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const latestWorkspace = useRef(workspace);
+  const settingsDialogRef = useRef<HTMLDialogElement>(null);
+  const settingsReturnFocusRef = useRef<HTMLElement | null>(null);
   const dependencies = useMemo<LifecycleDependencies>(
     () =>
       createLifecycleDependencies({
@@ -163,6 +165,51 @@ export default function App() {
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, []);
+
+  useEffect(() => {
+    if (!settingsOpen) {
+      return;
+    }
+
+    const dialog = settingsDialogRef.current;
+    if (!dialog) {
+      return;
+    }
+
+    settingsReturnFocusRef.current =
+      globalThis.document.activeElement instanceof HTMLElement
+        ? globalThis.document.activeElement
+        : null;
+
+    function handleClose() {
+      setSettingsOpen(false);
+    }
+
+    dialog.addEventListener("close", handleClose);
+    if (!dialog.open && typeof dialog.showModal === "function") {
+      dialog.showModal();
+    } else if (!dialog.open) {
+      dialog.setAttribute("open", "");
+    }
+
+    window.requestAnimationFrame(() => {
+      const selectedOpenMode = dialog.querySelector<HTMLInputElement>(
+        'input[name="open-mode"]:checked',
+      );
+      (selectedOpenMode ?? dialog).focus();
+    });
+
+    return () => {
+      dialog.removeEventListener("close", handleClose);
+      if (dialog.open && typeof dialog.close === "function") {
+        dialog.close();
+      } else if (dialog.open) {
+        dialog.removeAttribute("open");
+      }
+      settingsReturnFocusRef.current?.focus();
+      settingsReturnFocusRef.current = null;
+    };
+  }, [settingsOpen]);
 
   function addNewTab() {
     setCommandError(null);
@@ -297,6 +344,13 @@ export default function App() {
     setWorkspace((current) => setOpenMode(current, openMode));
   }
 
+  function closeSettings() {
+    setSettingsOpen(false);
+  }
+
+  const activeTabButtonId = tabButtonId(workspace.activeTabId);
+  const activeTabPanelId = tabPanelId(workspace.activeTabId);
+
   return (
     <div className="app-shell">
       <header className="titlebar">
@@ -325,6 +379,8 @@ export default function App() {
             <button
               type="button"
               role="tab"
+              id={tabButtonId(tab.id)}
+              aria-controls={tabPanelId(tab.id)}
               aria-label={tab.session.displayName}
               aria-selected={tab.id === workspace.activeTabId}
               onClick={() =>
@@ -362,6 +418,8 @@ export default function App() {
 
       <DocumentView
         content={document.content}
+        panelId={activeTabPanelId}
+        labelledBy={activeTabButtonId}
         toolbarVisible={toolbarVisible}
         onContentChange={(content) =>
           setWorkspace((current) =>
@@ -373,54 +431,65 @@ export default function App() {
       />
 
       {settingsOpen ? (
-        <div
-          className="settings-backdrop"
-          role="presentation"
-          onMouseDown={() => setSettingsOpen(false)}
+        <dialog
+          ref={settingsDialogRef}
+          className="settings-dialog"
+          aria-labelledby="settings-title"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeSettings();
+            }
+          }}
+          onCancel={closeSettings}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              closeSettings();
+            }
+          }}
         >
-          <section
-            className="settings-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="settings-title"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <header className="settings-dialog-header">
-              <h2 id="settings-title">Settings</h2>
-              <button
-                type="button"
-                aria-label="Close settings"
-                onClick={() => setSettingsOpen(false)}
-              >
-                x
-              </button>
-            </header>
-            <fieldset>
-              <legend>Open files in</legend>
-              <label>
-                <input
-                  type="radio"
-                  name="open-mode"
-                  checked={workspace.openMode === "tabs"}
-                  onChange={() => updateOpenMode("tabs")}
-                />
-                Tabs
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  name="open-mode"
-                  checked={workspace.openMode === "windows"}
-                  onChange={() => updateOpenMode("windows")}
-                />
-                Separate windows
-              </label>
-            </fieldset>
-          </section>
-        </div>
+          <header className="settings-dialog-header">
+            <h2 id="settings-title">Settings</h2>
+            <button
+              type="button"
+              aria-label="Close settings"
+              onClick={closeSettings}
+            >
+              x
+            </button>
+          </header>
+          <fieldset>
+            <legend>Open files in</legend>
+            <label>
+              <input
+                type="radio"
+                name="open-mode"
+                checked={workspace.openMode === "tabs"}
+                onChange={() => updateOpenMode("tabs")}
+              />
+              Tabs
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="open-mode"
+                checked={workspace.openMode === "windows"}
+                onChange={() => updateOpenMode("windows")}
+              />
+              Separate windows
+            </label>
+          </fieldset>
+        </dialog>
       ) : null}
     </div>
   );
+}
+
+function tabButtonId(tabId: string): string {
+  return `document-tab-${tabId}`;
+}
+
+function tabPanelId(tabId: string): string {
+  return `document-panel-${tabId}`;
 }
 
 function applySaveResult(

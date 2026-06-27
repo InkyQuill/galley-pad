@@ -37,7 +37,7 @@ export async function stagePackageRoot({
   appName = APP_NAME,
   cliName = CLI_NAME,
 }) {
-  await assertAppBundle(appPath);
+  await assertAppBundle(appPath, cliName);
   await rm(rootDir, { force: true, recursive: true });
 
   const stagedAppPath = join(rootDir, "Applications", appName);
@@ -71,8 +71,8 @@ export function pkgbuildArgs({
   ];
 }
 
-async function assertAppBundle(appPath) {
-  const executable = join(appPath, "Contents", "MacOS", CLI_NAME);
+async function assertAppBundle(appPath, cliName = CLI_NAME) {
+  const executable = join(appPath, "Contents", "MacOS", cliName);
   try {
     const appStats = await stat(appPath);
     const executableStats = await stat(executable);
@@ -81,7 +81,7 @@ async function assertAppBundle(appPath) {
     }
   } catch {
     throw new Error(
-      `Expected a built macOS app with ${CLI_NAME} at ${executable}. Run npm run tauri -- build --debug --bundles app first.`,
+      `Expected a built macOS app with ${cliName} at ${executable}. Run npm run tauri -- build --debug --bundles app first.`,
     );
   }
 }
