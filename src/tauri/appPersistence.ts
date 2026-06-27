@@ -1,9 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppearanceThemeId, EditorFontSettings } from "../settings/appearance";
 import type { OpenMode } from "../document/workspace";
+import type { EditorFontSettings } from "../settings/appearance";
+import type { ThemeSettings } from "../themes/settings";
 
 export type PersistedAppSettings = {
-  appearanceTheme?: AppearanceThemeId;
+  appearanceTheme?: string;
+  themeSettings?: ThemeSettings;
   editorFontFamily?: string;
   editorFontSize?: EditorFontSettings["size"];
   openMode?: OpenMode;

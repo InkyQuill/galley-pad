@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readSwapState, writeSwapState } from "./appPersistence";
-import type { PersistedSwapState } from "./appPersistence";
+import type { PersistedAppSettings, PersistedSwapState } from "./appPersistence";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
@@ -44,6 +44,23 @@ describe("app persistence", () => {
     await writeSwapState(state);
 
     expect(invokeMock).toHaveBeenCalledWith("write_swap_state", { state });
+  });
+
+  it("accepts new theme settings while keeping old appearanceTheme optional", () => {
+    const settings: PersistedAppSettings = {
+      appearanceTheme: "galley-dark",
+      themeSettings: {
+        mode: "system",
+        constantThemeId: "galley-light",
+        lightThemeId: "solarized-light",
+        darkThemeId: "tokyo-night",
+      },
+      editorFontFamily: "Fira Code",
+      editorFontSize: "large",
+      openMode: "tabs",
+    };
+
+    expect(settings.themeSettings?.darkThemeId).toBe("tokyo-night");
   });
 });
 
