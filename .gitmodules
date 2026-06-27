@@ -1,0 +1,3 @@
+[submodule "galley-editor"]
+	path = galley-editor
+	url = https://git.inkyquill.net/inky/galley-editor.git
