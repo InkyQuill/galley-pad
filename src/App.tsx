@@ -67,6 +67,8 @@ import {
 } from "./tauri/systemFonts";
 import {
   BUILT_IN_THEMES,
+  DEFAULT_DARK_THEME_ID,
+  DEFAULT_LIGHT_THEME_ID,
   isThemeId,
   listThemesByScheme,
 } from "./themes/catalog";
@@ -97,7 +99,7 @@ export default function App() {
   const [toolbarVisible, setToolbarVisible] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [themeSettings, setThemeSettings] = useState<ThemeSettings>(() =>
-    loadThemeSettings(),
+    normalizeThemeSettings(loadThemeSettings()),
   );
   const [systemScheme, setSystemScheme] = useState<ThemeScheme>(() =>
     getSystemScheme(),
@@ -167,12 +169,16 @@ export default function App() {
           const parsedThemeSettings = parseThemeSettings(settings.themeSettings);
 
           if (parsedThemeSettings) {
-            setThemeSettings(parsedThemeSettings);
-            saveThemeSettings(parsedThemeSettings);
+            const normalizedThemeSettings =
+              normalizeThemeSettings(parsedThemeSettings);
+            setThemeSettings(normalizedThemeSettings);
+            saveThemeSettings(normalizedThemeSettings);
           } else if (isAppearanceThemeId(settings.appearanceTheme)) {
-            const migratedThemeSettings = themeSettingsFromAppearanceThemeId(
-              settings.appearanceTheme,
-              latestThemeSettings.current,
+            const migratedThemeSettings = normalizeThemeSettings(
+              themeSettingsFromAppearanceThemeId(
+                settings.appearanceTheme,
+                latestThemeSettings.current,
+              ),
             );
             setThemeSettings(migratedThemeSettings);
             saveThemeSettings(migratedThemeSettings);
@@ -683,11 +689,12 @@ export default function App() {
   }
 
   function updateThemeSettings(next: ThemeSettings) {
+    const normalized = normalizeThemeSettings(next);
     touchedPreferences.current.appearanceTheme = true;
-    latestThemeSettings.current = next;
-    saveThemeSettings(next);
-    persistAppSettings({ themeSettings: next });
-    setThemeSettings(next);
+    latestThemeSettings.current = normalized;
+    saveThemeSettings(normalized);
+    persistAppSettings({ themeSettings: normalized });
+    setThemeSettings(normalized);
   }
 
   function updateThemeMode(mode: ThemeMode) {
@@ -1409,6 +1416,18 @@ function isAppearanceThemeId(value: unknown): value is AppearanceThemeId {
     value === "galley-light" ||
     value === "galley-dark"
   );
+}
+
+function normalizeThemeSettings(settings: ThemeSettings): ThemeSettings {
+  return {
+    ...settings,
+    lightThemeId: themeMatchesScheme(settings.lightThemeId, "light")
+      ? settings.lightThemeId
+      : DEFAULT_LIGHT_THEME_ID,
+    darkThemeId: themeMatchesScheme(settings.darkThemeId, "dark")
+      ? settings.darkThemeId
+      : DEFAULT_DARK_THEME_ID,
+  };
 }
 
 function themeMatchesScheme(themeId: ThemeId, scheme: ThemeScheme): boolean {

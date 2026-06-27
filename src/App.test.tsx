@@ -229,6 +229,34 @@ describe("App", () => {
     );
   });
 
+  it("normalizes mismatched persisted system theme selections before opening settings", async () => {
+    readAppSettingsMock.mockResolvedValue({
+      themeSettings: {
+        mode: "system",
+        constantThemeId: "catppuccin-mocha",
+        lightThemeId: "tokyo-night",
+        darkThemeId: "solarized-light",
+      },
+    });
+
+    render(<App />);
+    const appShell = screen.getByTestId("app-shell");
+
+    fireEvent.keyDown(window, { key: ",", ctrlKey: true });
+    await screen.findByRole("dialog", { name: "Settings" });
+
+    await waitFor(() => {
+      expect(screen.getByRole("radio", { name: "System-based" })).toBeChecked();
+      expect(screen.getByRole("combobox", { name: "Light theme" })).toHaveValue(
+        "galley-light",
+      );
+      expect(screen.getByRole("combobox", { name: "Dark theme" })).toHaveValue(
+        "galley-dark",
+      );
+      expect(appShell.style.getPropertyValue("--ge-color-bg")).toBe("#fbfaf7");
+    });
+  });
+
   it("marks the session dirty when editor content changes and updates the title", () => {
     render(<App />);
 
