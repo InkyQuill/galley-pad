@@ -1,8 +1,18 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import {
+  getPendingMarkdownFileOpens,
+  getWindowMarkdownFileOpen,
+  listenForMarkdownFileOpen,
+} from "./tauri/externalFiles";
+import {
+  listenForAppMenuCommand,
+  type AppMenuCommand,
+} from "./tauri/menuEvents";
 import { pickOpenFile, pickSaveFile } from "./tauri/dialogs";
 import { readTextFile, writeTextFile } from "./tauri/files";
+import { openMarkdownFileWindow } from "./tauri/windows";
 
 vi.mock("@inky/galley-editor", () => import("./test/galley-editor.mock"));
 vi.mock("./tauri/dialogs", () => ({
@@ -13,34 +23,67 @@ vi.mock("./tauri/files", () => ({
   readTextFile: vi.fn(),
   writeTextFile: vi.fn(),
 }));
+vi.mock("./tauri/externalFiles", () => ({
+  getPendingMarkdownFileOpens: vi.fn(),
+  getWindowMarkdownFileOpen: vi.fn(() =>
+    new URLSearchParams(window.location.search).get("open"),
+  ),
+  listenForMarkdownFileOpen: vi.fn(),
+}));
+vi.mock("./tauri/menuEvents", () => ({
+  listenForAppMenuCommand: vi.fn(),
+}));
+vi.mock("./tauri/windows", () => ({
+  openMarkdownFileWindow: vi.fn(),
+}));
 
 const pickOpenFileMock = vi.mocked(pickOpenFile);
 const pickSaveFileMock = vi.mocked(pickSaveFile);
 const readTextFileMock = vi.mocked(readTextFile);
 const writeTextFileMock = vi.mocked(writeTextFile);
+const getPendingMarkdownFileOpensMock = vi.mocked(getPendingMarkdownFileOpens);
+const getWindowMarkdownFileOpenMock = vi.mocked(getWindowMarkdownFileOpen);
+const listenForMarkdownFileOpenMock = vi.mocked(listenForMarkdownFileOpen);
+const listenForAppMenuCommandMock = vi.mocked(listenForAppMenuCommand);
+const openMarkdownFileWindowMock = vi.mocked(openMarkdownFileWindow);
 
 describe("App", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.spyOn(window, "confirm").mockReturnValue(true);
     document.title = "";
+    getPendingMarkdownFileOpensMock.mockResolvedValue([]);
+    getWindowMarkdownFileOpenMock.mockImplementation(() =>
+      new URLSearchParams(window.location.search).get("open"),
+    );
+    listenForMarkdownFileOpenMock.mockResolvedValue(() => undefined);
+    listenForAppMenuCommandMock.mockResolvedValue(() => undefined);
+    openMarkdownFileWindowMock.mockResolvedValue("markdown-file-1");
+    localStorage.clear();
+    window.history.replaceState(null, "", "/");
   });
 
-  it("renders the single-document editor shell with file commands", () => {
+  it("renders the tabbed editor shell without the temporary file command toolbar", () => {
     const { container } = render(<App />);
 
-    expect(screen.getByRole("button", { name: "New" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Open" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save As" })).toBeInTheDocument();
     expect(
-      screen.getByRole("toolbar", { name: "File commands" }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("Untitled.md")).toBeInTheDocument();
+      screen.queryByRole("toolbar", { name: "File commands" }),
+    ).not.toBeInTheDocument();
     expect(screen.getByText("Draft")).toBeInTheDocument();
+    expect(screen.getByRole("tablist", { name: "Open documents" })).toBeInTheDocument();
+    const activeTab = screen.getByRole("tab", { name: "Untitled.md" });
+    expect(activeTab).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(activeTab).toHaveAttribute("aria-controls");
     expect(
-      screen.getByRole("main", { name: "Markdown document editor" }),
+      screen.getByRole("tabpanel", { name: "Untitled.md" }),
     ).toBeInTheDocument();
+    expect(screen.getByRole("tabpanel", { name: "Untitled.md" })).toHaveAttribute(
+      "id",
+      activeTab.getAttribute("aria-controls"),
+    );
     expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
       "# Untitled\n\nStart writing Markdown.\n",
     );
@@ -50,6 +93,7 @@ describe("App", () => {
     expect(document.title).toBe("Untitled.md - Galley Pad");
 
     const appShell = container.querySelector(".app-shell");
+    expect(appShell?.children.item(1)).toHaveClass("tabstrip");
     expect(appShell?.children.item(2)).toHaveClass("command-error-slot");
     expect(appShell?.children.item(3)).toHaveClass("document-view");
     expect(
@@ -71,39 +115,63 @@ describe("App", () => {
     expect(document.title).toBe("* Untitled.md - Galley Pad");
   });
 
-  it("creates a new document after confirming dirty replacement", () => {
+  it("creates a new tab without replacing the dirty active tab", () => {
+    let menuHandler: ((command: AppMenuCommand) => void) | null = null;
+    listenForAppMenuCommandMock.mockImplementation(async (handler) => {
+      menuHandler = handler;
+      return () => undefined;
+    });
     render(<App />);
     fireEvent.change(screen.getByLabelText("Mock Galley Editor"), {
       target: { value: "Dirty draft" },
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "New" }));
+    act(() => {
+      menuHandler?.("new");
+    });
 
-    expect(window.confirm).toHaveBeenCalledWith(
-      "Discard unsaved changes to Untitled.md?",
-    );
+    expect(window.confirm).not.toHaveBeenCalled();
+    expect(screen.getAllByRole("tab", { name: /Untitled\.md/ })).toHaveLength(2);
     expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
       "# Untitled\n\nStart writing Markdown.\n",
     );
     expect(screen.getByText("Draft")).toBeInTheDocument();
   });
 
-  it("keeps the dirty document when New replacement is cancelled", () => {
-    vi.mocked(window.confirm).mockReturnValue(false);
+  it("requires confirmation before closing a dirty tab", () => {
+    let menuHandler: ((command: AppMenuCommand) => void) | null = null;
+    listenForAppMenuCommandMock.mockImplementation(async (handler) => {
+      menuHandler = handler;
+      return () => undefined;
+    });
     render(<App />);
     fireEvent.change(screen.getByLabelText("Mock Galley Editor"), {
       target: { value: "Dirty draft" },
     });
+    act(() => {
+      menuHandler?.("new");
+    });
 
-    fireEvent.click(screen.getByRole("button", { name: "New" }));
+    vi.mocked(window.confirm).mockReturnValue(false);
+    fireEvent.click(screen.getByRole("button", { name: "Close Untitled.md" }));
 
     expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
       "Dirty draft",
     );
-    expect(screen.getByText("Unsaved")).toBeInTheDocument();
+    expect(screen.getAllByRole("tab", { name: /Untitled\.md/ })).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Close Untitled.md" }));
+    expect(window.confirm).toHaveBeenCalledWith(
+      "Discard unsaved changes to Untitled.md?",
+    );
   });
 
   it("opens a selected file and updates the session", async () => {
+    let menuHandler: ((command: AppMenuCommand) => void) | null = null;
+    listenForAppMenuCommandMock.mockImplementation(async (handler) => {
+      menuHandler = handler;
+      return () => undefined;
+    });
     pickOpenFileMock.mockResolvedValue("/tmp/opened.md");
     readTextFileMock.mockResolvedValue({
       path: "/tmp/opened.md",
@@ -113,17 +181,489 @@ describe("App", () => {
     });
     render(<App />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    await waitFor(() => {
+      expect(listenForAppMenuCommandMock).toHaveBeenCalled();
+    });
+    act(() => {
+      menuHandler?.("open");
+    });
 
     await waitFor(() => {
-      expect(screen.getByText("opened.md")).toBeInTheDocument();
+      expect(document.title).toBe("opened.md - Galley Pad");
     });
     expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("# Opened\n");
     expect(screen.getByText("Saved")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "opened.md" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
     expect(document.title).toBe("opened.md - Galley Pad");
   });
 
+  it("switches between open tabs without losing editor content", async () => {
+    let menuHandler: ((command: AppMenuCommand) => void) | null = null;
+    listenForAppMenuCommandMock.mockImplementation(async (handler) => {
+      menuHandler = handler;
+      return () => undefined;
+    });
+    pickOpenFileMock.mockResolvedValue("/tmp/opened.md");
+    readTextFileMock.mockResolvedValue({
+      path: "/tmp/opened.md",
+      content: "# Opened\n",
+      lineEnding: "lf",
+      lastModifiedAt: 10,
+    });
+    render(<App />);
+    fireEvent.change(screen.getByLabelText("Mock Galley Editor"), {
+      target: { value: "Untitled draft" },
+    });
+
+    await waitFor(() => {
+      expect(listenForAppMenuCommandMock).toHaveBeenCalled();
+    });
+    act(() => {
+      menuHandler?.("open");
+    });
+    await waitFor(() => {
+      expect(document.title).toBe("opened.md - Galley Pad");
+    });
+
+    fireEvent.click(screen.getAllByRole("tab", { name: /Untitled\.md/ })[0]);
+
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
+      "Untitled draft",
+    );
+    expect(document.title).toBe("* Untitled.md - Galley Pad");
+  });
+
+  it("opens settings from the native menu and persists the open mode", async () => {
+    let menuHandler: ((command: AppMenuCommand) => void) | null = null;
+    listenForAppMenuCommandMock.mockImplementation(async (handler) => {
+      menuHandler = handler;
+      return () => undefined;
+    });
+    render(<App />);
+
+    await waitFor(() => {
+      expect(listenForAppMenuCommandMock).toHaveBeenCalled();
+    });
+    act(() => {
+      menuHandler?.("settings");
+    });
+    await screen.findByRole("dialog", { name: "Settings" });
+    fireEvent.click(screen.getByRole("radio", { name: "Separate windows" }));
+
+    expect(localStorage.getItem("galley-pad.openMode")).toBe("windows");
+    expect(
+      screen.getByRole("radio", { name: "Separate windows" }),
+    ).toBeChecked();
+  });
+
+  it("moves focus into settings and returns it when Escape closes the dialog", async () => {
+    let menuHandler: ((command: AppMenuCommand) => void) | null = null;
+    listenForAppMenuCommandMock.mockImplementation(async (handler) => {
+      menuHandler = handler;
+      return () => undefined;
+    });
+    render(<App />);
+    const tab = screen.getByRole("tab", { name: "Untitled.md" });
+    tab.focus();
+
+    await waitFor(() => {
+      expect(listenForAppMenuCommandMock).toHaveBeenCalled();
+    });
+    act(() => {
+      menuHandler?.("settings");
+    });
+    const dialog = await screen.findByRole("dialog", { name: "Settings" });
+
+    await waitFor(() => {
+      expect(screen.getByRole("radio", { name: "Tabs" })).toHaveFocus();
+    });
+    fireEvent.keyDown(dialog, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Settings" })).not.toBeInTheDocument();
+    });
+    expect(tab).toHaveFocus();
+  });
+
+  it("opens selected files in a separate window when window mode is enabled", async () => {
+    let menuHandler: ((command: AppMenuCommand) => void) | null = null;
+    listenForAppMenuCommandMock.mockImplementation(async (handler) => {
+      menuHandler = handler;
+      return () => undefined;
+    });
+    localStorage.setItem("galley-pad.openMode", "windows");
+    pickOpenFileMock.mockResolvedValue("/tmp/window.md");
+    render(<App />);
+
+    await waitFor(() => {
+      expect(listenForAppMenuCommandMock).toHaveBeenCalled();
+    });
+    act(() => {
+      menuHandler?.("open");
+    });
+
+    await waitFor(() => {
+      expect(openMarkdownFileWindowMock).toHaveBeenCalledWith("/tmp/window.md");
+    });
+    expect(readTextFileMock).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
+      "# Untitled\n\nStart writing Markdown.\n",
+    );
+  });
+
+  it("opens OS file events in a separate window when window mode is enabled", async () => {
+    let openHandler: ((path: string) => void) | null = null;
+    listenForMarkdownFileOpenMock.mockImplementation(async (handler) => {
+      openHandler = handler;
+      return () => undefined;
+    });
+    localStorage.setItem("galley-pad.openMode", "windows");
+    render(<App />);
+    await waitFor(() => {
+      expect(listenForMarkdownFileOpenMock).toHaveBeenCalled();
+    });
+
+    act(() => {
+      openHandler?.("/tmp/event.md");
+    });
+
+    await waitFor(() => {
+      expect(openMarkdownFileWindowMock).toHaveBeenCalledWith("/tmp/event.md");
+    });
+    expect(readTextFileMock).not.toHaveBeenCalled();
+  });
+
+  it("hides the Galley toolbar by default and toggles it from the native menu", async () => {
+    let menuHandler: ((command: AppMenuCommand) => void) | null = null;
+    listenForAppMenuCommandMock.mockImplementation(async (handler) => {
+      menuHandler = handler;
+      return () => undefined;
+    });
+    render(<App />);
+
+    expect(
+      screen.queryByRole("toolbar", { name: "Mock Galley Toolbar" }),
+    ).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(listenForAppMenuCommandMock).toHaveBeenCalled();
+    });
+    act(() => {
+      menuHandler?.("toggle-toolbar");
+    });
+
+    expect(
+      screen.getByRole("toolbar", { name: "Mock Galley Toolbar" }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Mock toolbar icon count")).toHaveTextContent(
+      "15",
+    );
+  });
+
+  it("opens a pending Markdown file provided by the OS at startup", async () => {
+    getPendingMarkdownFileOpensMock.mockResolvedValue(["/tmp/launch.md"]);
+    readTextFileMock.mockResolvedValue({
+      path: "/tmp/launch.md",
+      content: "# Launch\n",
+      lineEnding: "lf",
+      lastModifiedAt: 30,
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(document.title).toBe("launch.md - Galley Pad");
+    });
+    expect(readTextFileMock).toHaveBeenCalledWith("/tmp/launch.md");
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
+      "# Launch\n",
+    );
+    expect(screen.getByText("Saved")).toBeInTheDocument();
+  });
+
+  it("opens every pending Markdown file provided by the OS at startup", async () => {
+    getPendingMarkdownFileOpensMock.mockResolvedValue([
+      "/tmp/one.md",
+      "/tmp/two.markdown",
+    ]);
+    const firstRead = deferred<{
+      path: string;
+      content: string;
+      lineEnding: "lf";
+      lastModifiedAt: number;
+    }>();
+    const secondRead = deferred<{
+      path: string;
+      content: string;
+      lineEnding: "lf";
+      lastModifiedAt: number;
+    }>();
+    readTextFileMock
+      .mockImplementationOnce(() => firstRead.promise)
+      .mockImplementationOnce(() => secondRead.promise);
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(readTextFileMock).toHaveBeenCalledWith("/tmp/one.md");
+    });
+    secondRead.resolve({
+      path: "/tmp/two.markdown",
+      content: "# Two\n",
+      lineEnding: "lf",
+      lastModifiedAt: 31,
+    });
+    expect(readTextFileMock).not.toHaveBeenCalledWith("/tmp/two.markdown");
+    await act(async () => {
+      firstRead.resolve({
+        path: "/tmp/one.md",
+        content: "# One\n",
+        lineEnding: "lf",
+        lastModifiedAt: 30,
+      });
+      await firstRead.promise;
+    });
+
+    await waitFor(() => {
+      expect(readTextFileMock).toHaveBeenCalledWith("/tmp/two.markdown");
+    });
+    await act(async () => {
+      await secondRead.promise;
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "two.markdown" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+    });
+    expect(readTextFileMock).toHaveBeenCalledWith("/tmp/one.md");
+    expect(readTextFileMock).toHaveBeenCalledWith("/tmp/two.markdown");
+    expect(screen.getByRole("tab", { name: "one.md" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("# Two\n");
+  });
+
+  it("opens a window launch query path in the current window", async () => {
+    localStorage.setItem("galley-pad.openMode", "windows");
+    window.history.replaceState(null, "", "/?open=/tmp/window.md");
+    readTextFileMock.mockResolvedValue({
+      path: "/tmp/window.md",
+      content: "# Window\n",
+      lineEnding: "lf",
+      lastModifiedAt: 40,
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(document.title).toBe("window.md - Galley Pad");
+    });
+    expect(readTextFileMock).toHaveBeenCalledWith("/tmp/window.md");
+    expect(openMarkdownFileWindowMock).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
+      "# Window\n",
+    );
+  });
+
+  it("opens Markdown files delivered by OS open-file events", async () => {
+    let openHandler: ((path: string) => void) | null = null;
+    listenForMarkdownFileOpenMock.mockImplementation(async (handler) => {
+      openHandler = handler;
+      return () => undefined;
+    });
+    readTextFileMock.mockResolvedValue({
+      path: "/tmp/event.markdown",
+      content: "# Event\n",
+      lineEnding: "lf",
+      lastModifiedAt: 31,
+    });
+
+    render(<App />);
+    await waitFor(() => {
+      expect(listenForMarkdownFileOpenMock).toHaveBeenCalled();
+    });
+
+    act(() => {
+      openHandler?.("/tmp/event.markdown");
+    });
+
+    await waitFor(() => {
+      expect(document.title).toBe("event.markdown - Galley Pad");
+    });
+    expect(readTextFileMock).toHaveBeenCalledWith("/tmp/event.markdown");
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("# Event\n");
+  });
+
+  it("opens Markdown file events serially in arrival order", async () => {
+    let openHandler: ((path: string) => void) | null = null;
+    listenForMarkdownFileOpenMock.mockImplementation(async (handler) => {
+      openHandler = handler;
+      return () => undefined;
+    });
+    const firstRead = deferred<{
+      path: string;
+      content: string;
+      lineEnding: "lf";
+      lastModifiedAt: number;
+    }>();
+    const secondRead = deferred<{
+      path: string;
+      content: string;
+      lineEnding: "lf";
+      lastModifiedAt: number;
+    }>();
+    readTextFileMock
+      .mockImplementationOnce(() => firstRead.promise)
+      .mockImplementationOnce(() => secondRead.promise);
+
+    render(<App />);
+    await waitFor(() => {
+      expect(listenForMarkdownFileOpenMock).toHaveBeenCalled();
+    });
+
+    act(() => {
+      openHandler?.("/tmp/one.md");
+      openHandler?.("/tmp/two.markdown");
+    });
+    await waitFor(() => {
+      expect(readTextFileMock).toHaveBeenCalledWith("/tmp/one.md");
+    });
+    secondRead.resolve({
+      path: "/tmp/two.markdown",
+      content: "# Two\n",
+      lineEnding: "lf",
+      lastModifiedAt: 31,
+    });
+    expect(readTextFileMock).not.toHaveBeenCalledWith("/tmp/two.markdown");
+    await act(async () => {
+      firstRead.resolve({
+        path: "/tmp/one.md",
+        content: "# One\n",
+        lineEnding: "lf",
+        lastModifiedAt: 30,
+      });
+      await firstRead.promise;
+    });
+
+    await waitFor(() => {
+      expect(readTextFileMock).toHaveBeenCalledWith("/tmp/two.markdown");
+    });
+    await act(async () => {
+      await secondRead.promise;
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "two.markdown" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+    });
+    expect(screen.getByRole("tab", { name: "one.md" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("# Two\n");
+  });
+
+  it("serializes pending startup files and live OS file events together", async () => {
+    let openHandler: ((path: string) => void) | null = null;
+    listenForMarkdownFileOpenMock.mockImplementation(async (handler) => {
+      openHandler = handler;
+      return () => undefined;
+    });
+    getPendingMarkdownFileOpensMock.mockResolvedValue(["/tmp/start.md"]);
+    const startupRead = deferred<{
+      path: string;
+      content: string;
+      lineEnding: "lf";
+      lastModifiedAt: number;
+    }>();
+    const liveRead = deferred<{
+      path: string;
+      content: string;
+      lineEnding: "lf";
+      lastModifiedAt: number;
+    }>();
+    readTextFileMock
+      .mockImplementationOnce(() => startupRead.promise)
+      .mockImplementationOnce(() => liveRead.promise);
+
+    render(<App />);
+    await waitFor(() => {
+      expect(readTextFileMock).toHaveBeenCalledWith("/tmp/start.md");
+      expect(listenForMarkdownFileOpenMock).toHaveBeenCalled();
+    });
+
+    act(() => {
+      openHandler?.("/tmp/live.md");
+    });
+    liveRead.resolve({
+      path: "/tmp/live.md",
+      content: "# Live\n",
+      lineEnding: "lf",
+      lastModifiedAt: 41,
+    });
+    expect(readTextFileMock).not.toHaveBeenCalledWith("/tmp/live.md");
+    await act(async () => {
+      startupRead.resolve({
+        path: "/tmp/start.md",
+        content: "# Start\n",
+        lineEnding: "lf",
+        lastModifiedAt: 40,
+      });
+      await startupRead.promise;
+    });
+
+    await waitFor(() => {
+      expect(readTextFileMock).toHaveBeenCalledWith("/tmp/live.md");
+    });
+    await act(async () => {
+      await liveRead.promise;
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "live.md" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+    });
+    expect(screen.getByRole("tab", { name: "start.md" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("# Live\n");
+  });
+
+  it("opens OS file events in a new tab without replacing a dirty tab", async () => {
+    let openHandler: ((path: string) => void) | null = null;
+    listenForMarkdownFileOpenMock.mockImplementation(async (handler) => {
+      openHandler = handler;
+      return () => undefined;
+    });
+    render(<App />);
+    await waitFor(() => {
+      expect(listenForMarkdownFileOpenMock).toHaveBeenCalled();
+    });
+    fireEvent.change(screen.getByLabelText("Mock Galley Editor"), {
+      target: { value: "Dirty external event draft" },
+    });
+
+    act(() => {
+      openHandler?.("/tmp/event.md");
+    });
+
+    await waitFor(() => {
+      expect(document.title).toBe("event.markdown - Galley Pad");
+    });
+    expect(window.confirm).not.toHaveBeenCalled();
+    expect(readTextFileMock).toHaveBeenCalledWith("/tmp/event.md");
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("# Event\n");
+    fireEvent.click(screen.getByRole("tab", { name: "Untitled.md" }));
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
+      "Dirty external event draft",
+    );
+  });
+
   it("keeps edits made while Open is pending", async () => {
+    let menuHandler: ((command: AppMenuCommand) => void) | null = null;
+    listenForAppMenuCommandMock.mockImplementation(async (handler) => {
+      menuHandler = handler;
+      return () => undefined;
+    });
     const pendingRead = deferred<{
       path: string;
       content: string;
@@ -134,7 +674,12 @@ describe("App", () => {
     readTextFileMock.mockImplementation(() => pendingRead.promise);
     render(<App />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    await waitFor(() => {
+      expect(listenForAppMenuCommandMock).toHaveBeenCalled();
+    });
+    act(() => {
+      menuHandler?.("open");
+    });
     await waitFor(() => {
       expect(readTextFileMock).toHaveBeenCalledWith("/tmp/opened.md");
     });
@@ -154,17 +699,22 @@ describe("App", () => {
     });
 
     expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
+      "# Opened from disk\n",
+    );
+    expect(document.title).toBe("opened.md - Galley Pad");
+    fireEvent.click(screen.getByRole("tab", { name: "Untitled.md" }));
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
       "User edit while opening",
     );
-    expect(screen.getByText("Untitled.md")).toBeInTheDocument();
-    expect(screen.queryByText("opened.md")).not.toBeInTheDocument();
-    expect(screen.getByText("Unsaved")).toBeInTheDocument();
-    expect(
-      screen.getByRole("alert", { name: "File command error" }),
-    ).toHaveTextContent("Open was ignored because the document changed");
+    expect(document.title).toBe("* Untitled.md - Galley Pad");
   });
 
   it("saves a dirty file-backed document", async () => {
+    let menuHandler: ((command: AppMenuCommand) => void) | null = null;
+    listenForAppMenuCommandMock.mockImplementation(async (handler) => {
+      menuHandler = handler;
+      return () => undefined;
+    });
     pickOpenFileMock.mockResolvedValue("/tmp/opened.md");
     readTextFileMock
       .mockResolvedValueOnce({
@@ -186,12 +736,21 @@ describe("App", () => {
     });
     render(<App />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Open" }));
-    await screen.findByText("opened.md");
+    await waitFor(() => {
+      expect(listenForAppMenuCommandMock).toHaveBeenCalled();
+    });
+    act(() => {
+      menuHandler?.("open");
+    });
+    await waitFor(() => {
+      expect(document.title).toBe("opened.md - Galley Pad");
+    });
     fireEvent.change(screen.getByLabelText("Mock Galley Editor"), {
       target: { value: "# Opened\n\nUpdated.\n" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    act(() => {
+      menuHandler?.("save");
+    });
 
     await waitFor(() => {
       expect(writeTextFileMock).toHaveBeenCalledWith(
@@ -203,6 +762,11 @@ describe("App", () => {
   });
 
   it("keeps edits made while Save is pending", async () => {
+    let menuHandler: ((command: AppMenuCommand) => void) | null = null;
+    listenForAppMenuCommandMock.mockImplementation(async (handler) => {
+      menuHandler = handler;
+      return () => undefined;
+    });
     const pendingWrite = deferred<{
       path: string;
       lineEnding: "lf";
@@ -225,12 +789,21 @@ describe("App", () => {
     writeTextFileMock.mockImplementation(() => pendingWrite.promise);
     render(<App />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Open" }));
-    await screen.findByText("opened.md");
+    await waitFor(() => {
+      expect(listenForAppMenuCommandMock).toHaveBeenCalled();
+    });
+    act(() => {
+      menuHandler?.("open");
+    });
+    await waitFor(() => {
+      expect(document.title).toBe("opened.md - Galley Pad");
+    });
     fireEvent.change(screen.getByLabelText("Mock Galley Editor"), {
       target: { value: "# Opened\n\nFirst edit.\n" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    act(() => {
+      menuHandler?.("save");
+    });
     await waitFor(() => {
       expect(writeTextFileMock).toHaveBeenCalledWith(
         "/tmp/opened.md",
@@ -259,6 +832,11 @@ describe("App", () => {
   });
 
   it("saves an untitled document through Save As", async () => {
+    let menuHandler: ((command: AppMenuCommand) => void) | null = null;
+    listenForAppMenuCommandMock.mockImplementation(async (handler) => {
+      menuHandler = handler;
+      return () => undefined;
+    });
     pickSaveFileMock.mockResolvedValue("/tmp/new.md");
     writeTextFileMock.mockResolvedValue({
       path: "/tmp/new.md",
@@ -270,7 +848,12 @@ describe("App", () => {
       target: { value: "# New content\n" },
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => {
+      expect(listenForAppMenuCommandMock).toHaveBeenCalled();
+    });
+    act(() => {
+      menuHandler?.("save");
+    });
 
     await waitFor(() => {
       expect(writeTextFileMock).toHaveBeenCalledWith(
@@ -278,11 +861,16 @@ describe("App", () => {
         "# New content\n",
       );
     });
-    expect(screen.getByText("new.md")).toBeInTheDocument();
+    expect(document.title).toBe("new.md - Galley Pad");
     expect(screen.getByText("Saved")).toBeInTheDocument();
   });
 
   it("keeps edits made while Save As is pending", async () => {
+    let menuHandler: ((command: AppMenuCommand) => void) | null = null;
+    listenForAppMenuCommandMock.mockImplementation(async (handler) => {
+      menuHandler = handler;
+      return () => undefined;
+    });
     const pendingWrite = deferred<{
       path: string;
       lineEnding: "lf";
@@ -295,7 +883,12 @@ describe("App", () => {
       target: { value: "# First save as edit\n" },
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Save As" }));
+    await waitFor(() => {
+      expect(listenForAppMenuCommandMock).toHaveBeenCalled();
+    });
+    act(() => {
+      menuHandler?.("save-as");
+    });
     await waitFor(() => {
       expect(writeTextFileMock).toHaveBeenCalledWith(
         "/tmp/new.md",
@@ -319,12 +912,17 @@ describe("App", () => {
     expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
       "# Second save as edit\n",
     );
-    expect(screen.getByText("new.md")).toBeInTheDocument();
+    expect(document.title).toBe("* new.md - Galley Pad");
     expect(screen.getByText("Unsaved")).toBeInTheDocument();
     expect(document.title).toBe("* new.md - Galley Pad");
   });
 
   it("shows an error when Save detects an external file change", async () => {
+    let menuHandler: ((command: AppMenuCommand) => void) | null = null;
+    listenForAppMenuCommandMock.mockImplementation(async (handler) => {
+      menuHandler = handler;
+      return () => undefined;
+    });
     pickOpenFileMock.mockResolvedValue("/tmp/opened.md");
     readTextFileMock
       .mockResolvedValueOnce({
@@ -338,15 +936,24 @@ describe("App", () => {
         content: "# External\n",
         lineEnding: "lf",
         lastModifiedAt: 99,
-      });
+    });
     render(<App />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Open" }));
-    await screen.findByText("opened.md");
+    await waitFor(() => {
+      expect(listenForAppMenuCommandMock).toHaveBeenCalled();
+    });
+    act(() => {
+      menuHandler?.("open");
+    });
+    await waitFor(() => {
+      expect(document.title).toBe("opened.md - Galley Pad");
+    });
     fireEvent.change(screen.getByLabelText("Mock Galley Editor"), {
       target: { value: "# Local\n" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    act(() => {
+      menuHandler?.("save");
+    });
 
     await expect(
       screen.findByRole("alert", { name: "File command error" }),

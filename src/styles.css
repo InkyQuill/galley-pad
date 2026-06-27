@@ -32,7 +32,7 @@ textarea {
 
 .app-shell {
   display: grid;
-  grid-template-rows: 44px 40px auto minmax(0, 1fr);
+  grid-template-rows: 32px 34px auto minmax(0, 1fr);
   width: 100%;
   height: 100%;
   background: #f6f4ef;
@@ -50,22 +50,6 @@ textarea {
   background: #eeebe4;
 }
 
-.document-title {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  min-width: 0;
-}
-
-.document-name {
-  overflow: hidden;
-  color: #1b211f;
-  font-size: 14px;
-  font-weight: 650;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .document-state,
 .document-meta {
   color: #69726e;
@@ -76,37 +60,69 @@ textarea {
   flex: 0 0 auto;
 }
 
-.commandbar {
+.tabstrip {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-bottom: 1px solid #d8d3c8;
+  background: #f3f0e9;
+}
+
+.tab {
   display: flex;
   align-items: center;
-  gap: 6px;
-  min-width: 0;
-  padding: 6px 12px;
-  border-bottom: 1px solid #ded8cb;
-  background: #f7f4ee;
+  min-width: 104px;
+  max-width: 220px;
+  border-right: 1px solid #d8d3c8;
+  color: #4c5551;
 }
 
-.commandbar button {
-  min-width: 64px;
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid #c7c0b3;
-  border-radius: 6px;
-  background: #fffdf8;
+.tab-active {
+  background: #fbfaf7;
   color: #1f2523;
+}
+
+.tab button[role="tab"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 33px;
+  padding: 0 8px 0 10px;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: inherit;
   font-size: 12px;
-  font-weight: 600;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.commandbar button:disabled {
-  color: #8b928f;
-  cursor: wait;
+.tab button[role="tab"]:focus-visible,
+.tab-close:focus-visible,
+.settings-dialog button:focus-visible,
+.settings-dialog input:focus-visible {
+  outline: 2px solid #5d7cda;
+  outline-offset: -2px;
 }
 
-.command-status {
-  min-width: 72px;
+.tab-close {
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  margin-right: 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
   color: #69726e;
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.tab-close:hover {
+  background: #e3ded3;
+  color: #1f2523;
 }
 
 .command-error {
@@ -144,6 +160,7 @@ textarea {
   display: flex;
   flex: 1 1 auto;
   min-height: 0;
+  overflow: hidden;
 }
 
 .document-view .cm-editor {
@@ -157,11 +174,82 @@ textarea {
   height: auto !important;
   max-height: none !important;
   min-height: 0 !important;
-  overflow-y: auto !important;
+  overflow: auto !important;
 }
 
 .document-view .cm-content {
   min-height: 100%;
+}
+
+.galley-toolbar-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: currentcolor;
+}
+
+.galley-toolbar-icon svg {
+  display: block;
+}
+
+.settings-dialog {
+  width: min(360px, 100%);
+  padding: 0;
+  border: 1px solid #c8c1b4;
+  border-radius: 8px;
+  background: #fbfaf7;
+  box-shadow: 0 18px 54px rgb(31 37 35 / 18%);
+  color: #1f2523;
+}
+
+.settings-dialog::backdrop {
+  background: rgb(31 37 35 / 24%);
+}
+
+.settings-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #ded8cb;
+}
+
+.settings-dialog h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.settings-dialog-header button {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #69726e;
+}
+
+.settings-dialog fieldset {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 14px;
+  border: 0;
+}
+
+.settings-dialog legend {
+  margin-bottom: 8px;
+  color: #4c5551;
+  font-size: 12px;
+}
+
+.settings-dialog label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -180,29 +268,33 @@ textarea {
     background: #202422;
   }
 
-  .document-name {
-    color: #f1ece3;
-  }
-
   .document-state,
   .document-meta {
     color: #a8b0ac;
   }
 
-  .commandbar {
+  .tabstrip {
     border-bottom-color: #343936;
     background: #1d211f;
   }
 
-  .commandbar button {
-    border-color: #4a504c;
-    background: #252a27;
+  .tab {
+    border-right-color: #343936;
+    color: #a8b0ac;
+  }
+
+  .tab-active {
+    background: #171a19;
     color: #f1ece3;
   }
 
-  .commandbar button:disabled,
-  .command-status {
-    color: #8e9793;
+  .tab-close {
+    color: #a8b0ac;
+  }
+
+  .tab-close:hover {
+    background: #303633;
+    color: #f1ece3;
   }
 
   .command-error {
@@ -213,5 +305,24 @@ textarea {
 
   .document-view {
     background: #171a19;
+  }
+
+  .settings-dialog {
+    border-color: #3a403d;
+    background: #202422;
+    color: #f1ece3;
+  }
+
+  .settings-dialog::backdrop {
+    background: rgb(0 0 0 / 36%);
+  }
+
+  .settings-dialog-header {
+    border-bottom-color: #343936;
+  }
+
+  .settings-dialog-header button,
+  .settings-dialog legend {
+    color: #a8b0ac;
   }
 }
