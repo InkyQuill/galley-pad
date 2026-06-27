@@ -93,6 +93,20 @@ Every new feature needs both unit and integration coverage.
 
 Do not mock `@inky/galley-editor` in Playwright tests. Unit tests may mock it when testing Galley Pad state management or wrappers.
 
+## Commit Convention
+
+Use Conventional Commits for every commit message.
+
+Accepted commit header format:
+
+```text
+type(scope): short description
+```
+
+Allowed types are `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, and `revert`. The scope is optional, and breaking-change `!` is allowed before the colon.
+
+The repository uses `.githooks/` as `core.hooksPath`. The pre-commit hook runs `npm run verify`, and the commit-msg hook runs `npm run commitlint`.
+
 ## Verification Notes
 
 - `npm run tauri -- info` checks Tauri/Rust package metadata over the network and can stall before printing output. Use the Node timeout wrapper above and continue with `tauri-build` if it exits with timeout code 124.

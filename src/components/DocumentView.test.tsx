@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { DocumentView } from "./DocumentView";
+import { getAppearanceTheme } from "../settings/appearance";
 
 vi.mock("@inky/galley-editor", () => import("../test/galley-editor.mock"));
 
@@ -12,6 +13,17 @@ describe("DocumentView", () => {
       screen.getByRole("tabpanel", { name: "Markdown document editor" }),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("# Hello");
+    expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+      "data-layout",
+      "fill",
+    );
+    expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+      "data-theme",
+      "auto",
+    );
+    expect(screen.getByLabelText("Mock Galley Footer")).toHaveTextContent(
+      "Draft",
+    );
     expect(
       screen.queryByRole("toolbar", { name: "Mock Galley Toolbar" }),
     ).not.toBeInTheDocument();
@@ -51,6 +63,35 @@ describe("DocumentView", () => {
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Mock toolbar icon count")).toHaveTextContent(
       "15",
+    );
+  });
+
+  it("passes theme and status into Galley chrome", () => {
+    render(
+      <DocumentView
+        content="One two"
+        onContentChange={() => undefined}
+        theme={getAppearanceTheme("galley-dark")}
+        fontSettings={{ family: "mono", size: "large" }}
+        status="Unsaved"
+      />,
+    );
+
+    expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+      "data-theme",
+      "dark",
+    );
+    expect(screen.getByTestId("mock-galley-editor-shell")).toHaveStyle({
+      "--ge-font-size": "1.125rem",
+    });
+    expect(screen.getByTestId("mock-galley-editor-shell").style.getPropertyValue(
+      "--ge-font-body",
+    )).toContain("ui-monospace");
+    expect(screen.getByLabelText("Mock Galley Footer")).toHaveTextContent(
+      "Unsaved",
+    );
+    expect(screen.getByLabelText("Mock Galley Footer")).toHaveTextContent(
+      "2 words",
     );
   });
 

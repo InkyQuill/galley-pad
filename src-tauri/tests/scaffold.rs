@@ -26,6 +26,11 @@ fn text_file_commands_round_trip_markdown_content() {
 fn tauri_config_declares_installable_markdown_file_associations() {
     let config: Value = serde_json::from_str(include_str!("../tauri.conf.json"))
         .expect("tauri config should be valid json");
+    assert_eq!(
+        config.get("identifier").and_then(Value::as_str),
+        Some("net.inkyquill.GalleyPad"),
+        "Linux Wayland app id should be a GTK-valid reverse-DNS id"
+    );
     assert_cli_alias_is_safe(&config);
 
     let bundle = config

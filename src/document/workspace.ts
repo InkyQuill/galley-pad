@@ -62,6 +62,19 @@ export function openDocumentTab(
     return setActiveDocumentTab(workspace, existing.id);
   }
 
+  const activeTab = getActiveDocumentTab(workspace);
+  if (isReplaceableUntitledTab(activeTab)) {
+    const tab = createDocumentTab(session);
+
+    return {
+      ...workspace,
+      tabs: workspace.tabs.map((candidate) =>
+        candidate.id === activeTab.id ? tab : candidate,
+      ),
+      activeTabId: tab.id,
+    };
+  }
+
   return addDocumentTab(workspace, session);
 }
 
@@ -149,4 +162,13 @@ function createDocumentTab(session: DocumentSession): DocumentTab {
     id: `${session.id}:${crypto.randomUUID()}`,
     session,
   };
+}
+
+function isReplaceableUntitledTab(tab: DocumentTab): boolean {
+  return (
+    tab.session.id === "untitled" &&
+    tab.session.path === null &&
+    !tab.session.dirty &&
+    tab.session.content === tab.session.savedContent
+  );
 }

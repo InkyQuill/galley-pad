@@ -8,7 +8,7 @@ test("renders the document editor shell in a real browser", async ({ page }) => 
   await expect(
     page.getByRole("tabpanel", { name: "Untitled.md" }),
   ).toBeVisible();
-  await expect(page.getByLabel("Document statistics")).toHaveText("4 words");
+  await expect(page.locator(".document-footer-words")).toHaveText("5 words");
   await expect(
     page.getByRole("toolbar", { name: "File commands" }),
   ).not.toBeVisible();
@@ -34,7 +34,7 @@ test("marks the document unsaved after editor changes", async ({ page }) => {
   await page.keyboard.type("\nAdditional text");
 
   await expect(page.getByText("Unsaved")).toBeVisible();
-  await expect(page.getByLabel("Document statistics")).toHaveText("6 words");
+  await expect(page.locator(".document-footer-words")).toHaveText("7 words");
 });
 
 test("creates and switches document tabs with the new document shortcut", async ({
