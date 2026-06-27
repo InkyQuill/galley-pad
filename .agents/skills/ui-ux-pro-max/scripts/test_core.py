@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import core
+from design_system import persist_design_system
 
 
 class CoreSearchTests(unittest.TestCase):
@@ -127,12 +128,129 @@ class SearchCliTests(unittest.TestCase):
         self.assertEqual(payload["query"], "minimalism dark mode")
         self.assertLessEqual(payload["count"], 1)
 
+    def test_persist_design_system_writes_project_and_page_layout(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = persist_design_system(
+                minimal_design_system("My Project"),
+                page="Admin / Root",
+                output_dir=temp_dir,
+                page_query="admin root dashboard",
+            )
+
+            base = Path(temp_dir) / "design-system" / "my-project"
+            self.assertEqual(result["design_system_dir"], str(base))
+            self.assertEqual(
+                result["created_files"],
+                [
+                    str(base / "MASTER.md"),
+                    str(base / "pages" / "admin-root.md"),
+                ],
+            )
+            self.assertTrue((base / "MASTER.md").exists())
+            self.assertTrue((base / "pages" / "admin-root.md").exists())
+
+    def test_persist_design_system_rejects_empty_safe_slugs(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with self.assertRaises(ValueError):
+                persist_design_system(
+                    minimal_design_system("!!!"),
+                    output_dir=temp_dir,
+                )
+
+    def test_cli_design_system_persist_writes_expected_files(self):
+        script = Path(__file__).with_name("search.py")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "fintech crypto",
+                    "--design-system",
+                    "--persist",
+                    "--project-name",
+                    "Review Project",
+                    "--page",
+                    "Admin / Root",
+                    "--output-dir",
+                    temp_dir,
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+            base = Path(temp_dir) / "design-system" / "review-project"
+            self.assertIn(str(base), result.stdout)
+            self.assertTrue((base / "MASTER.md").exists())
+            self.assertTrue((base / "pages" / "admin-root.md").exists())
+
+    def test_cli_rejects_page_without_persist(self):
+        script = Path(__file__).with_name("search.py")
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "fintech crypto",
+                "--design-system",
+                "--page",
+                "dashboard",
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--page requires --persist", result.stderr)
 
 def write_csv(path, fieldnames, rows):
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle)
         writer.writerow(fieldnames)
         writer.writerows(rows)
+
+
+def minimal_design_system(project_name):
+    return {
+        "project_name": project_name,
+        "category": "General",
+        "pattern": {
+            "name": "Hero",
+            "sections": "Hero > CTA",
+            "cta_placement": "Above fold",
+            "color_strategy": "",
+            "conversion": "",
+        },
+        "style": {
+            "name": "Minimalism",
+            "type": "General",
+            "effects": "",
+            "keywords": "",
+            "best_for": "",
+            "performance": "",
+            "accessibility": "",
+            "light_mode": "",
+            "dark_mode": "",
+        },
+        "colors": {
+            "primary": "#000000",
+            "secondary": "#ffffff",
+            "accent": "#999999",
+            "background": "#ffffff",
+            "foreground": "#000000",
+            "cta": "#999999",
+            "text": "#000000",
+        },
+        "typography": {
+            "heading": "Inter",
+            "body": "Inter",
+            "mood": "",
+            "best_for": "",
+            "google_fonts_url": "",
+            "css_import": "",
+        },
+        "key_effects": "",
+        "anti_patterns": "",
+    }
 
 
 if __name__ == "__main__":

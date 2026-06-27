@@ -559,10 +559,12 @@ def generate_design_system(query: str, project_name: str = None, output_format: 
 
 
 # ============ PERSISTENCE FUNCTIONS ============
-def safe_slug(value: str, fallback: str = "default") -> str:
+def safe_slug(value: str) -> str:
     """Convert user-provided names to safe path slugs."""
     slug = re.sub(r"[^a-z0-9._-]+", "-", str(value).lower()).strip(".-_")
-    return slug or fallback
+    if not slug:
+        raise ValueError(f"Cannot create a safe path slug from {value!r}")
+    return slug
 
 
 def persist_design_system(design_system: dict, page: str = None, output_dir: str = None, page_query: str = None) -> dict:
@@ -603,7 +605,7 @@ def persist_design_system(design_system: dict, page: str = None, output_dir: str
     
     # If page is specified, create page override file with intelligent content
     if page:
-        page_file = pages_dir / f"{safe_slug(page, 'page')}.md"
+        page_file = pages_dir / f"{safe_slug(page)}.md"
         page_content = format_page_override_md(design_system, page, page_query)
         with open(page_file, 'w', encoding='utf-8') as f:
             f.write(page_content)

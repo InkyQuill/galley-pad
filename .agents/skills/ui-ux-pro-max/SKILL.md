@@ -469,7 +469,7 @@ python3 .agents/skills/ui-ux-pro-max/scripts/search.py "<keyword>" --stack <your
 
 ### Available Stacks
 
-Run `ls <skill>/data/stacks/` to see the live set. Shipped stacks:
+Run `ls .agents/skills/ui-ux-pro-max/data/stacks/` from the repo root to see the live set. Shipped stacks:
 
 | Stack | Focus |
 |-------|-------|
@@ -636,7 +636,7 @@ Scope notice: The rules below are for App UI (iOS/Android/React Native/Flutter),
 
 ---
 
-## Pre-Delivery Checklist
+## App UI Pre-Delivery Checklist
 
 Before delivering UI code, verify these items:
 Scope notice: This checklist is for App UI (iOS/Android/React Native/Flutter).

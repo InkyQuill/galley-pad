@@ -386,6 +386,35 @@ describe("App", () => {
     ).toHaveTextContent("swap cleanup failed");
   });
 
+  it("does not write a debounced swap snapshot after closing is approved", async () => {
+    let closeHandler: (() => Promise<boolean>) | null = null;
+    listenForWindowCloseRequestMock.mockImplementation(async (handler) => {
+      closeHandler = handler;
+      return () => undefined;
+    });
+    const clearTimeoutSpy = vi.spyOn(window, "clearTimeout");
+
+    try {
+      render(<App />);
+      fireEvent.change(screen.getByLabelText("Mock Galley Editor"), {
+        target: { value: "Dirty before close" },
+      });
+
+      expect(closeHandler).not.toBeNull();
+      const closeResult = closeHandler!();
+      await screen.findByRole("dialog", { name: "Save changes?" });
+      fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+
+      await expect(closeResult).resolves.toBe(true);
+
+      expect(writeSwapStateMock).not.toHaveBeenCalled();
+      expect(clearSwapStateMock).toHaveBeenCalled();
+      expect(clearTimeoutSpy).toHaveBeenCalled();
+    } finally {
+      clearTimeoutSpy.mockRestore();
+    }
+  });
+
   it("opens a selected file and updates the session", async () => {
     let menuHandler: ((command: AppMenuCommand) => void) | null = null;
     listenForAppMenuCommandMock.mockImplementation(async (handler) => {
@@ -524,6 +553,47 @@ describe("App", () => {
         }),
       );
     });
+  });
+
+  it("coalesces concurrent app settings writes to the latest snapshot", async () => {
+    let menuHandler: ((command: AppMenuCommand) => void) | null = null;
+    listenForAppMenuCommandMock.mockImplementation(async (handler) => {
+      menuHandler = handler;
+      return () => undefined;
+    });
+    const firstWrite = deferred<void>();
+    writeAppSettingsMock
+      .mockImplementationOnce(() => firstWrite.promise)
+      .mockResolvedValue(undefined);
+    render(<App />);
+
+    await waitFor(() => {
+      expect(listenForAppMenuCommandMock).toHaveBeenCalled();
+    });
+    act(() => {
+      menuHandler?.("settings");
+    });
+    await screen.findByRole("dialog", { name: "Settings" });
+
+    fireEvent.click(screen.getByRole("radio", { name: "Galley Dark" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Separate windows" }));
+
+    expect(writeAppSettingsMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      firstWrite.resolve(undefined);
+      await firstWrite.promise;
+    });
+
+    await waitFor(() => {
+      expect(writeAppSettingsMock).toHaveBeenCalledTimes(2);
+    });
+    expect(writeAppSettingsMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        appearanceTheme: "galley-dark",
+        openMode: "windows",
+      }),
+    );
   });
 
   it("opens settings with the standard keyboard shortcut", async () => {

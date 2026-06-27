@@ -102,6 +102,9 @@ export default function App() {
   const latestAppearanceThemeId = useRef(appearanceThemeId);
   const latestEditorFontSettings = useRef(editorFontSettings);
   const swapWriteTimer = useRef<number | null>(null);
+  const closingRef = useRef(false);
+  const pendingAppSettingsWrite = useRef<PersistedAppSettings | null>(null);
+  const appSettingsWriteInFlight = useRef(false);
   const settingsDialogRef = useRef<HTMLDialogElement>(null);
   const unsavedDialogRef = useRef<HTMLDialogElement>(null);
   const settingsReturnFocusRef = useRef<HTMLElement | null>(null);
@@ -215,7 +218,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!swapReady) {
+    if (!swapReady || closingRef.current) {
       return;
     }
 
@@ -224,6 +227,10 @@ export default function App() {
     }
 
     swapWriteTimer.current = window.setTimeout(() => {
+      if (closingRef.current) {
+        return;
+      }
+
       const snapshot = createSwapState(latestWorkspace.current);
       const action = snapshot ? writeSwapState(snapshot) : clearSwapState();
       void action.catch((error: unknown) => {
@@ -295,6 +302,8 @@ export default function App() {
     void listenForWindowCloseRequest(async () => {
       const canClose = await resolveAllDirtyTabsForClose();
       if (canClose) {
+        closingRef.current = true;
+        clearPendingSwapWrite();
         try {
           await clearSwapState();
         } catch (error: unknown) {
@@ -724,18 +733,44 @@ export default function App() {
   }
 
   async function persistAppSettings(settings: Partial<PersistedAppSettings>) {
-    const next = {
+    pendingAppSettingsWrite.current = {
+      ...(pendingAppSettingsWrite.current ?? currentAppSettingsSnapshot()),
+      ...settings,
+    };
+
+    if (appSettingsWriteInFlight.current) {
+      return;
+    }
+
+    appSettingsWriteInFlight.current = true;
+    try {
+      while (pendingAppSettingsWrite.current) {
+        const next = pendingAppSettingsWrite.current;
+        pendingAppSettingsWrite.current = null;
+        try {
+          await writeAppSettings(next);
+        } catch (error: unknown) {
+          setCommandError(errorMessage(error));
+        }
+      }
+    } finally {
+      appSettingsWriteInFlight.current = false;
+    }
+  }
+
+  function currentAppSettingsSnapshot(): PersistedAppSettings {
+    return {
       appearanceTheme: latestAppearanceThemeId.current,
       editorFontFamily: latestEditorFontSettings.current.family,
       editorFontSize: latestEditorFontSettings.current.size,
       openMode: latestWorkspace.current.openMode,
-      ...settings,
     };
+  }
 
-    try {
-      await writeAppSettings(next);
-    } catch (error: unknown) {
-      setCommandError(errorMessage(error));
+  function clearPendingSwapWrite() {
+    if (swapWriteTimer.current !== null) {
+      window.clearTimeout(swapWriteTimer.current);
+      swapWriteTimer.current = null;
     }
   }
 
