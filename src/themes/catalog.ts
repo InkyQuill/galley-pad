@@ -1,5 +1,15 @@
 import type { ThemeDefinition, ThemeId, ThemeScheme, ThemeTokens } from "./tokens";
 
+type DeepReadonly<T> = T extends (...args: unknown[]) => unknown
+  ? T
+  : T extends readonly (infer Item)[]
+    ? readonly DeepReadonly<Item>[]
+    : T extends object
+      ? { readonly [Key in keyof T]: DeepReadonly<T[Key]> }
+      : T;
+
+type BuiltInThemeDefinition = DeepReadonly<ThemeDefinition>;
+
 export const DEFAULT_CONSTANT_THEME_ID = "galley-light";
 export const DEFAULT_LIGHT_THEME_ID = "galley-light";
 export const DEFAULT_DARK_THEME_ID = "galley-dark";
@@ -238,10 +248,10 @@ const catppuccinLatteTokens: ThemeTokens = {
     textMuted: "#6c6f85",
     tabText: "#5c5f77",
     hover: "#ccd0da",
-    focus: "#1e66f5",
+    focus: "#1a55d8",
     errorBg: "#f8e1df",
-    errorBorder: "#d96c69",
-    errorText: "#d20f39",
+    errorBorder: "#bd4a59",
+    errorText: "#b40d30",
     dialogShadow: "0 18px 54px rgb(76 79 105 / 18%)",
     backdrop: "rgb(76 79 105 / 24%)",
   },
@@ -252,11 +262,11 @@ const catppuccinLatteTokens: ThemeTokens = {
     surface: "#e6e9ef",
     surfaceElevated: "#f6f7fb",
     border: "#bcc0cc",
-    link: "#1e66f5",
-    linkHover: "#174fbf",
+    link: "#1a55d8",
+    linkHover: "#143f9f",
     selection: "rgb(30 102 245 / 22%)",
     caret: "currentColor",
-    focusRing: "#1e66f5",
+    focusRing: "#1a55d8",
     scrollbarThumb: "rgb(108 111 133 / 34%)",
     scrollbarThumbHover: "rgb(108 111 133 / 54%)",
   },
@@ -269,7 +279,7 @@ const catppuccinLatteTokens: ThemeTokens = {
     blockquoteFg: "#5c5f77",
     divider: "rgb(108 111 133 / 26%)",
     tableBorder: "rgb(108 111 133 / 26%)",
-    checkboxAccent: "#1e66f5",
+    checkboxAccent: "#1a55d8",
   },
   syntax: {
     keyword: "#8839ef",
@@ -464,8 +474,8 @@ const nordLightTokens: ThemeTokens = {
     hover: "#cfd6e3",
     focus: "#4c6f99",
     errorBg: "#f2dddf",
-    errorBorder: "#c26a75",
-    errorText: "#bf616a",
+    errorBorder: "#a94b58",
+    errorText: "#8f3440",
     dialogShadow: "0 18px 54px rgb(46 52 64 / 18%)",
     backdrop: "rgb(46 52 64 / 24%)",
   },
@@ -632,8 +642,8 @@ const solarizedLightTokens: ThemeTokens = {
     hover: "#d8cfb4",
     focus: "#1b6ea8",
     errorBg: "#f2d9cf",
-    errorBorder: "#c9694e",
-    errorText: "#dc322f",
+    errorBorder: "#b84a36",
+    errorText: "#a82424",
     dialogShadow: "0 18px 54px rgb(88 110 117 / 20%)",
     backdrop: "rgb(88 110 117 / 26%)",
   },
@@ -742,7 +752,19 @@ function theme(
   return { id, label, family, scheme, tokens };
 }
 
-const builtInThemes = [
+function deepFreeze<T extends object>(value: T): DeepReadonly<T> {
+  for (const key of Reflect.ownKeys(value)) {
+    const child = value[key as keyof T];
+
+    if (child !== null && (typeof child === "object" || typeof child === "function")) {
+      deepFreeze(child as object);
+    }
+  }
+
+  return Object.freeze(value) as DeepReadonly<T>;
+}
+
+const builtInThemes = deepFreeze([
   theme("galley-light", "Galley Light", "Galley", "light", galleyLightTokens),
   theme("galley-dark", "Galley Dark", "Galley", "dark", galleyDarkTokens),
   theme("gruvbox-light", "Gruvbox Light", "Gruvbox", "light", gruvboxLightTokens),
@@ -768,17 +790,17 @@ const builtInThemes = [
   theme("darcula", "Darcula", "Darcula", "dark", darculaTokens),
   theme("solarized-light", "Solarized Light", "Solarized", "light", solarizedLightTokens),
   theme("solarized-dark", "Solarized Dark", "Solarized", "dark", solarizedDarkTokens),
-] as const satisfies readonly ThemeDefinition[];
+] as const satisfies readonly ThemeDefinition[]);
 
-export const BUILT_IN_THEMES: readonly ThemeDefinition[] = builtInThemes;
+export const BUILT_IN_THEMES: readonly BuiltInThemeDefinition[] = builtInThemes;
 
 const themesById = new Map(builtInThemes.map((builtInTheme) => [builtInTheme.id, builtInTheme]));
 
-export function getTheme(themeId: ThemeId): ThemeDefinition | undefined {
+export function getTheme(themeId: ThemeId): BuiltInThemeDefinition | undefined {
   return themesById.get(themeId);
 }
 
-export function listThemesByScheme(scheme: ThemeScheme): readonly ThemeDefinition[] {
+export function listThemesByScheme(scheme: ThemeScheme): readonly BuiltInThemeDefinition[] {
   return builtInThemes.filter((builtInTheme) => builtInTheme.scheme === scheme);
 }
 

@@ -94,26 +94,42 @@ describe("theme catalog", () => {
     expect(isThemeId({ id: "galley-light" })).toBe(false);
   });
 
-  it("keeps reviewed light theme text-bearing tokens readable", () => {
-    const pairs = [
-      ["tokyo-night-day", "editor.link", "editor.bg"],
-      ["tokyo-night-day", "app.errorText", "app.errorBg"],
-      ["nord-light", "editor.link", "editor.bg"],
-      ["solarized-light", "editor.link", "editor.bg"],
-    ] as const;
-
-    for (const [themeId, foregroundPath, backgroundPath] of pairs) {
-      const theme = getTheme(themeId);
-
-      expect(theme, themeId).toBeDefined();
+  it("keeps light theme text-bearing tokens readable", () => {
+    for (const theme of listThemesByScheme("light")) {
       expect(
         contrastRatio(
-          colorAtPath(theme!, foregroundPath),
-          colorAtPath(theme!, backgroundPath),
+          theme.tokens.editor.link,
+          theme.tokens.editor.bg,
         ),
-        `${themeId} ${foregroundPath} on ${backgroundPath}`,
+        `${theme.id} editor.link on editor.bg`,
+      ).toBeGreaterThanOrEqual(MINIMUM_NORMAL_TEXT_CONTRAST);
+      expect(
+        contrastRatio(
+          theme.tokens.app.errorText,
+          theme.tokens.app.errorBg,
+        ),
+        `${theme.id} app.errorText on app.errorBg`,
       ).toBeGreaterThanOrEqual(MINIMUM_NORMAL_TEXT_CONTRAST);
     }
+  });
+
+  it("prevents runtime mutation of the built-in catalog", () => {
+    const originalLength = BUILT_IN_THEMES.length;
+
+    expect(() => {
+      (BUILT_IN_THEMES as unknown[]).push(BUILT_IN_THEMES[0]);
+    }).toThrow(TypeError);
+    expect(BUILT_IN_THEMES).toHaveLength(originalLength);
+  });
+
+  it("prevents runtime mutation of built-in theme tokens", () => {
+    const theme = getTheme("galley-light");
+
+    expect(theme).toBeDefined();
+    expect(() => {
+      (theme!.tokens.editor as { link: string }).link = "#000000";
+    }).toThrow(TypeError);
+    expect(getTheme("galley-light")!.tokens.editor.link).toBe("#2f6388");
   });
 
   it("keeps reviewed light theme action tokens aligned", () => {
@@ -137,22 +153,3 @@ describe("theme catalog", () => {
     }
   });
 });
-
-function colorAtPath(
-  theme: NonNullable<ReturnType<typeof getTheme>>,
-  path: "app.errorBg" | "app.errorText" | "editor.bg" | "editor.link",
-): string {
-  if (path === "app.errorBg") {
-    return theme.tokens.app.errorBg;
-  }
-
-  if (path === "app.errorText") {
-    return theme.tokens.app.errorText;
-  }
-
-  if (path === "editor.bg") {
-    return theme.tokens.editor.bg;
-  }
-
-  return theme.tokens.editor.link;
-}
