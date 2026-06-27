@@ -68,12 +68,23 @@ describe("theme catalog", () => {
   });
 
   it("filters themes by scheme", () => {
-    expect(listThemesByScheme("light").every((theme) => theme.scheme === "light")).toBe(
-      true,
-    );
-    expect(listThemesByScheme("dark").every((theme) => theme.scheme === "dark")).toBe(
-      true,
-    );
+    expect(listThemesByScheme("light").map((theme) => theme.id)).toEqual([
+      "galley-light",
+      "gruvbox-light",
+      "catppuccin-latte",
+      "tokyo-night-day",
+      "nord-light",
+      "solarized-light",
+    ]);
+    expect(listThemesByScheme("dark").map((theme) => theme.id)).toEqual([
+      "galley-dark",
+      "gruvbox-dark",
+      "catppuccin-mocha",
+      "tokyo-night",
+      "nord-dark",
+      "darcula",
+      "solarized-dark",
+    ]);
   });
 
   it("identifies built-in theme ids from persisted settings data", () => {

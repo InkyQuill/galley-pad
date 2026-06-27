@@ -742,7 +742,7 @@ function theme(
   return { id, label, family, scheme, tokens };
 }
 
-export const BUILT_IN_THEMES: ThemeDefinition[] = [
+const builtInThemes = [
   theme("galley-light", "Galley Light", "Galley", "light", galleyLightTokens),
   theme("galley-dark", "Galley Dark", "Galley", "dark", galleyDarkTokens),
   theme("gruvbox-light", "Gruvbox Light", "Gruvbox", "light", gruvboxLightTokens),
@@ -768,16 +768,18 @@ export const BUILT_IN_THEMES: ThemeDefinition[] = [
   theme("darcula", "Darcula", "Darcula", "dark", darculaTokens),
   theme("solarized-light", "Solarized Light", "Solarized", "light", solarizedLightTokens),
   theme("solarized-dark", "Solarized Dark", "Solarized", "dark", solarizedDarkTokens),
-];
+] as const satisfies readonly ThemeDefinition[];
 
-const themesById = new Map(BUILT_IN_THEMES.map((builtInTheme) => [builtInTheme.id, builtInTheme]));
+export const BUILT_IN_THEMES: readonly ThemeDefinition[] = builtInThemes;
+
+const themesById = new Map(builtInThemes.map((builtInTheme) => [builtInTheme.id, builtInTheme]));
 
 export function getTheme(themeId: ThemeId): ThemeDefinition | undefined {
   return themesById.get(themeId);
 }
 
-export function listThemesByScheme(scheme: ThemeScheme): ThemeDefinition[] {
-  return BUILT_IN_THEMES.filter((builtInTheme) => builtInTheme.scheme === scheme);
+export function listThemesByScheme(scheme: ThemeScheme): readonly ThemeDefinition[] {
+  return builtInThemes.filter((builtInTheme) => builtInTheme.scheme === scheme);
 }
 
 export function isThemeId(value: unknown): value is ThemeId {
