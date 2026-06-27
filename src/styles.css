@@ -117,6 +117,9 @@ textarea {
 }
 
 .tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 24px;
   width: 24px;
   height: 24px;
@@ -127,6 +130,10 @@ textarea {
   color: var(--app-text-muted);
   font-size: 13px;
   line-height: 1;
+}
+
+.tab-close svg {
+  display: block;
 }
 
 .tab-close:hover {
@@ -147,6 +154,9 @@ textarea {
 }
 
 .command-error button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 auto;
   width: 24px;
   height: 24px;
@@ -155,6 +165,10 @@ textarea {
   background: transparent;
   color: inherit;
   line-height: 1;
+}
+
+.command-error button svg {
+  display: block;
 }
 
 .command-error button:hover {
@@ -237,12 +251,19 @@ textarea {
 }
 
 .settings-dialog-header button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 28px;
   height: 28px;
   border: 0;
   border-radius: 4px;
   background: transparent;
   color: var(--app-text-muted);
+}
+
+.settings-dialog-header button svg {
+  display: block;
 }
 
 .settings-dialog fieldset {

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { X } from "lucide-react";
 import { DocumentView } from "./components/DocumentView";
 import { FontPicker } from "./components/FontPicker";
 import {
@@ -987,7 +988,7 @@ export default function App() {
                 aria-label={`Close ${tab.session.displayName}`}
                 onClick={() => void requestCloseTab(tab.id)}
               >
-                x
+                <X size={14} strokeWidth={2} aria-hidden="true" />
               </button>
             ) : null}
           </div>
@@ -1007,7 +1008,7 @@ export default function App() {
               aria-label="Dismiss file command error"
               onClick={() => setCommandError(null)}
             >
-              x
+              <X size={14} strokeWidth={2} aria-hidden="true" />
             </button>
           </div>
         ) : null}
@@ -1063,7 +1064,7 @@ export default function App() {
               aria-label="Close settings"
               onClick={closeSettings}
             >
-              x
+              <X size={16} strokeWidth={2} aria-hidden="true" />
             </button>
           </header>
           <fieldset>

@@ -157,6 +157,29 @@ describe("App", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("renders close and dismiss controls as accessible icon buttons", async () => {
+    readAppSettingsMock.mockRejectedValue(new Error("Settings unavailable"));
+
+    render(<App />);
+
+    const tabClose = screen.getByRole("button", { name: "Close Untitled.md" });
+    expect(tabClose.querySelector("svg")).toBeInTheDocument();
+    expect(tabClose).not.toHaveTextContent("x");
+
+    fireEvent.keyDown(window, { key: ",", ctrlKey: true });
+    await screen.findByRole("dialog", { name: "Settings" });
+    const settingsClose = screen.getByRole("button", { name: "Close settings" });
+    expect(settingsClose.querySelector("svg")).toBeInTheDocument();
+    expect(settingsClose).not.toHaveTextContent("x");
+
+    await screen.findByRole("alert", { name: "File command error" });
+    const dismissError = screen.getByRole("button", {
+      name: "Dismiss file command error",
+    });
+    expect(dismissError.querySelector("svg")).toBeInTheDocument();
+    expect(dismissError).not.toHaveTextContent("x");
+  });
+
   it("applies theme variables on the app shell for chrome and editor inheritance", async () => {
     render(<App />);
 
