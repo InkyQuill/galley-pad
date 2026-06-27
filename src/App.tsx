@@ -86,12 +86,16 @@ export default function App() {
     let unlisten: (() => void) | null = null;
     let disposed = false;
 
-    void listenForMarkdownFileOpen((path) => {
+    function enqueueExternalOpen(path: string) {
       externalOpenQueue.current = externalOpenQueue.current.then(async () => {
         if (!disposed) {
           await openExternalFile(path);
         }
       });
+    }
+
+    void listenForMarkdownFileOpen((path) => {
+      enqueueExternalOpen(path);
     }).then((nextUnlisten) => {
       if (disposed) {
         nextUnlisten();
@@ -110,13 +114,8 @@ export default function App() {
     }
 
     void getPendingMarkdownFileOpens()
-      .then(async (paths) => {
-        for (const path of paths) {
-          if (disposed) {
-            break;
-          }
-          await openFileInCurrentWindow(path);
-        }
+      .then((paths) => {
+        paths.forEach(enqueueExternalOpen);
       })
       .catch((error: unknown) => {
         setCommandError(errorMessage(error));

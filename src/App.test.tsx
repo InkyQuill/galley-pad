@@ -563,6 +563,71 @@ describe("App", () => {
     expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("# Two\n");
   });
 
+  it("serializes pending startup files and live OS file events together", async () => {
+    let openHandler: ((path: string) => void) | null = null;
+    listenForMarkdownFileOpenMock.mockImplementation(async (handler) => {
+      openHandler = handler;
+      return () => undefined;
+    });
+    getPendingMarkdownFileOpensMock.mockResolvedValue(["/tmp/start.md"]);
+    const startupRead = deferred<{
+      path: string;
+      content: string;
+      lineEnding: "lf";
+      lastModifiedAt: number;
+    }>();
+    const liveRead = deferred<{
+      path: string;
+      content: string;
+      lineEnding: "lf";
+      lastModifiedAt: number;
+    }>();
+    readTextFileMock
+      .mockImplementationOnce(() => startupRead.promise)
+      .mockImplementationOnce(() => liveRead.promise);
+
+    render(<App />);
+    await waitFor(() => {
+      expect(readTextFileMock).toHaveBeenCalledWith("/tmp/start.md");
+      expect(listenForMarkdownFileOpenMock).toHaveBeenCalled();
+    });
+
+    act(() => {
+      openHandler?.("/tmp/live.md");
+    });
+    liveRead.resolve({
+      path: "/tmp/live.md",
+      content: "# Live\n",
+      lineEnding: "lf",
+      lastModifiedAt: 41,
+    });
+    expect(readTextFileMock).not.toHaveBeenCalledWith("/tmp/live.md");
+    await act(async () => {
+      startupRead.resolve({
+        path: "/tmp/start.md",
+        content: "# Start\n",
+        lineEnding: "lf",
+        lastModifiedAt: 40,
+      });
+      await startupRead.promise;
+    });
+
+    await waitFor(() => {
+      expect(readTextFileMock).toHaveBeenCalledWith("/tmp/live.md");
+    });
+    await act(async () => {
+      await liveRead.promise;
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "live.md" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+    });
+    expect(screen.getByRole("tab", { name: "start.md" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("# Live\n");
+  });
+
   it("opens OS file events in a new tab without replacing a dirty tab", async () => {
     let openHandler: ((path: string) => void) | null = null;
     listenForMarkdownFileOpenMock.mockImplementation(async (handler) => {
