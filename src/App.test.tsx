@@ -179,6 +179,16 @@ describe("App", () => {
     const appShell = screen.getByTestId("app-shell");
     expect(appShell.style.getPropertyValue("--app-bg")).not.toBe("");
     expect(appShell.style.getPropertyValue("--ge-color-bg")).not.toBe("");
+    expect(
+      screen
+        .getByTestId("mock-galley-editor-shell")
+        .style.getPropertyValue("--ge-color-bg"),
+    ).toBe("#1a1b26");
+    expect(
+      screen
+        .getByTestId("mock-galley-editor-shell")
+        .style.getPropertyValue("--ge-color-link"),
+    ).toBe("#7aa2f7");
   });
 
   it("updates resolved system theme variables when the system color scheme changes", async () => {

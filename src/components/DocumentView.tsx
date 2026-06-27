@@ -27,6 +27,8 @@ import {
   type EditorFontSettings,
 } from "../settings/appearance";
 
+type EditorSurfaceStyle = CSSProperties & Record<`--${string}`, string>;
+
 export type DocumentViewProps = {
   content: string;
   onContentChange: (content: string) => void;
@@ -34,6 +36,7 @@ export type DocumentViewProps = {
   labelledBy?: string;
   toolbarVisible?: boolean;
   editorScheme?: "auto" | "light" | "dark";
+  editorStyle?: EditorSurfaceStyle;
   fontSettings?: EditorFontSettings;
   status?: string;
 };
@@ -45,6 +48,7 @@ export function DocumentView({
   labelledBy,
   toolbarVisible = false,
   editorScheme,
+  editorStyle,
   fontSettings = { family: "system", size: "medium" },
   status = "Draft",
 }: DocumentViewProps) {
@@ -66,6 +70,7 @@ export function DocumentView({
         surface={{
           className: "galley-pad-editor-surface",
           style: {
+            ...editorStyle,
             "--ge-font-body": fontStyle.fontFamily,
             "--ge-font-size": fontStyle.fontSize,
           } as CSSProperties,

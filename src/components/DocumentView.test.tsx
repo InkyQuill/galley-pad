@@ -71,6 +71,10 @@ describe("DocumentView", () => {
         content="One two"
         onContentChange={() => undefined}
         editorScheme="dark"
+        editorStyle={{
+          "--ge-color-bg": "#1a1b26",
+          "--ge-color-link": "#7aa2f7",
+        }}
         fontSettings={{ family: "mono", size: "large" }}
         status="Unsaved"
       />,
@@ -82,6 +86,10 @@ describe("DocumentView", () => {
     );
     expect(screen.getByTestId("mock-galley-editor-shell")).toHaveStyle({
       "--ge-font-size": "1.125rem",
+    });
+    expect(screen.getByTestId("mock-galley-editor-shell")).toHaveStyle({
+      "--ge-color-bg": "#1a1b26",
+      "--ge-color-link": "#7aa2f7",
     });
     expect(screen.getByTestId("mock-galley-editor-shell").style.getPropertyValue(
       "--ge-font-body",

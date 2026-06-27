@@ -865,7 +865,7 @@ export default function App() {
   const activeTabButtonId = tabButtonId(workspace.activeTabId);
   const activeTabPanelId = tabPanelId(workspace.activeTabId);
   const resolvedTheme = resolveTheme(themeSettings, systemScheme);
-  const themeVariables = themeToCssVariables(resolvedTheme);
+  const themeStyle = themeToCssVariables(resolvedTheme);
   const editorScheme =
     themeSettings.mode === "constant" ? resolvedTheme.scheme : "auto";
   const appearanceThemeId = appearanceThemeIdFromThemeSettings(themeSettings);
@@ -875,7 +875,7 @@ export default function App() {
     <div
       className={`app-shell ${appearanceTheme.appClassName}`}
       data-testid="app-shell"
-      style={themeVariables}
+      style={themeStyle}
     >
       <nav className="tabstrip" role="tablist" aria-label="Open documents">
         {workspace.tabs.map((tab) => (
@@ -938,6 +938,7 @@ export default function App() {
         labelledBy={activeTabButtonId}
         toolbarVisible={toolbarVisible}
         editorScheme={editorScheme}
+        editorStyle={themeStyle}
         fontSettings={editorFontSettings}
         status={
           pendingCommand
