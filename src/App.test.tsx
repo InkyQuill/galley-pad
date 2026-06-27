@@ -156,6 +156,7 @@ describe("App", () => {
     expect(screen.getByLabelText("Mock Galley Footer")).toHaveTextContent(
       "0 words",
     );
+    expect(screen.getByLabelText("Galley Pad v0.1.0")).toBeInTheDocument();
     expect(document.title).toBe("Untitled.md - Galley Pad");
 
     const appShell = container.querySelector(".app-shell");

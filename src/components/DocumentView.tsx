@@ -22,6 +22,7 @@ import {
   Undo2,
   type LucideIcon,
 } from "lucide-react";
+import { GalleyPadFooterMark } from "./GalleyPadFooterMark";
 import {
   editorFontStyle,
   type EditorFontSettings,
@@ -85,10 +86,14 @@ export function DocumentView({
         footer={{
           before: <span className="document-footer-status">{status}</span>,
           after: ({ wordCount }: GalleyFooterContext) => (
-            <span className="document-footer-words">
-              {wordCount} {wordCount === 1 ? "word" : "words"}
-            </span>
+            <>
+              <span className="document-footer-words">
+                {wordCount} {wordCount === 1 ? "word" : "words"}
+              </span>
+              <GalleyPadFooterMark />
+            </>
           ),
+          logo: false,
           wordCount: false,
           characterCount: true,
         }}
