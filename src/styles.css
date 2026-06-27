@@ -65,13 +65,33 @@ textarea {
 }
 
 .tabstrip {
+  position: relative;
+  z-index: 30;
   display: flex;
   align-items: stretch;
   min-width: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: visible;
   border-bottom: 1px solid var(--app-border);
   background: var(--app-panel-muted);
+}
+
+.tabstrip-tabs {
+  display: flex;
+  align-items: stretch;
+  flex: 1 1 auto;
+  min-width: 0;
+  scrollbar-width: none;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.tabstrip-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tabstrip-menu {
+  position: relative;
+  flex: 0 0 auto;
 }
 
 .tab {
@@ -105,6 +125,9 @@ textarea {
 
 .tab button[role="tab"]:focus-visible,
 .tab-close:focus-visible,
+.tabstrip-action:focus-visible,
+.tab-menu-select:focus-visible,
+.tab-menu-close:focus-visible,
 .command-error button:focus-visible,
 .settings-dialog button:focus-visible,
 .settings-dialog input:focus-visible,
@@ -137,6 +160,108 @@ textarea {
 }
 
 .tab-close:hover {
+  background: var(--app-hover);
+  color: var(--app-text);
+}
+
+.tabstrip-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 33px;
+  border: 0;
+  border-right: 1px solid var(--app-border);
+  background: transparent;
+  color: var(--app-text-muted);
+}
+
+.tabstrip-action svg {
+  display: block;
+}
+
+.tabstrip-action:hover {
+  background: var(--app-hover);
+  color: var(--app-text);
+}
+
+.tabstrip-action:disabled {
+  color: color-mix(in srgb, var(--app-text-muted) 42%, transparent);
+  cursor: default;
+}
+
+.tabstrip-action:disabled:hover {
+  background: transparent;
+}
+
+.tabstrip-tabs + .tabstrip-action {
+  border-left: 1px solid var(--app-border);
+}
+
+.tab-menu {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 4px);
+  left: 4px;
+  width: min(320px, calc(100vw - 16px));
+  max-height: min(360px, calc(100vh - 72px));
+  overflow: auto;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  background: var(--app-panel);
+  box-shadow: var(--app-dialog-shadow);
+}
+
+.tab-menu ul {
+  display: grid;
+  gap: 1px;
+  padding: 4px;
+  margin: 0;
+  list-style: none;
+}
+
+.tab-menu-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  align-items: center;
+  min-height: 32px;
+  color: var(--app-tab-text);
+}
+
+.tab-menu-item-active {
+  background: var(--app-panel-muted);
+  color: var(--app-text);
+}
+
+.tab-menu-select,
+.tab-menu-close {
+  height: 32px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.tab-menu-select {
+  min-width: 0;
+  padding: 0 8px;
+  overflow: hidden;
+  font-size: 12px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-menu-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  color: var(--app-text-muted);
+}
+
+.tab-menu-select:hover,
+.tab-menu-close:hover {
   background: var(--app-hover);
   color: var(--app-text);
 }

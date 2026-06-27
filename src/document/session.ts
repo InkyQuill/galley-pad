@@ -24,10 +24,7 @@ export type DocumentSession = {
   lastKnownModifiedAt: number | null;
 };
 
-export const INITIAL_DOCUMENT = `# Untitled
-
-Start writing Markdown.
-`;
+export const INITIAL_DOCUMENT = "";
 
 export function createUntitledSession(): DocumentSession {
   return {

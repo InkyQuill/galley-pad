@@ -1,4 +1,11 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import {
@@ -21,7 +28,10 @@ import {
   writeAppSettings,
   writeSwapState,
 } from "./tauri/appPersistence";
-import { listenForWindowCloseRequest } from "./tauri/windowClose";
+import {
+  closeCurrentWindow,
+  listenForWindowCloseRequest,
+} from "./tauri/windowClose";
 
 vi.mock("@inky/galley-editor", () => import("./test/galley-editor.mock"));
 vi.mock("./tauri/dialogs", () => ({
@@ -56,6 +66,7 @@ vi.mock("./tauri/appPersistence", () => ({
   writeSwapState: vi.fn(),
 }));
 vi.mock("./tauri/windowClose", () => ({
+  closeCurrentWindow: vi.fn(),
   listenForWindowCloseRequest: vi.fn(),
 }));
 
@@ -74,6 +85,7 @@ const readAppSettingsMock = vi.mocked(readAppSettings);
 const readSwapStateMock = vi.mocked(readSwapState);
 const writeAppSettingsMock = vi.mocked(writeAppSettings);
 const writeSwapStateMock = vi.mocked(writeSwapState);
+const closeCurrentWindowMock = vi.mocked(closeCurrentWindow);
 const listenForWindowCloseRequestMock = vi.mocked(listenForWindowCloseRequest);
 
 describe("App", () => {
@@ -139,12 +151,10 @@ describe("App", () => {
       "id",
       activeTab.getAttribute("aria-controls"),
     );
-    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
-      "# Untitled\n\nStart writing Markdown.\n",
-    );
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("");
     expect(screen.getByLabelText("Mock Galley Footer")).toHaveTextContent("Draft");
     expect(screen.getByLabelText("Mock Galley Footer")).toHaveTextContent(
-      "5 words",
+      "0 words",
     );
     expect(document.title).toBe("Untitled.md - Galley Pad");
 
@@ -178,6 +188,53 @@ describe("App", () => {
     });
     expect(dismissError.querySelector("svg")).toBeInTheDocument();
     expect(dismissError).not.toHaveTextContent("x");
+  });
+
+  it("creates a new empty tab from the tab strip action", () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "New tab" }));
+
+    expect(screen.getAllByRole("tab", { name: /Untitled\.md/ })).toHaveLength(2);
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("");
+  });
+
+  it("shows a tab menu with select and close actions", async () => {
+    render(<App />);
+    fireEvent.change(screen.getByLabelText("Mock Galley Editor"), {
+      target: { value: "First draft" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "New tab" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Show tabs" }));
+    const menu = screen.getByRole("menu", { name: "Open tabs" });
+    const items = within(menu).getAllByRole("menuitem");
+
+    fireEvent.click(items[0]);
+
+    expect(screen.queryByRole("menu", { name: "Open tabs" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("First draft");
+
+    fireEvent.click(screen.getByRole("button", { name: "Show tabs" }));
+    const reopenedMenu = screen.getByRole("menu", { name: "Open tabs" });
+    fireEvent.click(
+      within(reopenedMenu).getAllByRole("button", { name: "Close Untitled.md" })[1],
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByRole("tab", { name: /Untitled\.md/ })).toHaveLength(1);
+    });
+  });
+
+  it("renders tab strip scroll controls", () => {
+    render(<App />);
+
+    expect(
+      screen.getByRole("button", { name: "Scroll tabs left" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Scroll tabs right" }),
+    ).toBeInTheDocument();
   });
 
   it("applies theme variables on the app shell for chrome and editor inheritance", async () => {
@@ -511,9 +568,7 @@ describe("App", () => {
 
     expect(window.confirm).not.toHaveBeenCalled();
     expect(screen.getAllByRole("tab", { name: /Untitled\.md/ })).toHaveLength(2);
-    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
-      "# Untitled\n\nStart writing Markdown.\n",
-    );
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("");
     expect(screen.getByText("Draft")).toBeInTheDocument();
   });
 
@@ -556,10 +611,19 @@ describe("App", () => {
     await screen.findByRole("dialog", { name: "Save changes?" });
     fireEvent.click(screen.getByRole("button", { name: "Discard" }));
     await waitFor(() => {
-      expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
-        "# Untitled\n\nStart writing Markdown.\n",
-      );
+      expect(closeCurrentWindowMock).toHaveBeenCalledOnce();
     });
+  });
+
+  it("closes the application when closing the final clean tab", async () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Close Untitled.md" }));
+
+    await waitFor(() => {
+      expect(closeCurrentWindowMock).toHaveBeenCalledOnce();
+    });
+    expect(clearSwapStateMock).toHaveBeenCalledOnce();
   });
 
   it("saves a dirty file-backed document when window close is requested", async () => {
@@ -1078,9 +1142,7 @@ describe("App", () => {
       expect(openMarkdownFileWindowMock).toHaveBeenCalledWith("/tmp/window.md");
     });
     expect(readTextFileMock).not.toHaveBeenCalled();
-    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
-      "# Untitled\n\nStart writing Markdown.\n",
-    );
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("");
   });
 
   it("opens OS file events in a separate window when window mode is enabled", async () => {
