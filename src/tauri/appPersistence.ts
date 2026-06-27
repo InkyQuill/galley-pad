@@ -3,12 +3,20 @@ import type { OpenMode } from "../document/workspace";
 import type { EditorFontSettings } from "../settings/appearance";
 import type { ThemeSettings } from "../themes/settings";
 
+type JsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
 export type PersistedAppSettings = {
-  appearanceTheme?: string;
-  themeSettings?: ThemeSettings;
-  editorFontFamily?: string;
-  editorFontSize?: EditorFontSettings["size"];
-  openMode?: OpenMode;
+  appearanceTheme?: string | null;
+  themeSettings?: ThemeSettings | JsonValue;
+  editorFontFamily?: string | null;
+  editorFontSize?: EditorFontSettings["size"] | null;
+  openMode?: OpenMode | null;
 };
 
 export type PersistedSwapState = {

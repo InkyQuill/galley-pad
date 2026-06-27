@@ -74,18 +74,9 @@ pub struct SystemFontCatalog {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ThemeSettings {
-    pub mode: String,
-    pub constant_theme_id: String,
-    pub light_theme_id: String,
-    pub dark_theme_id: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct PersistedAppSettings {
     pub appearance_theme: Option<String>,
-    pub theme_settings: Option<ThemeSettings>,
+    pub theme_settings: Option<serde_json::Value>,
     pub editor_font_family: Option<String>,
     pub editor_font_size: Option<String>,
     pub open_mode: Option<String>,

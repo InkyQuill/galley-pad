@@ -1,6 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { readSwapState, writeSwapState } from "./appPersistence";
+import {
+  readAppSettings,
+  readSwapState,
+  writeAppSettings,
+  writeSwapState,
+} from "./appPersistence";
 import type { PersistedAppSettings, PersistedSwapState } from "./appPersistence";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -46,9 +51,8 @@ describe("app persistence", () => {
     expect(invokeMock).toHaveBeenCalledWith("write_swap_state", { state });
   });
 
-  it("accepts new theme settings while keeping old appearanceTheme optional", () => {
+  it("writes theme settings through Tauri unchanged", async () => {
     const settings: PersistedAppSettings = {
-      appearanceTheme: "galley-dark",
       themeSettings: {
         mode: "system",
         constantThemeId: "galley-light",
@@ -60,7 +64,59 @@ describe("app persistence", () => {
       openMode: "tabs",
     };
 
-    expect(settings.themeSettings?.darkThemeId).toBe("tokyo-night");
+    invokeMock.mockResolvedValue(undefined);
+
+    await writeAppSettings(settings);
+
+    expect(invokeMock).toHaveBeenCalledWith("write_app_settings", {
+      settings: {
+        themeSettings: {
+          mode: "system",
+          constantThemeId: "galley-light",
+          lightThemeId: "solarized-light",
+          darkThemeId: "tokyo-night",
+        },
+        editorFontFamily: "Fira Code",
+        editorFontSize: "large",
+        openMode: "tabs",
+      },
+    });
+  });
+
+  it("returns old app settings without themeSettings from Tauri", async () => {
+    const settings: PersistedAppSettings = {
+      appearanceTheme: "galley-dark",
+      editorFontFamily: "Fira Code",
+      editorFontSize: "large",
+      openMode: "tabs",
+    };
+
+    invokeMock.mockResolvedValue(settings);
+
+    await expect(readAppSettings()).resolves.toEqual(settings);
+  });
+
+  it("returns malformed or null themeSettings from Tauri without throwing", async () => {
+    const malformedSettings = {
+      appearanceTheme: "galley-dark",
+      themeSettings: {
+        mode: "broken",
+        constantThemeId: 42,
+      },
+      editorFontFamily: null,
+      editorFontSize: "large",
+      openMode: "tabs",
+    } satisfies PersistedAppSettings;
+
+    invokeMock.mockResolvedValueOnce(malformedSettings).mockResolvedValueOnce({
+      ...malformedSettings,
+      themeSettings: null,
+    } satisfies PersistedAppSettings);
+
+    await expect(readAppSettings()).resolves.toEqual(malformedSettings);
+    await expect(readAppSettings()).resolves.toMatchObject({
+      themeSettings: null,
+    });
   });
 });
 
