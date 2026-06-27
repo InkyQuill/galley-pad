@@ -21,6 +21,7 @@ function run(command, args, options = {}) {
   }
 }
 
+run("npm", ["run", "prepare:editor"]);
 run("npm", ["run", "test:unit"]);
 run("npm", ["run", "test:scripts"]);
 const pythonCommand = process.platform === "win32" ? "py" : "python3";

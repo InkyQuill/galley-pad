@@ -20,6 +20,7 @@ function run(command, args, options = {}) {
   }
 }
 
+run("npm", ["run", "prepare:editor"]);
 run("npm", ["audit", "--json"]);
 run("npm", ["run", "test:unit"]);
 run("npm", ["run", "test:scripts"]);
