@@ -102,10 +102,10 @@ export default function App() {
   const latestAppearanceThemeId = useRef(appearanceThemeId);
   const latestEditorFontSettings = useRef(editorFontSettings);
   const swapWriteTimer = useRef<number | null>(null);
-  const swapWriteInFlight = useRef<Promise<void> | null>(null);
+  const swapWriteChain = useRef<Promise<void>>(Promise.resolve());
   const closingRef = useRef(false);
   const pendingAppSettingsWrite = useRef<PersistedAppSettings | null>(null);
-  const appSettingsWriteInFlight = useRef(false);
+  const appSettingsWriteInFlight = useRef<Promise<void> | null>(null);
   const touchedPreferences = useRef({
     appearanceTheme: false,
     editorFont: false,
@@ -247,17 +247,12 @@ export default function App() {
       }
 
       const snapshot = createSwapState(latestWorkspace.current);
-      const action = snapshot ? writeSwapState(snapshot) : clearSwapState();
-      const trackedAction = action
+      const action = () => (snapshot ? writeSwapState(snapshot) : clearSwapState());
+      swapWriteChain.current = swapWriteChain.current
+        .then(action, action)
         .catch((error: unknown) => {
           setCommandError(errorMessage(error));
-        })
-        .finally(() => {
-          if (swapWriteInFlight.current === trackedAction) {
-            swapWriteInFlight.current = null;
-          }
         });
-      swapWriteInFlight.current = trackedAction;
     }, 350);
 
     return () => {
@@ -327,6 +322,7 @@ export default function App() {
         closingRef.current = true;
         clearPendingSwapWrite();
         await waitForSwapWrite();
+        await waitForAppSettingsWrite();
         try {
           await clearSwapState();
         } catch (error: unknown) {
@@ -637,14 +633,14 @@ export default function App() {
   function updateOpenMode(openMode: OpenMode) {
     touchedPreferences.current.openMode = true;
     saveOpenMode(openMode);
-    void persistAppSettings({ openMode });
+    persistAppSettings({ openMode });
     setWorkspace((current) => setOpenMode(current, openMode));
   }
 
   function updateAppearanceTheme(themeId: AppearanceThemeId) {
     touchedPreferences.current.appearanceTheme = true;
     saveAppearanceThemeId(themeId);
-    void persistAppSettings({ appearanceTheme: themeId });
+    persistAppSettings({ appearanceTheme: themeId });
     setAppearanceThemeId(themeId);
   }
 
@@ -652,7 +648,7 @@ export default function App() {
     touchedPreferences.current.editorFont = true;
     const next = { ...editorFontSettings, family };
     saveEditorFontSettings(next);
-    void persistAppSettings({
+    persistAppSettings({
       editorFontFamily: next.family,
       editorFontSize: next.size,
     });
@@ -663,7 +659,7 @@ export default function App() {
     touchedPreferences.current.editorFont = true;
     const next = { ...editorFontSettings, size };
     saveEditorFontSettings(next);
-    void persistAppSettings({
+    persistAppSettings({
       editorFontFamily: next.family,
       editorFontSize: next.size,
     });
@@ -759,18 +755,17 @@ export default function App() {
     }
   }
 
-  async function persistAppSettings(settings: Partial<PersistedAppSettings>) {
+  function persistAppSettings(settings: Partial<PersistedAppSettings>) {
     pendingAppSettingsWrite.current = {
       ...(pendingAppSettingsWrite.current ?? currentAppSettingsSnapshot()),
       ...settings,
     };
 
     if (appSettingsWriteInFlight.current) {
-      return;
+      return appSettingsWriteInFlight.current;
     }
 
-    appSettingsWriteInFlight.current = true;
-    try {
+    const writeLoop = (async () => {
       while (pendingAppSettingsWrite.current) {
         const next = pendingAppSettingsWrite.current;
         pendingAppSettingsWrite.current = null;
@@ -780,9 +775,13 @@ export default function App() {
           setCommandError(errorMessage(error));
         }
       }
-    } finally {
-      appSettingsWriteInFlight.current = false;
-    }
+    })().finally(() => {
+      if (appSettingsWriteInFlight.current === writeLoop) {
+        appSettingsWriteInFlight.current = null;
+      }
+    });
+    appSettingsWriteInFlight.current = writeLoop;
+    return writeLoop;
   }
 
   function currentAppSettingsSnapshot(): PersistedAppSettings {
@@ -802,8 +801,12 @@ export default function App() {
   }
 
   async function waitForSwapWrite() {
-    if (swapWriteInFlight.current) {
-      await swapWriteInFlight.current;
+    await swapWriteChain.current;
+  }
+
+  async function waitForAppSettingsWrite() {
+    if (appSettingsWriteInFlight.current) {
+      await appSettingsWriteInFlight.current;
     }
   }
 

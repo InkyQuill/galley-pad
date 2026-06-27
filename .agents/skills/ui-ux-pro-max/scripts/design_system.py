@@ -585,7 +585,7 @@ def persist_design_system(design_system: dict, page: str = None, output_dir: str
     # Use project name for project-specific folder
     project_name = design_system.get("project_name", "default")
     project_slug = safe_slug(project_name)
-    page_slug = safe_slug(page) if page else None
+    page_slug = safe_slug(page) if page is not None else None
     
     design_system_dir = base_dir / "design-system" / project_slug
     pages_dir = design_system_dir / "pages"
@@ -605,7 +605,7 @@ def persist_design_system(design_system: dict, page: str = None, output_dir: str
     created_files.append(str(master_file))
     
     # If page is specified, create page override file with intelligent content
-    if page_slug:
+    if page_slug is not None:
         page_file = pages_dir / f"{page_slug}.md"
         page_content = format_page_override_md(design_system, page, page_query)
         with open(page_file, 'w', encoding='utf-8') as f:

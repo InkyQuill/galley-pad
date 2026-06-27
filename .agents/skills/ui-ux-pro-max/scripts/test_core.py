@@ -168,6 +168,16 @@ class SearchCliTests(unittest.TestCase):
                 )
             self.assertFalse((Path(temp_dir) / "design-system").exists())
 
+    def test_persist_design_system_rejects_explicit_empty_page_before_writing(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with self.assertRaises(ValueError):
+                persist_design_system(
+                    minimal_design_system("Valid Project"),
+                    page="",
+                    output_dir=temp_dir,
+                )
+            self.assertFalse((Path(temp_dir) / "design-system").exists())
+
     def test_cli_design_system_persist_writes_expected_files(self):
         script = Path(__file__).with_name("search.py")
         with tempfile.TemporaryDirectory() as temp_dir:

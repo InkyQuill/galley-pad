@@ -436,13 +436,55 @@ describe("App", () => {
     await screen.findByRole("dialog", { name: "Save changes?" });
     fireEvent.click(screen.getByRole("button", { name: "Discard" }));
 
-    await waitFor(() => {
-      expect(clearSwapStateMock).not.toHaveBeenCalled();
+    await act(async () => {
+      await Promise.resolve();
     });
+    expect(clearSwapStateMock).not.toHaveBeenCalled();
 
     await act(async () => {
       pendingSwapWrite.resolve(undefined);
       await pendingSwapWrite.promise;
+    });
+
+    await expect(closeResult).resolves.toBe(true);
+    expect(clearSwapStateMock).toHaveBeenCalled();
+  });
+
+  it("waits for an in-flight app settings write before clearing swap state on close", async () => {
+    let closeHandler: (() => Promise<boolean>) | null = null;
+    let menuHandler: ((command: AppMenuCommand) => void) | null = null;
+    listenForWindowCloseRequestMock.mockImplementation(async (handler) => {
+      closeHandler = handler;
+      return () => undefined;
+    });
+    listenForAppMenuCommandMock.mockImplementation(async (handler) => {
+      menuHandler = handler;
+      return () => undefined;
+    });
+    const pendingSettingsWrite = deferred<void>();
+    writeAppSettingsMock.mockReturnValueOnce(pendingSettingsWrite.promise);
+    render(<App />);
+
+    await waitFor(() => {
+      expect(listenForAppMenuCommandMock).toHaveBeenCalled();
+    });
+    act(() => {
+      menuHandler?.("settings");
+    });
+    await screen.findByRole("dialog", { name: "Settings" });
+    fireEvent.click(screen.getByRole("radio", { name: "Galley Dark" }));
+    expect(writeAppSettingsMock).toHaveBeenCalledTimes(1);
+
+    expect(closeHandler).not.toBeNull();
+    const closeResult = closeHandler!();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(clearSwapStateMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      pendingSettingsWrite.resolve(undefined);
+      await pendingSettingsWrite.promise;
     });
 
     await expect(closeResult).resolves.toBe(true);
