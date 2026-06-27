@@ -157,6 +157,17 @@ describe("App", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("applies theme variables on the app shell for chrome and editor inheritance", async () => {
+    render(<App />);
+
+    const shell = screen.getByTestId("app-shell");
+    expect(shell.style.getPropertyValue("--app-panel")).toBeTruthy();
+    expect(shell.style.getPropertyValue("--app-border")).toBeTruthy();
+    expect(shell.style.getPropertyValue("--ge-color-text")).toBeTruthy();
+    expect(shell.style.getPropertyValue("--ge-color-code-fence-bg")).toBeTruthy();
+    expect(shell.style.getPropertyValue("--ge-color-token-string")).toBeTruthy();
+  });
+
   it("applies persisted theme settings to the app shell and editor", async () => {
     readAppSettingsMock.mockResolvedValue({
       themeSettings: {
