@@ -1,7 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { DocumentView } from "./DocumentView";
-import { getAppearanceTheme } from "../settings/appearance";
 
 vi.mock("@inky/galley-editor", () => import("../test/galley-editor.mock"));
 
@@ -71,7 +70,7 @@ describe("DocumentView", () => {
       <DocumentView
         content="One two"
         onContentChange={() => undefined}
-        theme={getAppearanceTheme("galley-dark")}
+        editorScheme="dark"
         fontSettings={{ family: "mono", size: "large" }}
         status="Unsaved"
       />,

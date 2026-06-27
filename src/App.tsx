@@ -30,7 +30,6 @@ import {
   APPEARANCE_THEMES,
   EDITOR_FONT_SIZES,
   getAppearanceTheme,
-  loadAppearanceThemeId,
   loadEditorFontSettings,
   saveAppearanceThemeId,
   saveEditorFontSettings,
@@ -67,6 +66,15 @@ import {
   type SystemFont,
   type SystemFontCatalog,
 } from "./tauri/systemFonts";
+import { resolveTheme } from "./themes/resolve";
+import {
+  loadThemeSettings,
+  parseThemeSettings,
+  saveThemeSettings,
+  type ThemeSettings,
+} from "./themes/settings";
+import { themeToCssVariables } from "./themes/style";
+import type { ThemeScheme } from "./themes/tokens";
 
 type CommandName = "Open" | "Save" | "Save As" | "Open File";
 type UnsavedChoice = "save" | "save-as" | "discard" | "cancel";
@@ -83,8 +91,11 @@ export default function App() {
   const [commandError, setCommandError] = useState<string | null>(null);
   const [toolbarVisible, setToolbarVisible] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [appearanceThemeId, setAppearanceThemeId] = useState<AppearanceThemeId>(
-    () => loadAppearanceThemeId(),
+  const [themeSettings, setThemeSettings] = useState<ThemeSettings>(() =>
+    loadThemeSettings(),
+  );
+  const [systemScheme, setSystemScheme] = useState<ThemeScheme>(() =>
+    getSystemScheme(),
   );
   const [editorFontSettings, setEditorFontSettings] =
     useState<EditorFontSettings>(() => loadEditorFontSettings());
@@ -99,7 +110,7 @@ export default function App() {
     null,
   );
   const latestWorkspace = useRef(workspace);
-  const latestAppearanceThemeId = useRef(appearanceThemeId);
+  const latestThemeSettings = useRef(themeSettings);
   const latestEditorFontSettings = useRef(editorFontSettings);
   const swapWriteTimer = useRef<number | null>(null);
   const swapWriteChain = useRef<Promise<void>>(Promise.resolve());
@@ -127,7 +138,7 @@ export default function App() {
   );
 
   latestWorkspace.current = workspace;
-  latestAppearanceThemeId.current = appearanceThemeId;
+  latestThemeSettings.current = themeSettings;
   latestEditorFontSettings.current = editorFontSettings;
   const activeTab = getActiveDocumentTab(workspace);
   const document = activeTab.session;
@@ -147,12 +158,21 @@ export default function App() {
           return;
         }
 
-        if (
-          !touchedPreferences.current.appearanceTheme &&
-          isAppearanceThemeId(settings.appearanceTheme)
-        ) {
-          setAppearanceThemeId(settings.appearanceTheme);
-          saveAppearanceThemeId(settings.appearanceTheme);
+        if (!touchedPreferences.current.appearanceTheme) {
+          const parsedThemeSettings = parseThemeSettings(settings.themeSettings);
+
+          if (parsedThemeSettings) {
+            setThemeSettings(parsedThemeSettings);
+            saveThemeSettings(parsedThemeSettings);
+          } else if (isAppearanceThemeId(settings.appearanceTheme)) {
+            const migratedThemeSettings = themeSettingsFromAppearanceThemeId(
+              settings.appearanceTheme,
+              latestThemeSettings.current,
+            );
+            setThemeSettings(migratedThemeSettings);
+            saveThemeSettings(migratedThemeSettings);
+            saveAppearanceThemeId(settings.appearanceTheme);
+          }
         }
 
         if (!touchedPreferences.current.editorFont) {
@@ -228,6 +248,26 @@ export default function App() {
 
     return () => {
       disposed = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia?.("(prefers-color-scheme: dark)");
+    if (!mediaQuery) {
+      return;
+    }
+
+    const updateSystemScheme = (event: MediaQueryListEvent) => {
+      setSystemScheme(event.matches ? "dark" : "light");
+    };
+
+    setSystemScheme(mediaQuery.matches ? "dark" : "light");
+    mediaQuery.addEventListener?.("change", updateSystemScheme);
+    mediaQuery.addListener?.(updateSystemScheme);
+
+    return () => {
+      mediaQuery.removeEventListener?.("change", updateSystemScheme);
+      mediaQuery.removeListener?.(updateSystemScheme);
     };
   }, []);
 
@@ -639,9 +679,14 @@ export default function App() {
 
   function updateAppearanceTheme(themeId: AppearanceThemeId) {
     touchedPreferences.current.appearanceTheme = true;
+    const next = themeSettingsFromAppearanceThemeId(
+      themeId,
+      latestThemeSettings.current,
+    );
+    saveThemeSettings(next);
     saveAppearanceThemeId(themeId);
-    persistAppSettings({ appearanceTheme: themeId });
-    setAppearanceThemeId(themeId);
+    persistAppSettings({ appearanceTheme: themeId, themeSettings: next });
+    setThemeSettings(next);
   }
 
   function updateEditorFontFamily(family: EditorFontFamily) {
@@ -786,7 +831,10 @@ export default function App() {
 
   function currentAppSettingsSnapshot(): PersistedAppSettings {
     return {
-      appearanceTheme: latestAppearanceThemeId.current,
+      appearanceTheme: appearanceThemeIdFromThemeSettings(
+        latestThemeSettings.current,
+      ),
+      themeSettings: latestThemeSettings.current,
       editorFontFamily: latestEditorFontSettings.current.family,
       editorFontSize: latestEditorFontSettings.current.size,
       openMode: latestWorkspace.current.openMode,
@@ -816,10 +864,19 @@ export default function App() {
 
   const activeTabButtonId = tabButtonId(workspace.activeTabId);
   const activeTabPanelId = tabPanelId(workspace.activeTabId);
+  const resolvedTheme = resolveTheme(themeSettings, systemScheme);
+  const themeVariables = themeToCssVariables(resolvedTheme);
+  const editorScheme =
+    themeSettings.mode === "constant" ? resolvedTheme.scheme : "auto";
+  const appearanceThemeId = appearanceThemeIdFromThemeSettings(themeSettings);
   const appearanceTheme = getAppearanceTheme(appearanceThemeId);
 
   return (
-    <div className={`app-shell ${appearanceTheme.appClassName}`}>
+    <div
+      className={`app-shell ${appearanceTheme.appClassName}`}
+      data-testid="app-shell"
+      style={themeVariables}
+    >
       <nav className="tabstrip" role="tablist" aria-label="Open documents">
         {workspace.tabs.map((tab) => (
           <div
@@ -880,7 +937,7 @@ export default function App() {
         panelId={activeTabPanelId}
         labelledBy={activeTabButtonId}
         toolbarVisible={toolbarVisible}
-        theme={appearanceTheme}
+        editorScheme={editorScheme}
         fontSettings={editorFontSettings}
         status={
           pendingCommand
@@ -1183,6 +1240,49 @@ function isDocumentSession(value: unknown): value is DocumentSession {
     (typeof session.lastKnownModifiedAt === "number" ||
       session.lastKnownModifiedAt === null)
   );
+}
+
+function getSystemScheme(): ThemeScheme {
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
+}
+
+function themeSettingsFromAppearanceThemeId(
+  themeId: AppearanceThemeId,
+  current: ThemeSettings,
+): ThemeSettings {
+  if (themeId === "system") {
+    return {
+      ...current,
+      mode: "system",
+    };
+  }
+
+  return {
+    ...current,
+    mode: "constant",
+    constantThemeId: themeId,
+  };
+}
+
+function appearanceThemeIdFromThemeSettings(
+  settings: ThemeSettings,
+): AppearanceThemeId {
+  if (settings.mode !== "constant") {
+    return "system";
+  }
+
+  if (
+    settings.constantThemeId === "galley-light" ||
+    settings.constantThemeId === "galley-dark"
+  ) {
+    return settings.constantThemeId;
+  }
+
+  return resolveTheme(settings, "light").scheme === "dark"
+    ? "galley-dark"
+    : "galley-light";
 }
 
 function isAppearanceThemeId(value: unknown): value is AppearanceThemeId {

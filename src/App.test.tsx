@@ -110,6 +110,10 @@ describe("App", () => {
         },
       ],
     });
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: undefined,
+    });
     localStorage.clear();
     window.history.replaceState(null, "", "/");
   });
@@ -151,6 +155,68 @@ describe("App", () => {
     expect(
       screen.queryByRole("alert", { name: "File command error" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("applies persisted theme settings to the app shell and editor", async () => {
+    readAppSettingsMock.mockResolvedValue({
+      themeSettings: {
+        mode: "constant",
+        constantThemeId: "tokyo-night",
+        lightThemeId: "galley-light",
+        darkThemeId: "galley-dark",
+      },
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+        "data-theme",
+        "dark",
+      );
+    });
+
+    const appShell = screen.getByTestId("app-shell");
+    expect(appShell.style.getPropertyValue("--app-bg")).not.toBe("");
+    expect(appShell.style.getPropertyValue("--ge-color-bg")).not.toBe("");
+  });
+
+  it("updates resolved system theme variables when the system color scheme changes", async () => {
+    const systemColorScheme = mockSystemColorScheme(false);
+    readAppSettingsMock.mockResolvedValue({
+      themeSettings: {
+        mode: "system",
+        constantThemeId: "tokyo-night",
+        lightThemeId: "galley-light",
+        darkThemeId: "galley-dark",
+      },
+    });
+
+    render(<App />);
+
+    const appShell = screen.getByTestId("app-shell");
+    await waitFor(() => {
+      expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+        "data-theme",
+        "auto",
+      );
+      expect(appShell.style.getPropertyValue("--ge-color-bg")).not.toBe("");
+    });
+    const lightEditorBg = appShell.style.getPropertyValue("--ge-color-bg");
+
+    act(() => {
+      systemColorScheme.setDark(true);
+    });
+
+    await waitFor(() => {
+      expect(appShell.style.getPropertyValue("--ge-color-bg")).not.toBe(
+        lightEditorBg,
+      );
+    });
+    expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+      "data-theme",
+      "auto",
+    );
   });
 
   it("marks the session dirty when editor content changes and updates the title", () => {
@@ -1436,4 +1502,52 @@ function deferred<T>() {
   });
 
   return { promise, resolve };
+}
+
+function mockSystemColorScheme(initialDark: boolean) {
+  let matches = initialDark;
+  const listeners = new Set<(event: MediaQueryListEvent) => void>();
+  const media = "(prefers-color-scheme: dark)";
+
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: vi.fn((query: string) => ({
+      matches: query === media ? matches : false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(
+        (event: string, listener: (event: MediaQueryListEvent) => void) => {
+          if (query === media && event === "change") {
+            listeners.add(listener);
+          }
+        },
+      ),
+      removeEventListener: vi.fn(
+        (event: string, listener: (event: MediaQueryListEvent) => void) => {
+          if (query === media && event === "change") {
+            listeners.delete(listener);
+          }
+        },
+      ),
+      addListener: vi.fn((listener: (event: MediaQueryListEvent) => void) => {
+        if (query === media) {
+          listeners.add(listener);
+        }
+      }),
+      removeListener: vi.fn((listener: (event: MediaQueryListEvent) => void) => {
+        if (query === media) {
+          listeners.delete(listener);
+        }
+      }),
+      dispatchEvent: vi.fn(),
+    })),
+  });
+
+  return {
+    setDark(nextMatches: boolean) {
+      matches = nextMatches;
+      const event = { matches, media } as MediaQueryListEvent;
+      listeners.forEach((listener) => listener(event));
+    },
+  };
 }

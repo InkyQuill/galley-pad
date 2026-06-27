@@ -24,7 +24,6 @@ import {
 } from "lucide-react";
 import {
   editorFontStyle,
-  type AppearanceTheme,
   type EditorFontSettings,
 } from "../settings/appearance";
 
@@ -34,7 +33,7 @@ export type DocumentViewProps = {
   panelId?: string;
   labelledBy?: string;
   toolbarVisible?: boolean;
-  theme?: AppearanceTheme;
+  editorScheme?: "auto" | "light" | "dark";
   fontSettings?: EditorFontSettings;
   status?: string;
 };
@@ -45,7 +44,7 @@ export function DocumentView({
   panelId,
   labelledBy,
   toolbarVisible = false,
-  theme,
+  editorScheme,
   fontSettings = { family: "system", size: "medium" },
   status = "Draft",
 }: DocumentViewProps) {
@@ -63,7 +62,7 @@ export function DocumentView({
         value={content}
         onChange={onContentChange}
         layout="fill"
-        theme={theme?.editorScheme ?? "auto"}
+        theme={editorScheme ?? "auto"}
         surface={{
           className: "galley-pad-editor-surface",
           style: {
