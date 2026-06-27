@@ -1,3 +1,11 @@
+import {
+  DEFAULT_THEME_SETTINGS,
+  LEGACY_APPEARANCE_THEME_STORAGE_KEY,
+  loadThemeSettings,
+  saveThemeSettings,
+} from "../themes/settings";
+import { getTheme } from "../themes/catalog";
+
 export type AppearanceThemeId = "system" | "galley-light" | "galley-dark";
 
 export type AppearanceTheme = {
@@ -15,8 +23,6 @@ export type EditorFontSettings = {
   size: EditorFontSize;
 };
 
-export const APPEARANCE_THEME_STORAGE_KEY = "galley-pad.appearanceTheme";
-export const LEGACY_EDITOR_THEME_STORAGE_KEY = "galley-pad.editorTheme";
 export const EDITOR_FONT_FAMILY_STORAGE_KEY = "galley-pad.editorFontFamily";
 export const EDITOR_FONT_SIZE_STORAGE_KEY = "galley-pad.editorFontSize";
 export const SYSTEM_EDITOR_FONT_FAMILY = "system";
@@ -62,27 +68,42 @@ export const EDITOR_FONT_SIZES: Array<{
 export function loadAppearanceThemeId(
   storage: Storage | null = getStorage(),
 ): AppearanceThemeId {
-  if (!storage) {
+  const settings = loadThemeSettings(storage);
+
+  if (settings.mode !== "constant") {
     return "system";
   }
 
-  const value = storage.getItem(APPEARANCE_THEME_STORAGE_KEY);
-  if (isAppearanceThemeId(value)) {
-    return value;
+  if (
+    settings.constantThemeId === "galley-light" ||
+    settings.constantThemeId === "galley-dark"
+  ) {
+    return settings.constantThemeId;
   }
 
-  return legacyThemeAlias(storage.getItem(LEGACY_EDITOR_THEME_STORAGE_KEY));
+  return getTheme(settings.constantThemeId)?.scheme === "dark"
+    ? "galley-dark"
+    : "galley-light";
 }
 
 export function saveAppearanceThemeId(
   themeId: AppearanceThemeId,
   storage: Storage | null = getStorage(),
-) {
-  if (!storage) {
-    return;
+): void {
+  if (storage) {
+    storage.setItem(LEGACY_APPEARANCE_THEME_STORAGE_KEY, themeId);
   }
 
-  storage.setItem(APPEARANCE_THEME_STORAGE_KEY, themeId);
+  saveThemeSettings(
+    themeId === "system"
+      ? DEFAULT_THEME_SETTINGS
+      : {
+          ...DEFAULT_THEME_SETTINGS,
+          mode: "constant",
+          constantThemeId: themeId,
+        },
+    storage,
+  );
 }
 
 export function getAppearanceTheme(themeId: AppearanceThemeId): AppearanceTheme {
@@ -130,25 +151,6 @@ export function editorFontStyle(settings: EditorFontSettings): {
       EDITOR_FONT_SIZES.find((size) => size.id === settings.size)?.cssValue ??
       EDITOR_FONT_SIZES[1].cssValue,
   };
-}
-
-function legacyThemeAlias(value: string | null): AppearanceThemeId {
-  switch (value) {
-    case "light":
-      return "galley-light";
-    case "dark":
-      return "galley-dark";
-    default:
-      return "system";
-  }
-}
-
-function isAppearanceThemeId(value: string | null): value is AppearanceThemeId {
-  return (
-    value === "system" ||
-    value === "galley-light" ||
-    value === "galley-dark"
-  );
 }
 
 export function editorFontCssValue(family: EditorFontFamily): string {
