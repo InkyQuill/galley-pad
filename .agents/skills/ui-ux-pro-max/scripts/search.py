@@ -79,6 +79,9 @@ if __name__ == "__main__":
         parser.error("--persist requires --design-system so a design system can be written")
     if args.page and not args.persist:
         parser.error("--page requires --persist so a page override file can be written")
+    if args.persist and args.page is not None and args.page.strip() == "":
+        print("Error: --page value cannot be empty", file=sys.stderr)
+        sys.exit(1)
 
     # Design system takes priority
     if args.design_system:

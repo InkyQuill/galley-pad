@@ -239,6 +239,27 @@ class SearchCliTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("--persist requires --design-system", result.stderr)
 
+    def test_cli_rejects_empty_page_with_persist(self):
+        script = Path(__file__).with_name("search.py")
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "fintech",
+                "--design-system",
+                "--persist",
+                "--page",
+                "",
+                "--project-name",
+                "Review Project",
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--page value cannot be empty", result.stderr)
+
 def write_csv(path, fieldnames, rows):
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle)
