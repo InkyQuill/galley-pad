@@ -74,9 +74,36 @@ pub struct SystemFontCatalog {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PersistedAppSettings {
+pub struct RawPersistedAppSettings {
     pub appearance_theme: Option<String>,
     pub theme_settings: Option<serde_json::Value>,
+    pub editor_font_family: Option<String>,
+    pub editor_font_size: Option<String>,
+    pub open_mode: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ThemeMode {
+    Constant,
+    System,
+    Native,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThemeSettings {
+    pub mode: ThemeMode,
+    pub constant_theme_id: String,
+    pub light_theme_id: String,
+    pub dark_theme_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PersistedAppSettings {
+    pub appearance_theme: Option<String>,
+    pub theme_settings: Option<ThemeSettings>,
     pub editor_font_family: Option<String>,
     pub editor_font_size: Option<String>,
     pub open_mode: Option<String>,
@@ -136,7 +163,7 @@ fn list_system_fonts() -> SystemFontCatalog {
 }
 
 #[tauri::command]
-fn read_app_settings(app: AppHandle) -> Result<Option<PersistedAppSettings>, String> {
+fn read_app_settings(app: AppHandle) -> Result<Option<RawPersistedAppSettings>, String> {
     let path = app_config_file(&app, "settings.json")?;
     if !path.exists() {
         return Ok(None);
@@ -891,7 +918,7 @@ mod tests {
 
     #[test]
     fn persisted_app_settings_deserializes_without_theme_settings() {
-        let settings = serde_json::from_str::<super::PersistedAppSettings>(
+        let settings = serde_json::from_str::<super::RawPersistedAppSettings>(
             r#"{
                 "appearanceTheme": "galley-dark",
                 "editorFontFamily": "Fira Code",
@@ -906,7 +933,7 @@ mod tests {
 
     #[test]
     fn persisted_app_settings_deserializes_null_theme_settings() {
-        let settings = serde_json::from_str::<super::PersistedAppSettings>(
+        let settings = serde_json::from_str::<super::RawPersistedAppSettings>(
             r#"{
                 "appearanceTheme": "galley-dark",
                 "themeSettings": null,
@@ -922,7 +949,7 @@ mod tests {
 
     #[test]
     fn persisted_app_settings_preserves_malformed_theme_settings_value() {
-        let settings = serde_json::from_str::<super::PersistedAppSettings>(
+        let settings = serde_json::from_str::<super::RawPersistedAppSettings>(
             r#"{
                 "appearanceTheme": "galley-dark",
                 "themeSettings": {
@@ -943,6 +970,74 @@ mod tests {
                 .get("constantThemeId"),
             Some(&serde_json::json!(42))
         );
+    }
+
+    #[test]
+    fn persisted_app_settings_write_rejects_invalid_theme_mode() {
+        let result = serde_json::from_str::<super::PersistedAppSettings>(
+            r#"{
+                "themeSettings": {
+                    "mode": "broken",
+                    "constantThemeId": "galley-light",
+                    "lightThemeId": "solarized-light",
+                    "darkThemeId": "tokyo-night"
+                },
+                "openMode": "tabs"
+            }"#,
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn persisted_app_settings_write_rejects_missing_or_numeric_theme_fields() {
+        let missing_field = serde_json::from_str::<super::PersistedAppSettings>(
+            r#"{
+                "themeSettings": {
+                    "mode": "system",
+                    "constantThemeId": "galley-light",
+                    "darkThemeId": "tokyo-night"
+                },
+                "openMode": "tabs"
+            }"#,
+        );
+        let numeric_id = serde_json::from_str::<super::PersistedAppSettings>(
+            r#"{
+                "themeSettings": {
+                    "mode": "system",
+                    "constantThemeId": 42,
+                    "lightThemeId": "solarized-light",
+                    "darkThemeId": "tokyo-night"
+                },
+                "openMode": "tabs"
+            }"#,
+        );
+
+        assert!(missing_field.is_err());
+        assert!(numeric_id.is_err());
+    }
+
+    #[test]
+    fn persisted_app_settings_write_accepts_valid_theme_settings() {
+        let settings = serde_json::from_str::<super::PersistedAppSettings>(
+            r#"{
+                "appearanceTheme": "galley-dark",
+                "themeSettings": {
+                    "mode": "system",
+                    "constantThemeId": "galley-light",
+                    "lightThemeId": "solarized-light",
+                    "darkThemeId": "tokyo-night"
+                },
+                "editorFontFamily": "Fira Code",
+                "editorFontSize": "large",
+                "openMode": "tabs"
+            }"#,
+        )
+        .expect("deserialize valid write app settings");
+
+        let theme_settings = settings.theme_settings.expect("theme settings");
+        assert_eq!(theme_settings.mode, super::ThemeMode::System);
+        assert_eq!(theme_settings.dark_theme_id, "tokyo-night");
     }
 
     #[cfg(target_os = "linux")]
