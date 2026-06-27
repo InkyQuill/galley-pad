@@ -11,6 +11,8 @@ playwright-report/
 *.tsbuildinfo
 vite.config.d.ts
 vite.config.js
+__pycache__/
+*.pyc
 
 # Tauri/Rust generated output
 src-tauri/target/

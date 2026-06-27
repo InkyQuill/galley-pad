@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "commitlint": "node scripts/check-conventional-commit.mjs",
+    "hooks:install": "node scripts/install-git-hooks.mjs",
+    "prepare": "node scripts/install-git-hooks.mjs",
     "preview": "vite preview",
     "test": "vitest run && npm run test:scripts",
     "test:watch": "vitest",
@@ -15,6 +18,7 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
+    "verify": "node scripts/verify.mjs",
     "macos:pkg": "node scripts/build-macos-pkg.mjs"
   },
   "dependencies": {
@@ -29,18 +33,20 @@
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-dialog": "2.7.1",
     "lucide-react": "^1.21.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.0",
+    "@tailwindcss/vite": "^4.3.1",
     "@tauri-apps/cli": "^2.11.2",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
-    "@types/react": "^18.3.3",
-    "@types/react-dom": "^18.3.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.2",
     "jsdom": "^29.1.1",
+    "tailwindcss": "^4.3.1",
     "typescript": "^6.0.3",
     "vite": "^8.0.16",
     "vitest": "^4.1.9"

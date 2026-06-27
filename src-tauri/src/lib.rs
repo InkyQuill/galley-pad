@@ -1,8 +1,9 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
+    collections::BTreeMap,
     ffi::{OsStr, OsString},
     fs,
-    path::Path,
+    path::{Component, Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
         Mutex,
@@ -11,9 +12,9 @@ use std::{
 };
 #[cfg(desktop)]
 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::{AppHandle, Emitter, Manager};
 #[cfg(desktop)]
-use tauri::{AppHandle, WebviewUrl, WebviewWindowBuilder};
-use tauri::{Emitter, Manager};
+use tauri::{WebviewUrl, WebviewWindowBuilder};
 
 const MARKDOWN_FILE_OPENED_EVENT: &str = "markdown-file-opened";
 const APP_MENU_COMMAND_EVENT: &str = "app-menu-command";
@@ -52,6 +53,31 @@ pub struct FileWriteResult {
     pub path: String,
     pub line_ending: LineEnding,
     pub last_modified_at: Option<u64>,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemFont {
+    pub family: String,
+    pub css_value: String,
+    pub monospaced: bool,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemFontCatalog {
+    pub fonts: Vec<SystemFont>,
+    pub locale: Option<String>,
+    pub preview_text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PersistedAppSettings {
+    pub appearance_theme: Option<String>,
+    pub editor_font_family: Option<String>,
+    pub editor_font_size: Option<String>,
+    pub open_mode: Option<String>,
 }
 
 struct PendingMarkdownFileOpen(Mutex<Vec<String>>);
@@ -102,11 +128,138 @@ pub fn write_text_file_to_path(path: String, content: String) -> Result<FileWrit
     })
 }
 
+#[tauri::command]
+fn list_system_fonts() -> SystemFontCatalog {
+    list_system_fonts_catalog()
+}
+
+#[tauri::command]
+fn read_app_settings(app: AppHandle) -> Result<Option<PersistedAppSettings>, String> {
+    let path = app_config_file(&app, "settings.json")?;
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let content = fs::read_to_string(&path)
+        .map_err(|error| format!("Failed to read app settings '{}': {error}", path.display()))?;
+    serde_json::from_str(&content)
+        .map(Some)
+        .map_err(|error| format!("Failed to parse app settings '{}': {error}", path.display()))
+}
+
+#[tauri::command]
+fn write_app_settings(app: AppHandle, settings: PersistedAppSettings) -> Result<(), String> {
+    write_json_file(&app_config_file(&app, "settings.json")?, &settings)
+}
+
+#[tauri::command]
+fn read_swap_state(app: AppHandle) -> Result<Option<serde_json::Value>, String> {
+    let path = app_config_file(&app, "swap.json")?;
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let content = fs::read_to_string(&path)
+        .map_err(|error| format!("Failed to read swap state '{}': {error}", path.display()))?;
+    serde_json::from_str(&content)
+        .map(Some)
+        .map_err(|error| format!("Failed to parse swap state '{}': {error}", path.display()))
+}
+
+#[tauri::command]
+fn write_swap_state(app: AppHandle, state: serde_json::Value) -> Result<(), String> {
+    write_json_file(&app_config_file(&app, "swap.json")?, &state)
+}
+
+#[tauri::command]
+fn clear_swap_state(app: AppHandle) -> Result<(), String> {
+    let path = app_config_file(&app, "swap.json")?;
+    match fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!(
+            "Failed to clear swap state '{}': {error}",
+            path.display()
+        )),
+    }
+}
+
+pub fn list_system_fonts_catalog() -> SystemFontCatalog {
+    let mut database = fontdb::Database::new();
+    database.load_system_fonts();
+
+    let mut families = BTreeMap::<String, SystemFont>::new();
+    for face in database.faces() {
+        let Some((family, _)) = face.families.first() else {
+            continue;
+        };
+        let trimmed = family.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let key = trimmed.to_lowercase();
+        families.entry(key).or_insert_with(|| SystemFont {
+            family: trimmed.to_string(),
+            css_value: format!("{}, {}", quote_css_font_family(trimmed), "sans-serif"),
+            monospaced: face.monospaced,
+        });
+    }
+
+    let locale = sys_locale::get_locale();
+    let preview_text = localized_font_preview_text(locale.as_deref()).to_string();
+
+    SystemFontCatalog {
+        fonts: families.into_values().collect(),
+        locale,
+        preview_text,
+    }
+}
+
 fn detect_line_ending(content: &str) -> LineEnding {
     if content.contains("\r\n") {
         LineEnding::Crlf
     } else {
         LineEnding::Lf
+    }
+}
+
+fn app_config_file(app: &AppHandle, file_name: &str) -> Result<PathBuf, String> {
+    let directory = app
+        .path()
+        .app_config_dir()
+        .map_err(|error| format!("Failed to locate app config directory: {error}"))?;
+    fs::create_dir_all(&directory).map_err(|error| {
+        format!(
+            "Failed to create app config directory '{}': {error}",
+            directory.display()
+        )
+    })?;
+    Ok(directory.join(file_name))
+}
+
+fn write_json_file<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
+    let content = serde_json::to_string_pretty(value)
+        .map_err(|error| format!("Failed to serialize '{}': {error}", path.display()))?;
+    fs::write(path, content)
+        .map_err(|error| format!("Failed to write '{}': {error}", path.display()))
+}
+
+fn quote_css_font_family(family: &str) -> String {
+    format!("\"{}\"", family.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+fn localized_font_preview_text(locale: Option<&str>) -> &'static str {
+    let language = locale
+        .and_then(|value| value.split(['-', '_']).next())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+
+    match language.as_str() {
+        "ru" | "be" | "bg" | "kk" | "ky" | "mk" | "mn" | "sr" | "tg" | "uk" => {
+            "Aa Bb Cc Аа Бб Вв 0123456789 Съешь ещё этих мягких булок"
+        }
+        _ => "Aa Bb Cc 0123456789 The quick brown fox",
     }
 }
 
@@ -126,26 +279,64 @@ fn system_time_to_ms(time: SystemTime) -> Option<u64> {
         .map(|duration| duration.as_millis() as u64)
 }
 
-fn markdown_paths_from_os_args(args: &[OsString]) -> Vec<String> {
+fn markdown_paths_from_os_args(args: &[OsString], cwd: &Path) -> Vec<String> {
     args.iter()
         .skip(1)
-        .filter_map(|arg| markdown_path_from_os_arg(arg))
+        .filter_map(|arg| markdown_path_from_os_arg(arg, cwd))
         .collect()
 }
 
-fn markdown_paths_from_args(args: &[String]) -> Vec<String> {
+fn markdown_paths_from_args(args: &[String], cwd: &Path) -> Vec<String> {
     args.iter()
         .skip(1)
         .filter_map(|arg| {
             let path = Path::new(arg);
-            is_markdown_path(path).then(|| path.to_string_lossy().into_owned())
+            markdown_path_from_path_arg(path, cwd)
         })
         .collect()
 }
 
-fn markdown_path_from_os_arg(arg: &OsStr) -> Option<String> {
+fn markdown_path_from_os_arg(arg: &OsStr, cwd: &Path) -> Option<String> {
     let path = Path::new(arg);
-    is_markdown_path(path).then(|| path.to_string_lossy().into_owned())
+    markdown_path_from_path_arg(path, cwd)
+}
+
+fn markdown_path_from_path_arg(path: &Path, cwd: &Path) -> Option<String> {
+    is_markdown_path(path).then(|| {
+        absolute_path_from_arg(path, cwd)
+            .to_string_lossy()
+            .into_owned()
+    })
+}
+
+fn absolute_path_from_arg(path: &Path, cwd: &Path) -> PathBuf {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        cwd.join(path)
+    };
+
+    normalize_path(&absolute)
+}
+
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+
+    for component in path.components() {
+        match component {
+            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            Component::RootDir => normalized.push(component.as_os_str()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !normalized.pop() {
+                    normalized.push(component.as_os_str());
+                }
+            }
+            Component::Normal(part) => normalized.push(part),
+        }
+    }
+
+    normalized
 }
 
 fn markdown_paths_from_urls(urls: &[tauri::Url]) -> Vec<String> {
@@ -397,13 +588,14 @@ pub fn run() {
     configure_linux_webkit_wayland_renderer();
 
     let args = std::env::args_os().collect::<Vec<_>>();
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let pending_markdown_file_open =
-        PendingMarkdownFileOpen(Mutex::new(markdown_paths_from_os_args(&args)));
+        PendingMarkdownFileOpen(Mutex::new(markdown_paths_from_os_args(&args, &cwd)));
 
     let app = tauri::Builder::default()
         .manage(pending_markdown_file_open)
-        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            for path in markdown_paths_from_args(&args) {
+        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+            for path in markdown_paths_from_args(&args, Path::new(&cwd)) {
                 if let Err(error) = emit_or_queue_markdown_file_open(app, path) {
                     eprintln!("{error}");
                 }
@@ -422,7 +614,13 @@ pub fn run() {
             read_text_file,
             write_text_file,
             take_pending_markdown_file_opens,
-            open_markdown_file_window
+            open_markdown_file_window,
+            list_system_fonts,
+            read_app_settings,
+            write_app_settings,
+            read_swap_state,
+            write_swap_state,
+            clear_swap_state
         ])
         .build(tauri::generate_context!())
         .unwrap_or_else(|error| panic!("error while building {}: {error}", app_title()));
@@ -443,6 +641,7 @@ pub fn run() {
 mod tests {
     use super::app_title;
     use std::ffi::OsString;
+    use std::path::Path;
     use tauri::Url;
 
     #[test]
@@ -452,18 +651,19 @@ mod tests {
 
     #[test]
     fn markdown_paths_from_os_args_accepts_all_markdown_file_args() {
+        let cwd = Path::new("/tmp/project");
         let args = vec![
             OsString::from("galley-pad"),
             OsString::from("--flag"),
-            OsString::from("/tmp/notes.txt"),
-            OsString::from("/tmp/draft.markdown"),
+            OsString::from("notes.txt"),
+            OsString::from("draft.markdown"),
             OsString::from("/tmp/other.md"),
         ];
 
         assert_eq!(
-            super::markdown_paths_from_os_args(&args),
+            super::markdown_paths_from_os_args(&args, cwd),
             vec![
-                "/tmp/draft.markdown".to_string(),
+                "/tmp/project/draft.markdown".to_string(),
                 "/tmp/other.md".to_string()
             ]
         );
@@ -471,17 +671,38 @@ mod tests {
 
     #[test]
     fn markdown_paths_from_args_accepts_all_markdown_file_args() {
+        let cwd = Path::new("/tmp/project");
         let args = vec![
             "gpad".to_string(),
             "--flag".to_string(),
-            "/tmp/one.md".to_string(),
-            "/tmp/notes.txt".to_string(),
+            "one.md".to_string(),
+            "notes.txt".to_string(),
             "/tmp/two.markdown".to_string(),
         ];
 
         assert_eq!(
-            super::markdown_paths_from_args(&args),
-            vec!["/tmp/one.md".to_string(), "/tmp/two.markdown".to_string()]
+            super::markdown_paths_from_args(&args, cwd),
+            vec![
+                "/tmp/project/one.md".to_string(),
+                "/tmp/two.markdown".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn markdown_paths_from_args_normalizes_relative_paths_against_cwd() {
+        let args = vec![
+            "gpad".to_string(),
+            "./notes/../draft.md".to_string(),
+            "../outside.markdown".to_string(),
+        ];
+
+        assert_eq!(
+            super::markdown_paths_from_args(&args, Path::new("/tmp/project/docs")),
+            vec![
+                "/tmp/project/docs/draft.md".to_string(),
+                "/tmp/project/outside.markdown".to_string()
+            ]
         );
     }
 
@@ -541,6 +762,21 @@ mod tests {
         assert_eq!(
             super::markdown_window_url("/tmp/Привет.md"),
             "index.html?open=/tmp/%D0%9F%D1%80%D0%B8%D0%B2%D0%B5%D1%82.md"
+        );
+    }
+
+    #[test]
+    fn font_preview_includes_cyrillic_for_cyrillic_locales() {
+        assert!(super::localized_font_preview_text(Some("ru-RU")).contains("Аа"));
+        assert!(super::localized_font_preview_text(Some("uk_UA")).contains("Съешь"));
+        assert!(super::localized_font_preview_text(Some("en-US")).contains("quick brown"));
+    }
+
+    #[test]
+    fn css_font_family_quote_escapes_font_names() {
+        assert_eq!(
+            super::quote_css_font_family("A \"Quoted\" Font"),
+            "\"A \\\"Quoted\\\" Font\""
         );
     }
 

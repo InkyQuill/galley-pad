@@ -31,7 +31,7 @@ describe("document workspace", () => {
     expect(first.tabs).toHaveLength(1);
   });
 
-  it("opens a file session as an active tab", () => {
+  it("replaces the initial clean untitled tab when opening a file", () => {
     const workspace = createDocumentWorkspace();
     const session = createSessionFromFile({
       path: "/tmp/opened.md",
@@ -42,12 +42,30 @@ describe("document workspace", () => {
 
     const next = openDocumentTab(workspace, session);
 
-    expect(next.tabs).toHaveLength(2);
+    expect(next.tabs).toHaveLength(1);
     expect(getActiveDocumentTab(next).session).toMatchObject({
       path: "/tmp/opened.md",
       displayName: "opened.md",
       content: "# Opened\n",
     });
+  });
+
+  it("keeps a dirty untitled tab when opening a file", () => {
+    const workspace = updateActiveDocumentTab(createDocumentWorkspace(), (session) =>
+      updateSessionContent(session, "Dirty draft"),
+    );
+    const session = createSessionFromFile({
+      path: "/tmp/opened.md",
+      content: "# Opened\n",
+      lineEnding: "lf",
+      lastModifiedAt: 10,
+    });
+
+    const next = openDocumentTab(workspace, session);
+
+    expect(next.tabs).toHaveLength(2);
+    expect(next.tabs[0].session.displayName).toBe("Untitled.md");
+    expect(getActiveDocumentTab(next).session.path).toBe("/tmp/opened.md");
   });
 
   it("switches to an existing file tab instead of opening a duplicate", () => {

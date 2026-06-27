@@ -1,5 +1,9 @@
-import { GalleyEditor, type ToolbarIconName } from "@inky/galley-editor";
-import type { ReactNode } from "react";
+import {
+  GalleyEditor,
+  type GalleyFooterContext,
+  type ToolbarIconName,
+} from "@inky/galley-editor";
+import type { CSSProperties, ReactNode } from "react";
 import {
   Bold,
   Code,
@@ -18,6 +22,11 @@ import {
   Undo2,
   type LucideIcon,
 } from "lucide-react";
+import {
+  editorFontStyle,
+  type AppearanceTheme,
+  type EditorFontSettings,
+} from "../settings/appearance";
 
 export type DocumentViewProps = {
   content: string;
@@ -25,6 +34,9 @@ export type DocumentViewProps = {
   panelId?: string;
   labelledBy?: string;
   toolbarVisible?: boolean;
+  theme?: AppearanceTheme;
+  fontSettings?: EditorFontSettings;
+  status?: string;
 };
 
 export function DocumentView({
@@ -33,7 +45,12 @@ export function DocumentView({
   panelId,
   labelledBy,
   toolbarVisible = false,
+  theme,
+  fontSettings = { family: "system", size: "medium" },
+  status = "Draft",
 }: DocumentViewProps) {
+  const fontStyle = editorFontStyle(fontSettings);
+
   return (
     <main
       className="document-view"
@@ -45,6 +62,15 @@ export function DocumentView({
       <GalleyEditor
         value={content}
         onChange={onContentChange}
+        layout="fill"
+        theme={theme?.editorScheme ?? "auto"}
+        surface={{
+          className: "galley-pad-editor-surface",
+          style: {
+            "--ge-font-body": fontStyle.fontFamily,
+            "--ge-font-size": fontStyle.fontSize,
+          } as CSSProperties,
+        }}
         toolbar={
           toolbarVisible
             ? {
@@ -52,6 +78,16 @@ export function DocumentView({
               }
             : false
         }
+        footer={{
+          before: <span className="document-footer-status">{status}</span>,
+          after: ({ wordCount }: GalleyFooterContext) => (
+            <span className="document-footer-words">
+              {wordCount} {wordCount === 1 ? "word" : "words"}
+            </span>
+          ),
+          wordCount: false,
+          characterCount: true,
+        }}
       />
     </main>
   );

@@ -13,6 +13,15 @@ import {
 import { pickOpenFile, pickSaveFile } from "./tauri/dialogs";
 import { readTextFile, writeTextFile } from "./tauri/files";
 import { openMarkdownFileWindow } from "./tauri/windows";
+import { listSystemFonts } from "./tauri/systemFonts";
+import {
+  clearSwapState,
+  readAppSettings,
+  readSwapState,
+  writeAppSettings,
+  writeSwapState,
+} from "./tauri/appPersistence";
+import { listenForWindowCloseRequest } from "./tauri/windowClose";
 
 vi.mock("@inky/galley-editor", () => import("./test/galley-editor.mock"));
 vi.mock("./tauri/dialogs", () => ({
@@ -36,6 +45,19 @@ vi.mock("./tauri/menuEvents", () => ({
 vi.mock("./tauri/windows", () => ({
   openMarkdownFileWindow: vi.fn(),
 }));
+vi.mock("./tauri/systemFonts", () => ({
+  listSystemFonts: vi.fn(),
+}));
+vi.mock("./tauri/appPersistence", () => ({
+  clearSwapState: vi.fn(),
+  readAppSettings: vi.fn(),
+  readSwapState: vi.fn(),
+  writeAppSettings: vi.fn(),
+  writeSwapState: vi.fn(),
+}));
+vi.mock("./tauri/windowClose", () => ({
+  listenForWindowCloseRequest: vi.fn(),
+}));
 
 const pickOpenFileMock = vi.mocked(pickOpenFile);
 const pickSaveFileMock = vi.mocked(pickSaveFile);
@@ -46,6 +68,13 @@ const getWindowMarkdownFileOpenMock = vi.mocked(getWindowMarkdownFileOpen);
 const listenForMarkdownFileOpenMock = vi.mocked(listenForMarkdownFileOpen);
 const listenForAppMenuCommandMock = vi.mocked(listenForAppMenuCommand);
 const openMarkdownFileWindowMock = vi.mocked(openMarkdownFileWindow);
+const listSystemFontsMock = vi.mocked(listSystemFonts);
+const clearSwapStateMock = vi.mocked(clearSwapState);
+const readAppSettingsMock = vi.mocked(readAppSettings);
+const readSwapStateMock = vi.mocked(readSwapState);
+const writeAppSettingsMock = vi.mocked(writeAppSettings);
+const writeSwapStateMock = vi.mocked(writeSwapState);
+const listenForWindowCloseRequestMock = vi.mocked(listenForWindowCloseRequest);
 
 describe("App", () => {
   beforeEach(() => {
@@ -58,7 +87,29 @@ describe("App", () => {
     );
     listenForMarkdownFileOpenMock.mockResolvedValue(() => undefined);
     listenForAppMenuCommandMock.mockResolvedValue(() => undefined);
+    listenForWindowCloseRequestMock.mockResolvedValue(() => undefined);
     openMarkdownFileWindowMock.mockResolvedValue("markdown-file-1");
+    clearSwapStateMock.mockResolvedValue();
+    readAppSettingsMock.mockResolvedValue(null);
+    readSwapStateMock.mockResolvedValue(null);
+    writeAppSettingsMock.mockResolvedValue();
+    writeSwapStateMock.mockResolvedValue();
+    listSystemFontsMock.mockResolvedValue({
+      locale: "ru-RU",
+      previewText: "Aa Bb Cc Аа Бб Вв 0123456789 Съешь ещё этих мягких булок",
+      fonts: [
+        {
+          family: "Fira Code",
+          cssValue: '"Fira Code", sans-serif',
+          monospaced: true,
+        },
+        {
+          family: "Inter",
+          cssValue: '"Inter", sans-serif',
+          monospaced: false,
+        },
+      ],
+    });
     localStorage.clear();
     window.history.replaceState(null, "", "/");
   });
@@ -87,15 +138,16 @@ describe("App", () => {
     expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
       "# Untitled\n\nStart writing Markdown.\n",
     );
-    expect(screen.getByLabelText("Document statistics")).toHaveTextContent(
-      "4 words",
+    expect(screen.getByLabelText("Mock Galley Footer")).toHaveTextContent("Draft");
+    expect(screen.getByLabelText("Mock Galley Footer")).toHaveTextContent(
+      "5 words",
     );
     expect(document.title).toBe("Untitled.md - Galley Pad");
 
     const appShell = container.querySelector(".app-shell");
-    expect(appShell?.children.item(1)).toHaveClass("tabstrip");
-    expect(appShell?.children.item(2)).toHaveClass("command-error-slot");
-    expect(appShell?.children.item(3)).toHaveClass("document-view");
+    expect(appShell?.children.item(0)).toHaveClass("tabstrip");
+    expect(appShell?.children.item(1)).toHaveClass("command-error-slot");
+    expect(appShell?.children.item(2)).toHaveClass("document-view");
     expect(
       screen.queryByRole("alert", { name: "File command error" }),
     ).not.toBeInTheDocument();
@@ -109,10 +161,34 @@ describe("App", () => {
     });
 
     expect(screen.getByText("Unsaved")).toBeInTheDocument();
-    expect(screen.getByLabelText("Document statistics")).toHaveTextContent(
+    expect(screen.getByLabelText("Mock Galley Footer")).toHaveTextContent(
       "3 words",
     );
     expect(document.title).toBe("* Untitled.md - Galley Pad");
+  });
+
+  it("writes a swap snapshot for dirty edits", async () => {
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText("Mock Galley Editor"), {
+      target: { value: "Swap protected draft" },
+    });
+
+    await waitFor(() => {
+      expect(writeSwapStateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          version: 1,
+          tabs: expect.arrayContaining([
+            expect.objectContaining({
+              session: expect.objectContaining({
+                content: "Swap protected draft",
+                dirty: true,
+              }),
+            }),
+          ]),
+        }),
+      );
+    });
   });
 
   it("creates a new tab without replacing the dirty active tab", () => {
@@ -138,7 +214,7 @@ describe("App", () => {
     expect(screen.getByText("Draft")).toBeInTheDocument();
   });
 
-  it("requires confirmation before closing a dirty tab", () => {
+  it("asks before closing a dirty tab and supports cancel or discard", async () => {
     let menuHandler: ((command: AppMenuCommand) => void) | null = null;
     listenForAppMenuCommandMock.mockImplementation(async (handler) => {
       menuHandler = handler;
@@ -152,18 +228,76 @@ describe("App", () => {
       menuHandler?.("new");
     });
 
-    vi.mocked(window.confirm).mockReturnValue(false);
     fireEvent.click(screen.getByRole("button", { name: "Close Untitled.md" }));
 
-    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
-      "Dirty draft",
-    );
+    await waitFor(() => {
+      expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
+        "Dirty draft",
+      );
+    });
     expect(screen.getAllByRole("tab", { name: /Untitled\.md/ })).toHaveLength(1);
 
     fireEvent.click(screen.getByRole("button", { name: "Close Untitled.md" }));
-    expect(window.confirm).toHaveBeenCalledWith(
-      "Discard unsaved changes to Untitled.md?",
+    const dialog = await screen.findByRole("dialog", { name: "Save changes?" });
+    expect(dialog).toHaveTextContent("Untitled.md has unsaved changes.");
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("dialog", { name: "Save changes?" }),
+      ).not.toBeInTheDocument();
+    });
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("Dirty draft");
+
+    fireEvent.click(screen.getByRole("button", { name: "Close Untitled.md" }));
+    await screen.findByRole("dialog", { name: "Save changes?" });
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+    await waitFor(() => {
+      expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
+        "# Untitled\n\nStart writing Markdown.\n",
+      );
+    });
+  });
+
+  it("saves a dirty file-backed document when window close is requested", async () => {
+    let closeHandler: (() => Promise<boolean>) | null = null;
+    listenForWindowCloseRequestMock.mockImplementation(async (handler) => {
+      closeHandler = handler;
+      return () => undefined;
+    });
+    window.history.replaceState(null, "", "/?open=/tmp/opened.md");
+    readTextFileMock.mockResolvedValue({
+      path: "/tmp/opened.md",
+      content: "# Opened\n",
+      lineEnding: "lf",
+      lastModifiedAt: 10,
+    });
+    writeTextFileMock.mockResolvedValue({
+      path: "/tmp/opened.md",
+      lineEnding: "lf",
+      lastModifiedAt: 11,
+    });
+    render(<App />);
+
+    await waitFor(() => {
+      expect(document.title).toBe("opened.md - Galley Pad");
+    });
+    fireEvent.change(screen.getByLabelText("Mock Galley Editor"), {
+      target: { value: "# Opened\n\nChanged before close.\n" },
+    });
+
+    expect(closeHandler).not.toBeNull();
+    const closeResult = closeHandler!();
+    const dialog = await screen.findByRole("dialog", { name: "Save changes?" });
+    expect(dialog).toHaveTextContent("opened.md has unsaved changes.");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await expect(closeResult).resolves.toBe(true);
+    expect(writeTextFileMock).toHaveBeenCalledWith(
+      "/tmp/opened.md",
+      "# Opened\n\nChanged before close.\n",
     );
+    expect(clearSwapStateMock).toHaveBeenCalled();
   });
 
   it("opens a selected file and updates the session", async () => {
@@ -197,6 +331,7 @@ describe("App", () => {
       "aria-selected",
       "true",
     );
+    expect(screen.queryByRole("tab", { name: "Untitled.md" })).not.toBeInTheDocument();
     expect(document.title).toBe("opened.md - Galley Pad");
   });
 
@@ -236,7 +371,7 @@ describe("App", () => {
     expect(document.title).toBe("* Untitled.md - Galley Pad");
   });
 
-  it("opens settings from the native menu and persists the open mode", async () => {
+  it("opens settings from the native menu and persists preferences", async () => {
     let menuHandler: ((command: AppMenuCommand) => void) | null = null;
     listenForAppMenuCommandMock.mockImplementation(async (handler) => {
       menuHandler = handler;
@@ -252,11 +387,65 @@ describe("App", () => {
     });
     await screen.findByRole("dialog", { name: "Settings" });
     fireEvent.click(screen.getByRole("radio", { name: "Separate windows" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Galley Dark" }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /System default/ })).toHaveTextContent(
+        "Съешь",
+      );
+    });
+    fireEvent.click(screen.getByRole("button", { name: /System default/ }));
+    await screen.findByRole("searchbox", { name: "Search fonts" });
+    const listbox = screen.getByRole("listbox", { name: "Editor font family" });
+    expect(listbox.parentElement).toHaveClass("font-picker__popover");
+    expect(listbox.parentElement?.parentElement).toBe(
+      screen.getByRole("dialog", { name: "Settings" }),
+    );
+    fireEvent.change(screen.getByRole("searchbox"), {
+      target: { value: "fira" },
+    });
+    fireEvent.click(await screen.findByRole("option", { name: /Fira Code/ }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Editor font size" }), {
+      target: { value: "large" },
+    });
 
     expect(localStorage.getItem("galley-pad.openMode")).toBe("windows");
+    expect(localStorage.getItem("galley-pad.appearanceTheme")).toBe(
+      "galley-dark",
+    );
+    expect(localStorage.getItem("galley-pad.editorFontFamily")).toBe("Fira Code");
+    expect(localStorage.getItem("galley-pad.editorFontSize")).toBe("large");
     expect(
       screen.getByRole("radio", { name: "Separate windows" }),
     ).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Galley Dark" })).toBeChecked();
+    expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+      "data-theme",
+      "dark",
+    );
+    expect(screen.getByTestId("mock-galley-editor-shell").style.getPropertyValue(
+      "--ge-font-body",
+    )).toContain("Fira Code");
+    expect(screen.getByTestId("mock-galley-editor-shell")).toHaveStyle({
+      "--ge-font-size": "1.125rem",
+    });
+    await waitFor(() => {
+      expect(writeAppSettingsMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appearanceTheme: "galley-dark",
+          editorFontFamily: "Fira Code",
+          editorFontSize: "large",
+          openMode: "windows",
+        }),
+      );
+    });
+  });
+
+  it("opens settings with the standard keyboard shortcut", async () => {
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: ",", ctrlKey: true });
+
+    expect(await screen.findByRole("dialog", { name: "Settings" })).toBeInTheDocument();
   });
 
   it("moves focus into settings and returns it when Escape closes the dialog", async () => {
@@ -378,6 +567,8 @@ describe("App", () => {
       expect(document.title).toBe("launch.md - Galley Pad");
     });
     expect(readTextFileMock).toHaveBeenCalledWith("/tmp/launch.md");
+    expect(screen.getAllByRole("tab")).toHaveLength(1);
+    expect(screen.queryByRole("tab", { name: "Untitled.md" })).not.toBeInTheDocument();
     expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
       "# Launch\n",
     );
@@ -442,6 +633,7 @@ describe("App", () => {
     expect(readTextFileMock).toHaveBeenCalledWith("/tmp/one.md");
     expect(readTextFileMock).toHaveBeenCalledWith("/tmp/two.markdown");
     expect(screen.getByRole("tab", { name: "one.md" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Untitled.md" })).not.toBeInTheDocument();
     expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("# Two\n");
   });
 
@@ -462,6 +654,8 @@ describe("App", () => {
     });
     expect(readTextFileMock).toHaveBeenCalledWith("/tmp/window.md");
     expect(openMarkdownFileWindowMock).not.toHaveBeenCalled();
+    expect(screen.getAllByRole("tab")).toHaveLength(1);
+    expect(screen.queryByRole("tab", { name: "Untitled.md" })).not.toBeInTheDocument();
     expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
       "# Window\n",
     );
@@ -959,6 +1153,12 @@ describe("App", () => {
       screen.findByRole("alert", { name: "File command error" }),
     ).resolves.toHaveTextContent("Use Save As to avoid overwriting");
     expect(writeTextFileMock).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss file command error" }));
+
+    expect(
+      screen.queryByRole("alert", { name: "File command error" }),
+    ).not.toBeInTheDocument();
   });
 });
 

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DocumentView } from "./components/DocumentView";
+import { FontPicker } from "./components/FontPicker";
 import {
   createLifecycleDependencies,
   openDocumentPath,
@@ -25,7 +26,29 @@ import {
   type DocumentWorkspace,
   type OpenMode,
 } from "./document/workspace";
+import {
+  APPEARANCE_THEMES,
+  EDITOR_FONT_SIZES,
+  getAppearanceTheme,
+  loadAppearanceThemeId,
+  loadEditorFontSettings,
+  saveAppearanceThemeId,
+  saveEditorFontSettings,
+  type AppearanceThemeId,
+  type EditorFontFamily,
+  type EditorFontSettings,
+  type EditorFontSize,
+} from "./settings/appearance";
 import { loadOpenMode, saveOpenMode } from "./settings/openMode";
+import {
+  clearSwapState,
+  readAppSettings,
+  readSwapState,
+  writeAppSettings,
+  writeSwapState,
+  type PersistedAppSettings,
+  type PersistedSwapState,
+} from "./tauri/appPersistence";
 import { pickOpenFile, pickSaveFile } from "./tauri/dialogs";
 import {
   getPendingMarkdownFileOpens,
@@ -38,8 +61,19 @@ import {
   type AppMenuCommand,
 } from "./tauri/menuEvents";
 import { openMarkdownFileWindow } from "./tauri/windows";
+import { listenForWindowCloseRequest } from "./tauri/windowClose";
+import {
+  listSystemFonts,
+  type SystemFont,
+  type SystemFontCatalog,
+} from "./tauri/systemFonts";
 
 type CommandName = "Open" | "Save" | "Save As" | "Open File";
+type UnsavedChoice = "save" | "save-as" | "discard" | "cancel";
+type UnsavedPromptState = {
+  session: DocumentSession;
+  resolve: (choice: UnsavedChoice) => void;
+};
 
 export default function App() {
   const [workspace, setWorkspace] = useState(() =>
@@ -49,8 +83,27 @@ export default function App() {
   const [commandError, setCommandError] = useState<string | null>(null);
   const [toolbarVisible, setToolbarVisible] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [appearanceThemeId, setAppearanceThemeId] = useState<AppearanceThemeId>(
+    () => loadAppearanceThemeId(),
+  );
+  const [editorFontSettings, setEditorFontSettings] =
+    useState<EditorFontSettings>(() => loadEditorFontSettings());
+  const [fontCatalog, setFontCatalog] = useState<SystemFontCatalog>({
+    fonts: [],
+    locale: null,
+    previewText: "Aa Bb Cc 0123456789 The quick brown fox",
+  });
+  const [fontsLoading, setFontsLoading] = useState(false);
+  const [swapReady, setSwapReady] = useState(false);
+  const [unsavedPrompt, setUnsavedPrompt] = useState<UnsavedPromptState | null>(
+    null,
+  );
   const latestWorkspace = useRef(workspace);
+  const latestAppearanceThemeId = useRef(appearanceThemeId);
+  const latestEditorFontSettings = useRef(editorFontSettings);
+  const swapWriteTimer = useRef<number | null>(null);
   const settingsDialogRef = useRef<HTMLDialogElement>(null);
+  const unsavedDialogRef = useRef<HTMLDialogElement>(null);
   const settingsReturnFocusRef = useRef<HTMLElement | null>(null);
   const externalOpenQueue = useRef(Promise.resolve());
   const dependencies = useMemo<LifecycleDependencies>(
@@ -65,22 +118,122 @@ export default function App() {
   );
 
   latestWorkspace.current = workspace;
+  latestAppearanceThemeId.current = appearanceThemeId;
+  latestEditorFontSettings.current = editorFontSettings;
   const activeTab = getActiveDocumentTab(workspace);
   const document = activeTab.session;
-
-  const wordCount = useMemo(() => {
-    const words = document.content
-      .trim()
-      .split(/\s+/)
-      .filter((word) => /[A-Za-z0-9]/.test(word));
-    return words.length;
-  }, [document.content]);
 
   useEffect(() => {
     globalThis.document.title = `${document.dirty ? "* " : ""}${
       document.displayName
     } - Galley Pad`;
   }, [document.dirty, document.displayName]);
+
+  useEffect(() => {
+    let disposed = false;
+
+    void readAppSettings()
+      .then((settings) => {
+        if (disposed || !settings) {
+          return;
+        }
+
+        if (isAppearanceThemeId(settings.appearanceTheme)) {
+          setAppearanceThemeId(settings.appearanceTheme);
+          saveAppearanceThemeId(settings.appearanceTheme);
+        }
+
+        const editorFontSize = settings.editorFontSize;
+        if (isEditorFontSize(editorFontSize)) {
+          setEditorFontSettings((current) => {
+            const next = {
+              family:
+                settings.editorFontFamily && settings.editorFontFamily.trim()
+                  ? settings.editorFontFamily
+                  : current.family,
+              size: editorFontSize,
+            };
+            saveEditorFontSettings(next);
+            return next;
+          });
+        } else if (settings.editorFontFamily?.trim()) {
+          setEditorFontSettings((current) => {
+            const next = { ...current, family: settings.editorFontFamily! };
+            saveEditorFontSettings(next);
+            return next;
+          });
+        }
+
+        if (isOpenMode(settings.openMode)) {
+          saveOpenMode(settings.openMode);
+          setWorkspace((current) => setOpenMode(current, settings.openMode!));
+        }
+      })
+      .catch((error: unknown) => {
+        if (!disposed) {
+          setCommandError(errorMessage(error));
+        }
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+
+    void readSwapState()
+      .then((swap) => {
+        if (disposed) {
+          return;
+        }
+
+        const restored = restoreWorkspaceFromSwap(swap);
+        if (restored) {
+          setWorkspace(restored);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!disposed) {
+          setCommandError(errorMessage(error));
+        }
+      })
+      .finally(() => {
+        if (!disposed) {
+          setSwapReady(true);
+        }
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!swapReady) {
+      return;
+    }
+
+    if (swapWriteTimer.current !== null) {
+      window.clearTimeout(swapWriteTimer.current);
+    }
+
+    swapWriteTimer.current = window.setTimeout(() => {
+      const snapshot = createSwapState(latestWorkspace.current);
+      const action = snapshot ? writeSwapState(snapshot) : clearSwapState();
+      void action.catch((error: unknown) => {
+        setCommandError(errorMessage(error));
+      });
+    }, 350);
+
+    return () => {
+      if (swapWriteTimer.current !== null) {
+        window.clearTimeout(swapWriteTimer.current);
+        swapWriteTimer.current = null;
+      }
+    };
+  }, [swapReady, workspace]);
 
   useEffect(() => {
     let unlisten: (() => void) | null = null;
@@ -131,6 +284,30 @@ export default function App() {
     let unlisten: (() => void) | null = null;
     let disposed = false;
 
+    void listenForWindowCloseRequest(async () => {
+      const canClose = await resolveAllDirtyTabsForClose();
+      if (canClose) {
+        await clearSwapState();
+      }
+      return canClose;
+    }).then((nextUnlisten) => {
+      if (disposed) {
+        nextUnlisten();
+      } else {
+        unlisten = nextUnlisten;
+      }
+    });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let disposed = false;
+
     void listenForAppMenuCommand((command) => {
       runMenuCommand(command);
     }).then((nextUnlisten) => {
@@ -156,11 +333,13 @@ export default function App() {
         return;
       }
 
-      if (!event.shiftKey || key !== "t") {
+      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && key === ",") {
+        event.preventDefault();
+        setSettingsOpen(true);
         return;
       }
 
-      if (event.metaKey || event.ctrlKey) {
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && key === "t") {
         event.preventDefault();
         setToolbarVisible((visible) => !visible);
       }
@@ -217,6 +396,67 @@ export default function App() {
       settingsReturnFocusRef.current = null;
     };
   }, [settingsOpen]);
+
+  useEffect(() => {
+    if (!unsavedPrompt) {
+      return;
+    }
+
+    const dialog = unsavedDialogRef.current;
+    if (!dialog) {
+      return;
+    }
+
+    if (!dialog.open && typeof dialog.showModal === "function") {
+      dialog.showModal();
+    } else if (!dialog.open) {
+      dialog.setAttribute("open", "");
+    }
+
+    window.requestAnimationFrame(() => {
+      dialog.querySelector<HTMLButtonElement>("[data-unsaved-default]")?.focus();
+    });
+
+    return () => {
+      if (dialog.open && typeof dialog.close === "function") {
+        dialog.close();
+      } else if (dialog.open) {
+        dialog.removeAttribute("open");
+      }
+    };
+  }, [unsavedPrompt]);
+
+  useEffect(() => {
+    if (!settingsOpen || fontCatalog.fonts.length > 0) {
+      return;
+    }
+
+    let disposed = false;
+    setFontsLoading(true);
+    void listSystemFonts()
+      .then((catalog) => {
+        if (!disposed) {
+          setFontCatalog(normalizeFontCatalog(catalog));
+        }
+      })
+      .catch(() => {
+        if (!disposed) {
+          setFontCatalog((current) => ({
+            ...current,
+            previewText: localizedFontPreviewText(navigator.language),
+          }));
+        }
+      })
+      .finally(() => {
+        if (!disposed) {
+          setFontsLoading(false);
+        }
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [fontCatalog.fonts.length, settingsOpen]);
 
   function addNewTab() {
     setCommandError(null);
@@ -337,16 +577,14 @@ export default function App() {
     }
   }
 
-  function closeTab(tabId: string) {
+  async function requestCloseTab(tabId: string) {
     const tab = workspace.tabs.find((candidate) => candidate.id === tabId);
     if (!tab) {
       return;
     }
 
-    const confirmed =
-      !tab.session.dirty ||
-      window.confirm(`Discard unsaved changes to ${tab.session.displayName}?`);
-    const result = closeDocumentTab(workspace, tabId, confirmed);
+    const confirmed = await resolveDirtyTabForClose(tabId);
+    const result = closeDocumentTab(latestWorkspace.current, tabId, confirmed);
     if (result.closed) {
       setWorkspace(result.workspace);
     }
@@ -354,7 +592,139 @@ export default function App() {
 
   function updateOpenMode(openMode: OpenMode) {
     saveOpenMode(openMode);
+    void persistAppSettings({ openMode });
     setWorkspace((current) => setOpenMode(current, openMode));
+  }
+
+  function updateAppearanceTheme(themeId: AppearanceThemeId) {
+    saveAppearanceThemeId(themeId);
+    void persistAppSettings({ appearanceTheme: themeId });
+    setAppearanceThemeId(themeId);
+  }
+
+  function updateEditorFontFamily(family: EditorFontFamily) {
+    const next = { ...editorFontSettings, family };
+    saveEditorFontSettings(next);
+    void persistAppSettings({
+      editorFontFamily: next.family,
+      editorFontSize: next.size,
+    });
+    setEditorFontSettings(next);
+  }
+
+  function updateEditorFontSize(size: EditorFontSize) {
+    const next = { ...editorFontSettings, size };
+    saveEditorFontSettings(next);
+    void persistAppSettings({
+      editorFontFamily: next.family,
+      editorFontSize: next.size,
+    });
+    setEditorFontSettings(next);
+  }
+
+  function promptUnsavedChanges(session: DocumentSession): Promise<UnsavedChoice> {
+    return new Promise((resolve) => {
+      setUnsavedPrompt({ session, resolve });
+    });
+  }
+
+  function answerUnsavedPrompt(choice: UnsavedChoice) {
+    unsavedPrompt?.resolve(choice);
+    setUnsavedPrompt(null);
+  }
+
+  async function resolveDirtyTabForClose(tabId: string): Promise<boolean> {
+    const tab = latestWorkspace.current.tabs.find(
+      (candidate) => candidate.id === tabId,
+    );
+    if (!tab || !tab.session.dirty) {
+      return true;
+    }
+
+    const choice = await promptUnsavedChanges(tab.session);
+    switch (choice) {
+      case "discard":
+        return true;
+      case "cancel":
+        return false;
+      case "save":
+        return saveTabBeforeClose(tabId, false);
+      case "save-as":
+        return saveTabBeforeClose(tabId, true);
+    }
+  }
+
+  async function resolveAllDirtyTabsForClose(): Promise<boolean> {
+    const dirtyTabIds = latestWorkspace.current.tabs
+      .filter((tab) => tab.session.dirty)
+      .map((tab) => tab.id);
+
+    for (const tabId of dirtyTabIds) {
+      const resolved = await resolveDirtyTabForClose(tabId);
+      if (!resolved) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  async function saveTabBeforeClose(
+    tabId: string,
+    forceSaveAs: boolean,
+  ): Promise<boolean> {
+    const commandSnapshot = latestWorkspace.current.tabs.find(
+      (tab) => tab.id === tabId,
+    )?.session;
+    if (!commandSnapshot) {
+      return true;
+    }
+
+    setCommandError(null);
+    setPendingCommand(forceSaveAs ? "Save As" : "Save");
+
+    try {
+      const next = forceSaveAs
+        ? await saveDocumentAs(commandSnapshot, dependencies)
+        : await saveDocument(commandSnapshot, dependencies);
+
+      if (!next) {
+        return false;
+      }
+
+      setWorkspace((current) =>
+        updateDocumentTab(current, tabId, (currentSession) =>
+          applySaveResult(commandSnapshot, next, currentSession),
+        ),
+      );
+      latestWorkspace.current = updateDocumentTab(
+        latestWorkspace.current,
+        tabId,
+        (currentSession) => applySaveResult(commandSnapshot, next, currentSession),
+      );
+      return true;
+    } catch (error: unknown) {
+      setCommandError(errorMessage(error));
+      return false;
+    } finally {
+      setPendingCommand(null);
+    }
+  }
+
+  async function persistAppSettings(settings: Partial<PersistedAppSettings>) {
+    const next = {
+      appearanceTheme: latestAppearanceThemeId.current,
+      editorFontFamily: latestEditorFontSettings.current.family,
+      editorFontSize: latestEditorFontSettings.current.size,
+      openMode: latestWorkspace.current.openMode,
+      ...settings,
+    };
+
+    try {
+      await writeAppSettings(next);
+    } catch (error: unknown) {
+      setCommandError(errorMessage(error));
+    }
   }
 
   function closeSettings() {
@@ -363,24 +733,10 @@ export default function App() {
 
   const activeTabButtonId = tabButtonId(workspace.activeTabId);
   const activeTabPanelId = tabPanelId(workspace.activeTabId);
+  const appearanceTheme = getAppearanceTheme(appearanceThemeId);
 
   return (
-    <div className="app-shell">
-      <header className="titlebar">
-        <span className="document-state">
-          {pendingCommand
-            ? `${pendingCommand}...`
-            : document.dirty
-              ? "Unsaved"
-              : document.path
-                ? "Saved"
-                : "Draft"}
-        </span>
-        <div className="document-meta" aria-label="Document statistics">
-          {wordCount} {wordCount === 1 ? "word" : "words"}
-        </div>
-      </header>
-
+    <div className={`app-shell ${appearanceTheme.appClassName}`}>
       <nav className="tabstrip" role="tablist" aria-label="Open documents">
         {workspace.tabs.map((tab) => (
           <div
@@ -408,7 +764,7 @@ export default function App() {
                 type="button"
                 className="tab-close"
                 aria-label={`Close ${tab.session.displayName}`}
-                onClick={() => closeTab(tab.id)}
+                onClick={() => void requestCloseTab(tab.id)}
               >
                 x
               </button>
@@ -424,7 +780,14 @@ export default function App() {
             role="alert"
             aria-label="File command error"
           >
-            {commandError}
+            <span>{commandError}</span>
+            <button
+              type="button"
+              aria-label="Dismiss file command error"
+              onClick={() => setCommandError(null)}
+            >
+              x
+            </button>
           </div>
         ) : null}
       </div>
@@ -434,6 +797,17 @@ export default function App() {
         panelId={activeTabPanelId}
         labelledBy={activeTabButtonId}
         toolbarVisible={toolbarVisible}
+        theme={appearanceTheme}
+        fontSettings={editorFontSettings}
+        status={
+          pendingCommand
+            ? `${pendingCommand}...`
+            : document.dirty
+              ? "Unsaved"
+              : document.path
+                ? "Saved"
+                : "Draft"
+        }
         onContentChange={(content) =>
           setWorkspace((current) =>
             updateActiveDocumentTab(current, (session) =>
@@ -491,6 +865,102 @@ export default function App() {
               Separate windows
             </label>
           </fieldset>
+          <fieldset>
+            <legend>Theme</legend>
+            {APPEARANCE_THEMES.map((theme) => (
+              <label key={theme.id}>
+                <input
+                  type="radio"
+                  name="appearance-theme"
+                  checked={appearanceThemeId === theme.id}
+                  onChange={() => updateAppearanceTheme(theme.id)}
+                />
+                {theme.label}
+              </label>
+            ))}
+          </fieldset>
+          <fieldset>
+            <legend>Editor font</legend>
+            <div className="settings-field settings-field-stacked">
+              <span className="settings-field-label">Family</span>
+              <FontPicker
+                value={editorFontSettings.family}
+                fonts={fontCatalog.fonts}
+                previewText={fontCatalog.previewText}
+                loading={fontsLoading}
+                onChange={updateEditorFontFamily}
+              />
+            </div>
+            <label className="settings-field">
+              Size
+              <select
+                aria-label="Editor font size"
+                value={editorFontSettings.size}
+                onChange={(event) =>
+                  updateEditorFontSize(event.currentTarget.value as EditorFontSize)
+                }
+              >
+                {EDITOR_FONT_SIZES.map((fontSize) => (
+                  <option key={fontSize.id} value={fontSize.id}>
+                    {fontSize.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </fieldset>
+        </dialog>
+      ) : null}
+
+      {unsavedPrompt ? (
+        <dialog
+          ref={unsavedDialogRef}
+          className="unsaved-dialog"
+          aria-labelledby="unsaved-title"
+          aria-describedby="unsaved-description"
+          onCancel={(event) => {
+            event.preventDefault();
+            answerUnsavedPrompt("cancel");
+          }}
+        >
+          <header className="unsaved-dialog-header">
+            <h2 id="unsaved-title">Save changes?</h2>
+          </header>
+          <div className="unsaved-dialog-body">
+            <p id="unsaved-description">
+              {unsavedPrompt.session.displayName} has unsaved changes.
+            </p>
+          </div>
+          <footer className="unsaved-dialog-actions">
+            <button
+              type="button"
+              className="button-secondary"
+              onClick={() => answerUnsavedPrompt("cancel")}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="button-danger"
+              onClick={() => answerUnsavedPrompt("discard")}
+            >
+              Discard
+            </button>
+            <button
+              type="button"
+              className="button-secondary"
+              onClick={() => answerUnsavedPrompt("save-as")}
+            >
+              Save As
+            </button>
+            <button
+              type="button"
+              className="button-primary"
+              data-unsaved-default
+              onClick={() => answerUnsavedPrompt("save")}
+            >
+              Save
+            </button>
+          </footer>
         </dialog>
       ) : null}
     </div>
@@ -531,4 +1001,119 @@ function errorMessage(error: unknown): string {
   }
 
   return String(error);
+}
+
+function normalizeFontCatalog(catalog: SystemFontCatalog): SystemFontCatalog {
+  return {
+    locale: catalog.locale,
+    previewText:
+      catalog.previewText || localizedFontPreviewText(catalog.locale ?? undefined),
+    fonts: catalog.fonts.slice().sort(compareSystemFonts),
+  };
+}
+
+function compareSystemFonts(left: SystemFont, right: SystemFont): number {
+  return left.family.localeCompare(right.family, undefined, {
+    sensitivity: "base",
+  });
+}
+
+function localizedFontPreviewText(locale: string | undefined): string {
+  const language = locale?.split(/[-_]/)[0]?.toLowerCase();
+  if (
+    language &&
+    ["ru", "be", "bg", "kk", "ky", "mk", "mn", "sr", "tg", "uk"].includes(
+      language,
+    )
+  ) {
+    return "Aa Bb Cc Аа Бб Вв 0123456789 Съешь ещё этих мягких булок";
+  }
+
+  return "Aa Bb Cc 0123456789 The quick brown fox";
+}
+
+function createSwapState(workspace: DocumentWorkspace): PersistedSwapState | null {
+  if (!workspace.tabs.some((tab) => tab.session.dirty)) {
+    return null;
+  }
+
+  return {
+    version: 1,
+    savedAt: Date.now(),
+    activeTabId: workspace.activeTabId,
+    openMode: workspace.openMode,
+    tabs: workspace.tabs.map((tab) => ({
+      id: tab.id,
+      session: tab.session,
+    })),
+  };
+}
+
+function restoreWorkspaceFromSwap(
+  swap: PersistedSwapState | null,
+): DocumentWorkspace | null {
+  if (!swap || swap.version !== 1 || !isOpenMode(swap.openMode)) {
+    return null;
+  }
+
+  const tabs = Array.isArray(swap.tabs)
+    ? swap.tabs.filter((tab) => isPersistedTab(tab))
+    : [];
+  if (tabs.length === 0 || !tabs.some((tab) => tab.session.dirty)) {
+    return null;
+  }
+
+  const activeTabId = tabs.some((tab) => tab.id === swap.activeTabId)
+    ? swap.activeTabId
+    : tabs[0].id;
+
+  return {
+    tabs,
+    activeTabId,
+    openMode: swap.openMode,
+  };
+}
+
+function isPersistedTab(value: unknown): value is DocumentWorkspace["tabs"][number] {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const tab = value as DocumentWorkspace["tabs"][number];
+  return typeof tab.id === "string" && isDocumentSession(tab.session);
+}
+
+function isDocumentSession(value: unknown): value is DocumentSession {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const session = value as DocumentSession;
+  return (
+    typeof session.id === "string" &&
+    (typeof session.path === "string" || session.path === null) &&
+    typeof session.displayName === "string" &&
+    typeof session.content === "string" &&
+    typeof session.savedContent === "string" &&
+    typeof session.dirty === "boolean" &&
+    (session.lineEnding === "lf" || session.lineEnding === "crlf") &&
+    (typeof session.lastKnownModifiedAt === "number" ||
+      session.lastKnownModifiedAt === null)
+  );
+}
+
+function isAppearanceThemeId(value: unknown): value is AppearanceThemeId {
+  return (
+    value === "system" ||
+    value === "galley-light" ||
+    value === "galley-dark"
+  );
+}
+
+function isEditorFontSize(value: unknown): value is EditorFontSize {
+  return value === "small" || value === "medium" || value === "large";
+}
+
+function isOpenMode(value: unknown): value is OpenMode {
+  return value === "tabs" || value === "windows";
 }
