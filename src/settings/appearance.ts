@@ -1,5 +1,4 @@
 import {
-  DEFAULT_THEME_SETTINGS,
   LEGACY_APPEARANCE_THEME_STORAGE_KEY,
   loadThemeSettings,
   saveThemeSettings,
@@ -90,15 +89,20 @@ export function saveAppearanceThemeId(
   themeId: AppearanceThemeId,
   storage: Storage | null = getStorage(),
 ): void {
+  const currentSettings = loadThemeSettings(storage);
+
   if (storage) {
     storage.setItem(LEGACY_APPEARANCE_THEME_STORAGE_KEY, themeId);
   }
 
   saveThemeSettings(
     themeId === "system"
-      ? DEFAULT_THEME_SETTINGS
+      ? {
+          ...currentSettings,
+          mode: "system",
+        }
       : {
-          ...DEFAULT_THEME_SETTINGS,
+          ...currentSettings,
           mode: "constant",
           constantThemeId: themeId,
         },

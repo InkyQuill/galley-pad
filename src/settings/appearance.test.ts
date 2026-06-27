@@ -3,9 +3,17 @@ import {
   EDITOR_FONT_FAMILY_STORAGE_KEY,
   EDITOR_FONT_SIZE_STORAGE_KEY,
   editorFontStyle,
+  loadAppearanceThemeId,
   loadEditorFontSettings,
+  saveAppearanceThemeId,
   saveEditorFontSettings,
 } from "./appearance";
+import {
+  DEFAULT_THEME_SETTINGS,
+  LEGACY_APPEARANCE_THEME_STORAGE_KEY,
+  loadThemeSettings,
+  saveThemeSettings,
+} from "../themes/settings";
 
 describe("appearance settings", () => {
   beforeEach(() => {
@@ -34,6 +42,62 @@ describe("appearance settings", () => {
     expect(loadEditorFontSettings()).toEqual({
       family: "system",
       size: "medium",
+    });
+  });
+
+  it("projects non-Galley constant themes to the legacy Galley theme ids", () => {
+    saveThemeSettings({
+      ...DEFAULT_THEME_SETTINGS,
+      mode: "constant",
+      constantThemeId: "gruvbox-dark",
+    });
+    expect(loadAppearanceThemeId()).toBe("galley-dark");
+
+    saveThemeSettings({
+      ...DEFAULT_THEME_SETTINGS,
+      mode: "constant",
+      constantThemeId: "catppuccin-latte",
+    });
+    expect(loadAppearanceThemeId()).toBe("galley-light");
+  });
+
+  it("preserves custom light and dark theme selections when saving system mode", () => {
+    saveThemeSettings({
+      mode: "native",
+      constantThemeId: "gruvbox-dark",
+      lightThemeId: "catppuccin-latte",
+      darkThemeId: "tokyo-night",
+    });
+
+    saveAppearanceThemeId("system");
+
+    expect(localStorage.getItem(LEGACY_APPEARANCE_THEME_STORAGE_KEY)).toBe("system");
+    expect(loadThemeSettings()).toEqual({
+      mode: "system",
+      constantThemeId: "gruvbox-dark",
+      lightThemeId: "catppuccin-latte",
+      darkThemeId: "tokyo-night",
+    });
+  });
+
+  it("preserves custom light and dark theme selections when saving Galley constant mode", () => {
+    saveThemeSettings({
+      mode: "native",
+      constantThemeId: "gruvbox-dark",
+      lightThemeId: "catppuccin-latte",
+      darkThemeId: "tokyo-night",
+    });
+
+    saveAppearanceThemeId("galley-dark");
+
+    expect(localStorage.getItem(LEGACY_APPEARANCE_THEME_STORAGE_KEY)).toBe(
+      "galley-dark",
+    );
+    expect(loadThemeSettings()).toEqual({
+      mode: "constant",
+      constantThemeId: "galley-dark",
+      lightThemeId: "catppuccin-latte",
+      darkThemeId: "tokyo-night",
     });
   });
 });
