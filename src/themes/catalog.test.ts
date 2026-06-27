@@ -10,6 +10,59 @@ import {
 } from "./catalog";
 
 const MINIMUM_NORMAL_TEXT_CONTRAST = 4.5;
+const APP_TOKEN_KEYS = [
+  "bg",
+  "text",
+  "panel",
+  "panelMuted",
+  "border",
+  "textMuted",
+  "tabText",
+  "hover",
+  "focus",
+  "errorBg",
+  "errorBorder",
+  "errorText",
+  "dialogShadow",
+  "backdrop",
+] as const;
+const EDITOR_TOKEN_KEYS = [
+  "text",
+  "textMuted",
+  "bg",
+  "surface",
+  "surfaceElevated",
+  "border",
+  "link",
+  "linkHover",
+  "selection",
+  "caret",
+  "focusRing",
+  "scrollbarThumb",
+  "scrollbarThumbHover",
+] as const;
+const MARKDOWN_TOKEN_KEYS = [
+  "codeFg",
+  "codeBg",
+  "codeFenceBg",
+  "codeHeaderBg",
+  "blockquoteBorder",
+  "blockquoteFg",
+  "divider",
+  "tableBorder",
+  "checkboxAccent",
+] as const;
+const SYNTAX_TOKEN_KEYS = [
+  "keyword",
+  "string",
+  "number",
+  "comment",
+  "variable",
+  "type",
+  "function",
+  "operator",
+  "punctuation",
+] as const;
 
 function contrastRatio(foreground: string, background: string): number {
   const foregroundLuminance = relativeLuminance(foreground);
@@ -145,11 +198,30 @@ describe("theme catalog", () => {
 
   it("defines complete tokens for every theme", () => {
     for (const theme of BUILT_IN_THEMES) {
-      expect(theme.tokens.app.bg).toMatch(/^#|^rgb|^color-mix/);
-      expect(theme.tokens.editor.text).toBeTruthy();
-      expect(theme.tokens.markdown.codeBg).toBeTruthy();
-      expect(theme.tokens.syntax.keyword).toBeTruthy();
-      expect(theme.tokens.syntax.punctuation).toBeTruthy();
+      expectStringTokens(theme.id, "app", theme.tokens.app, APP_TOKEN_KEYS);
+      expectStringTokens(theme.id, "editor", theme.tokens.editor, EDITOR_TOKEN_KEYS);
+      expectStringTokens(theme.id, "markdown", theme.tokens.markdown, MARKDOWN_TOKEN_KEYS);
+      expectStringTokens(theme.id, "syntax", theme.tokens.syntax, SYNTAX_TOKEN_KEYS);
     }
   });
 });
+
+function expectStringTokens(
+  themeId: string,
+  section: string,
+  tokens: object,
+  keys: readonly string[],
+): void {
+  const tokenRecord = tokens as Record<string, unknown>;
+
+  for (const key of keys) {
+    expect(
+      tokenRecord[key],
+      `${themeId} tokens.${section}.${key}`,
+    ).toEqual(expect.any(String));
+    expect(
+      (tokenRecord[key] as string).length,
+      `${themeId} tokens.${section}.${key}`,
+    ).toBeGreaterThan(0);
+  }
+}
