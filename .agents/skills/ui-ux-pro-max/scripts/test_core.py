@@ -156,6 +156,17 @@ class SearchCliTests(unittest.TestCase):
                     minimal_design_system("!!!"),
                     output_dir=temp_dir,
                 )
+            self.assertFalse((Path(temp_dir) / "design-system").exists())
+
+    def test_persist_design_system_rejects_empty_page_slug_before_writing(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with self.assertRaises(ValueError):
+                persist_design_system(
+                    minimal_design_system("Valid Project"),
+                    page="!!!",
+                    output_dir=temp_dir,
+                )
+            self.assertFalse((Path(temp_dir) / "design-system").exists())
 
     def test_cli_design_system_persist_writes_expected_files(self):
         script = Path(__file__).with_name("search.py")
@@ -201,6 +212,22 @@ class SearchCliTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("--page requires --persist", result.stderr)
+
+    def test_cli_rejects_persist_without_design_system(self):
+        script = Path(__file__).with_name("search.py")
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "minimalism",
+                "--persist",
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--persist requires --design-system", result.stderr)
 
 def write_csv(path, fieldnames, rows):
     with path.open("w", encoding="utf-8", newline="") as handle:

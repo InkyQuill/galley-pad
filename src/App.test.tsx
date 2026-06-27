@@ -415,6 +415,40 @@ describe("App", () => {
     }
   });
 
+  it("waits for an in-flight swap write before clearing swap state on close", async () => {
+    let closeHandler: (() => Promise<boolean>) | null = null;
+    listenForWindowCloseRequestMock.mockImplementation(async (handler) => {
+      closeHandler = handler;
+      return () => undefined;
+    });
+    const pendingSwapWrite = deferred<void>();
+    writeSwapStateMock.mockReturnValue(pendingSwapWrite.promise);
+    render(<App />);
+    fireEvent.change(screen.getByLabelText("Mock Galley Editor"), {
+      target: { value: "Dirty before close" },
+    });
+
+    await waitFor(() => {
+      expect(writeSwapStateMock).toHaveBeenCalled();
+    });
+    expect(closeHandler).not.toBeNull();
+    const closeResult = closeHandler!();
+    await screen.findByRole("dialog", { name: "Save changes?" });
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+
+    await waitFor(() => {
+      expect(clearSwapStateMock).not.toHaveBeenCalled();
+    });
+
+    await act(async () => {
+      pendingSwapWrite.resolve(undefined);
+      await pendingSwapWrite.promise;
+    });
+
+    await expect(closeResult).resolves.toBe(true);
+    expect(clearSwapStateMock).toHaveBeenCalled();
+  });
+
   it("opens a selected file and updates the session", async () => {
     let menuHandler: ((command: AppMenuCommand) => void) | null = null;
     listenForAppMenuCommandMock.mockImplementation(async (handler) => {
@@ -594,6 +628,41 @@ describe("App", () => {
         openMode: "windows",
       }),
     );
+  });
+
+  it("does not let late startup settings overwrite user preference edits", async () => {
+    const pendingSettings = deferred<Awaited<ReturnType<typeof readAppSettings>>>();
+    readAppSettingsMock.mockReturnValue(pendingSettings.promise);
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: ",", ctrlKey: true });
+    await screen.findByRole("dialog", { name: "Settings" });
+    fireEvent.click(screen.getByRole("radio", { name: "Galley Dark" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Separate windows" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Editor font size" }), {
+      target: { value: "large" },
+    });
+
+    await act(async () => {
+      pendingSettings.resolve({
+        appearanceTheme: "galley-light",
+        editorFontFamily: "Inter",
+        editorFontSize: "small",
+        openMode: "tabs",
+      });
+      await pendingSettings.promise;
+    });
+
+    expect(screen.getByRole("radio", { name: "Galley Dark" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Separate windows" })).toBeChecked();
+    expect(screen.getByRole("combobox", { name: "Editor font size" })).toHaveValue(
+      "large",
+    );
+    expect(localStorage.getItem("galley-pad.appearanceTheme")).toBe(
+      "galley-dark",
+    );
+    expect(localStorage.getItem("galley-pad.openMode")).toBe("windows");
+    expect(localStorage.getItem("galley-pad.editorFontSize")).toBe("large");
   });
 
   it("opens settings with the standard keyboard shortcut", async () => {

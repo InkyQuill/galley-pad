@@ -102,9 +102,15 @@ export default function App() {
   const latestAppearanceThemeId = useRef(appearanceThemeId);
   const latestEditorFontSettings = useRef(editorFontSettings);
   const swapWriteTimer = useRef<number | null>(null);
+  const swapWriteInFlight = useRef<Promise<void> | null>(null);
   const closingRef = useRef(false);
   const pendingAppSettingsWrite = useRef<PersistedAppSettings | null>(null);
   const appSettingsWriteInFlight = useRef(false);
+  const touchedPreferences = useRef({
+    appearanceTheme: false,
+    editorFont: false,
+    openMode: false,
+  });
   const settingsDialogRef = useRef<HTMLDialogElement>(null);
   const unsavedDialogRef = useRef<HTMLDialogElement>(null);
   const settingsReturnFocusRef = useRef<HTMLElement | null>(null);
@@ -141,33 +147,41 @@ export default function App() {
           return;
         }
 
-        if (isAppearanceThemeId(settings.appearanceTheme)) {
+        if (
+          !touchedPreferences.current.appearanceTheme &&
+          isAppearanceThemeId(settings.appearanceTheme)
+        ) {
           setAppearanceThemeId(settings.appearanceTheme);
           saveAppearanceThemeId(settings.appearanceTheme);
         }
 
-        const editorFontSize = settings.editorFontSize;
-        if (isEditorFontSize(editorFontSize)) {
-          setEditorFontSettings((current) => {
-            const next = {
-              family:
-                settings.editorFontFamily && settings.editorFontFamily.trim()
-                  ? settings.editorFontFamily
-                  : current.family,
-              size: editorFontSize,
-            };
-            saveEditorFontSettings(next);
-            return next;
-          });
-        } else if (settings.editorFontFamily?.trim()) {
-          setEditorFontSettings((current) => {
-            const next = { ...current, family: settings.editorFontFamily! };
-            saveEditorFontSettings(next);
-            return next;
-          });
+        if (!touchedPreferences.current.editorFont) {
+          const editorFontSize = settings.editorFontSize;
+          if (isEditorFontSize(editorFontSize)) {
+            setEditorFontSettings((current) => {
+              const next = {
+                family:
+                  settings.editorFontFamily && settings.editorFontFamily.trim()
+                    ? settings.editorFontFamily
+                    : current.family,
+                size: editorFontSize,
+              };
+              saveEditorFontSettings(next);
+              return next;
+            });
+          } else if (settings.editorFontFamily?.trim()) {
+            setEditorFontSettings((current) => {
+              const next = { ...current, family: settings.editorFontFamily! };
+              saveEditorFontSettings(next);
+              return next;
+            });
+          }
         }
 
-        if (isOpenMode(settings.openMode)) {
+        if (
+          !touchedPreferences.current.openMode &&
+          isOpenMode(settings.openMode)
+        ) {
           saveOpenMode(settings.openMode);
           setWorkspace((current) => setOpenMode(current, settings.openMode!));
         }
@@ -227,15 +241,23 @@ export default function App() {
     }
 
     swapWriteTimer.current = window.setTimeout(() => {
+      swapWriteTimer.current = null;
       if (closingRef.current) {
         return;
       }
 
       const snapshot = createSwapState(latestWorkspace.current);
       const action = snapshot ? writeSwapState(snapshot) : clearSwapState();
-      void action.catch((error: unknown) => {
-        setCommandError(errorMessage(error));
-      });
+      const trackedAction = action
+        .catch((error: unknown) => {
+          setCommandError(errorMessage(error));
+        })
+        .finally(() => {
+          if (swapWriteInFlight.current === trackedAction) {
+            swapWriteInFlight.current = null;
+          }
+        });
+      swapWriteInFlight.current = trackedAction;
     }, 350);
 
     return () => {
@@ -304,6 +326,7 @@ export default function App() {
       if (canClose) {
         closingRef.current = true;
         clearPendingSwapWrite();
+        await waitForSwapWrite();
         try {
           await clearSwapState();
         } catch (error: unknown) {
@@ -612,18 +635,21 @@ export default function App() {
   }
 
   function updateOpenMode(openMode: OpenMode) {
+    touchedPreferences.current.openMode = true;
     saveOpenMode(openMode);
     void persistAppSettings({ openMode });
     setWorkspace((current) => setOpenMode(current, openMode));
   }
 
   function updateAppearanceTheme(themeId: AppearanceThemeId) {
+    touchedPreferences.current.appearanceTheme = true;
     saveAppearanceThemeId(themeId);
     void persistAppSettings({ appearanceTheme: themeId });
     setAppearanceThemeId(themeId);
   }
 
   function updateEditorFontFamily(family: EditorFontFamily) {
+    touchedPreferences.current.editorFont = true;
     const next = { ...editorFontSettings, family };
     saveEditorFontSettings(next);
     void persistAppSettings({
@@ -634,6 +660,7 @@ export default function App() {
   }
 
   function updateEditorFontSize(size: EditorFontSize) {
+    touchedPreferences.current.editorFont = true;
     const next = { ...editorFontSettings, size };
     saveEditorFontSettings(next);
     void persistAppSettings({
@@ -771,6 +798,12 @@ export default function App() {
     if (swapWriteTimer.current !== null) {
       window.clearTimeout(swapWriteTimer.current);
       swapWriteTimer.current = null;
+    }
+  }
+
+  async function waitForSwapWrite() {
+    if (swapWriteInFlight.current) {
+      await swapWriteInFlight.current;
     }
   }
 

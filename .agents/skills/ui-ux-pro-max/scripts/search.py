@@ -75,6 +75,8 @@ if __name__ == "__main__":
     parser.add_argument("--output-dir", "-o", type=str, default=None, help="Output directory for persisted files (default: current directory)")
 
     args = parser.parse_args()
+    if args.persist and not args.design_system:
+        parser.error("--persist requires --design-system so a design system can be written")
     if args.page and not args.persist:
         parser.error("--page requires --persist so a page override file can be written")
 
