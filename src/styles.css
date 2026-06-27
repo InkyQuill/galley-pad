@@ -405,6 +405,13 @@ textarea {
   font-size: 13px;
 }
 
+.settings-help {
+  margin: -4px 0 0 24px;
+  color: var(--app-text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .settings-dialog select {
   min-width: 132px;
   border: 1px solid var(--app-border);

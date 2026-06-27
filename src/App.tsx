@@ -27,7 +27,6 @@ import {
   type OpenMode,
 } from "./document/workspace";
 import {
-  APPEARANCE_THEMES,
   EDITOR_FONT_SIZES,
   getAppearanceTheme,
   loadEditorFontSettings,
@@ -66,15 +65,21 @@ import {
   type SystemFont,
   type SystemFontCatalog,
 } from "./tauri/systemFonts";
+import {
+  BUILT_IN_THEMES,
+  isThemeId,
+  listThemesByScheme,
+} from "./themes/catalog";
 import { resolveTheme } from "./themes/resolve";
 import {
   loadThemeSettings,
   parseThemeSettings,
   saveThemeSettings,
+  type ThemeMode,
   type ThemeSettings,
 } from "./themes/settings";
 import { themeToCssVariables } from "./themes/style";
-import type { ThemeScheme } from "./themes/tokens";
+import type { ThemeId, ThemeScheme } from "./themes/tokens";
 
 type CommandName = "Open" | "Save" | "Save As" | "Open File";
 type UnsavedChoice = "save" | "save-as" | "discard" | "cancel";
@@ -677,16 +682,52 @@ export default function App() {
     setWorkspace((current) => setOpenMode(current, openMode));
   }
 
-  function updateAppearanceTheme(themeId: AppearanceThemeId) {
+  function updateThemeSettings(next: ThemeSettings) {
     touchedPreferences.current.appearanceTheme = true;
-    const next = themeSettingsFromAppearanceThemeId(
-      themeId,
-      latestThemeSettings.current,
-    );
+    latestThemeSettings.current = next;
     saveThemeSettings(next);
-    saveAppearanceThemeId(themeId);
-    persistAppSettings({ appearanceTheme: themeId, themeSettings: next });
+    persistAppSettings({ themeSettings: next });
     setThemeSettings(next);
+  }
+
+  function updateThemeMode(mode: ThemeMode) {
+    updateThemeSettings({
+      ...latestThemeSettings.current,
+      mode,
+    });
+  }
+
+  function updateConstantTheme(themeId: ThemeId) {
+    if (!isThemeId(themeId)) {
+      return;
+    }
+
+    updateThemeSettings({
+      ...latestThemeSettings.current,
+      constantThemeId: themeId,
+    });
+  }
+
+  function updateLightTheme(themeId: ThemeId) {
+    if (!themeMatchesScheme(themeId, "light")) {
+      return;
+    }
+
+    updateThemeSettings({
+      ...latestThemeSettings.current,
+      lightThemeId: themeId,
+    });
+  }
+
+  function updateDarkTheme(themeId: ThemeId) {
+    if (!themeMatchesScheme(themeId, "dark")) {
+      return;
+    }
+
+    updateThemeSettings({
+      ...latestThemeSettings.current,
+      darkThemeId: themeId,
+    });
   }
 
   function updateEditorFontFamily(family: EditorFontFamily) {
@@ -870,6 +911,8 @@ export default function App() {
     themeSettings.mode === "constant" ? resolvedTheme.scheme : "auto";
   const appearanceThemeId = appearanceThemeIdFromThemeSettings(themeSettings);
   const appearanceTheme = getAppearanceTheme(appearanceThemeId);
+  const lightThemes = listThemesByScheme("light");
+  const darkThemes = listThemesByScheme("dark");
 
   return (
     <div
@@ -1008,17 +1051,91 @@ export default function App() {
           </fieldset>
           <fieldset>
             <legend>Theme</legend>
-            {APPEARANCE_THEMES.map((theme) => (
-              <label key={theme.id}>
-                <input
-                  type="radio"
-                  name="appearance-theme"
-                  checked={appearanceThemeId === theme.id}
-                  onChange={() => updateAppearanceTheme(theme.id)}
-                />
-                {theme.label}
+            <label>
+              <input
+                type="radio"
+                name="theme-mode"
+                checked={themeSettings.mode === "constant"}
+                onChange={() => updateThemeMode("constant")}
+              />
+              Constant
+            </label>
+            {themeSettings.mode === "constant" ? (
+              <label className="settings-field">
+                Theme
+                <select
+                  aria-label="Theme"
+                  value={themeSettings.constantThemeId}
+                  onChange={(event) =>
+                    updateConstantTheme(event.currentTarget.value)
+                  }
+                >
+                  {BUILT_IN_THEMES.map((theme) => (
+                    <option key={theme.id} value={theme.id}>
+                      {themeOptionLabel(theme)}
+                    </option>
+                  ))}
+                </select>
               </label>
-            ))}
+            ) : null}
+            <label>
+              <input
+                type="radio"
+                name="theme-mode"
+                checked={themeSettings.mode === "system"}
+                onChange={() => updateThemeMode("system")}
+              />
+              System-based
+            </label>
+            {themeSettings.mode === "system" ? (
+              <>
+                <label className="settings-field">
+                  Light theme
+                  <select
+                    aria-label="Light theme"
+                    value={themeSettings.lightThemeId}
+                    onChange={(event) =>
+                      updateLightTheme(event.currentTarget.value)
+                    }
+                  >
+                    {lightThemes.map((theme) => (
+                      <option key={theme.id} value={theme.id}>
+                        {themeOptionLabel(theme)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="settings-field">
+                  Dark theme
+                  <select
+                    aria-label="Dark theme"
+                    value={themeSettings.darkThemeId}
+                    onChange={(event) =>
+                      updateDarkTheme(event.currentTarget.value)
+                    }
+                  >
+                    {darkThemes.map((theme) => (
+                      <option key={theme.id} value={theme.id}>
+                        {themeOptionLabel(theme)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </>
+            ) : null}
+            <label>
+              <input
+                type="radio"
+                name="theme-mode"
+                checked={false}
+                disabled
+                aria-describedby="native-theme-help"
+              />
+              Native
+            </label>
+            <p className="settings-help" id="native-theme-help">
+              Native shell colors are not available yet.
+            </p>
           </fieldset>
           <fieldset>
             <legend>Editor font</legend>
@@ -1292,6 +1409,14 @@ function isAppearanceThemeId(value: unknown): value is AppearanceThemeId {
     value === "galley-light" ||
     value === "galley-dark"
   );
+}
+
+function themeMatchesScheme(themeId: ThemeId, scheme: ThemeScheme): boolean {
+  return listThemesByScheme(scheme).some((theme) => theme.id === themeId);
+}
+
+function themeOptionLabel(theme: (typeof BUILT_IN_THEMES)[number]): string {
+  return `${theme.label} (${theme.family}, ${theme.scheme})`;
 }
 
 function isEditorFontSize(value: unknown): value is EditorFontSize {

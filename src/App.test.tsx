@@ -548,7 +548,10 @@ describe("App", () => {
       menuHandler?.("settings");
     });
     await screen.findByRole("dialog", { name: "Settings" });
-    fireEvent.click(screen.getByRole("radio", { name: "Galley Dark" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Constant" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Theme" }), {
+      target: { value: "catppuccin-mocha" },
+    });
     expect(writeAppSettingsMock).toHaveBeenCalledTimes(1);
 
     expect(closeHandler).not.toBeNull();
@@ -638,7 +641,7 @@ describe("App", () => {
     expect(document.title).toBe("* Untitled.md - Galley Pad");
   });
 
-  it("opens settings from the native menu and persists preferences", async () => {
+  it("opens settings from the native menu and persists constant theme preferences", async () => {
     let menuHandler: ((command: AppMenuCommand) => void) | null = null;
     listenForAppMenuCommandMock.mockImplementation(async (handler) => {
       menuHandler = handler;
@@ -654,7 +657,10 @@ describe("App", () => {
     });
     await screen.findByRole("dialog", { name: "Settings" });
     fireEvent.click(screen.getByRole("radio", { name: "Separate windows" }));
-    fireEvent.click(screen.getByRole("radio", { name: "Galley Dark" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Constant" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Theme" }), {
+      target: { value: "catppuccin-mocha" },
+    });
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /System default/ })).toHaveTextContent(
         "Съешь",
@@ -676,15 +682,24 @@ describe("App", () => {
     });
 
     expect(localStorage.getItem("galley-pad.openMode")).toBe("windows");
-    expect(localStorage.getItem("galley-pad.appearanceTheme")).toBe(
-      "galley-dark",
+    expect(JSON.parse(localStorage.getItem("galley-pad.themeSettings")!)).toEqual(
+      expect.objectContaining({
+        mode: "constant",
+        constantThemeId: "catppuccin-mocha",
+      }),
     );
     expect(localStorage.getItem("galley-pad.editorFontFamily")).toBe("Fira Code");
     expect(localStorage.getItem("galley-pad.editorFontSize")).toBe("large");
     expect(
       screen.getByRole("radio", { name: "Separate windows" }),
     ).toBeChecked();
-    expect(screen.getByRole("radio", { name: "Galley Dark" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Constant" })).toBeChecked();
+    expect(screen.getByRole("combobox", { name: "Theme" })).toHaveValue(
+      "catppuccin-mocha",
+    );
+    expect(
+      screen.queryByRole("combobox", { name: "Light theme" }),
+    ).not.toBeInTheDocument();
     expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
       "data-theme",
       "dark",
@@ -698,7 +713,10 @@ describe("App", () => {
     await waitFor(() => {
       expect(writeAppSettingsMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          appearanceTheme: "galley-dark",
+          themeSettings: expect.objectContaining({
+            mode: "constant",
+            constantThemeId: "catppuccin-mocha",
+          }),
           editorFontFamily: "Fira Code",
           editorFontSize: "large",
           openMode: "windows",
@@ -727,7 +745,10 @@ describe("App", () => {
     });
     await screen.findByRole("dialog", { name: "Settings" });
 
-    fireEvent.click(screen.getByRole("radio", { name: "Galley Dark" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Constant" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Theme" }), {
+      target: { value: "catppuccin-mocha" },
+    });
     fireEvent.click(screen.getByRole("radio", { name: "Separate windows" }));
 
     expect(writeAppSettingsMock).toHaveBeenCalledTimes(1);
@@ -742,10 +763,59 @@ describe("App", () => {
     });
     expect(writeAppSettingsMock).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        appearanceTheme: "galley-dark",
+        themeSettings: expect.objectContaining({
+          mode: "constant",
+          constantThemeId: "catppuccin-mocha",
+        }),
         openMode: "windows",
       }),
     );
+  });
+
+  it("persists system-based light and dark theme selections", async () => {
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: ",", ctrlKey: true });
+    await screen.findByRole("dialog", { name: "Settings" });
+    fireEvent.click(screen.getByRole("radio", { name: "System-based" }));
+
+    expect(
+      screen.getByRole("combobox", { name: "Light theme" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("combobox", { name: "Dark theme" }),
+    ).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Light theme" }), {
+      target: { value: "solarized-light" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "Dark theme" }), {
+      target: { value: "tokyo-night" },
+    });
+
+    await waitFor(() => {
+      expect(writeAppSettingsMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          themeSettings: expect.objectContaining({
+            mode: "system",
+            lightThemeId: "solarized-light",
+            darkThemeId: "tokyo-night",
+          }),
+        }),
+      );
+    });
+  });
+
+  it("shows native theme mode as unavailable", async () => {
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: ",", ctrlKey: true });
+    await screen.findByRole("dialog", { name: "Settings" });
+
+    expect(screen.getByRole("radio", { name: /Native/ })).toBeDisabled();
+    expect(
+      screen.getByText("Native shell colors are not available yet."),
+    ).toBeVisible();
   });
 
   it("does not let late startup settings overwrite user preference edits", async () => {
@@ -755,7 +825,10 @@ describe("App", () => {
 
     fireEvent.keyDown(window, { key: ",", ctrlKey: true });
     await screen.findByRole("dialog", { name: "Settings" });
-    fireEvent.click(screen.getByRole("radio", { name: "Galley Dark" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Constant" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Theme" }), {
+      target: { value: "catppuccin-mocha" },
+    });
     fireEvent.click(screen.getByRole("radio", { name: "Separate windows" }));
     fireEvent.change(screen.getByRole("combobox", { name: "Editor font size" }), {
       target: { value: "large" },
@@ -771,13 +844,19 @@ describe("App", () => {
       await pendingSettings.promise;
     });
 
-    expect(screen.getByRole("radio", { name: "Galley Dark" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Constant" })).toBeChecked();
+    expect(screen.getByRole("combobox", { name: "Theme" })).toHaveValue(
+      "catppuccin-mocha",
+    );
     expect(screen.getByRole("radio", { name: "Separate windows" })).toBeChecked();
     expect(screen.getByRole("combobox", { name: "Editor font size" })).toHaveValue(
       "large",
     );
-    expect(localStorage.getItem("galley-pad.appearanceTheme")).toBe(
-      "galley-dark",
+    expect(JSON.parse(localStorage.getItem("galley-pad.themeSettings")!)).toEqual(
+      expect.objectContaining({
+        mode: "constant",
+        constantThemeId: "catppuccin-mocha",
+      }),
     );
     expect(localStorage.getItem("galley-pad.openMode")).toBe("windows");
     expect(localStorage.getItem("galley-pad.editorFontSize")).toBe("large");
