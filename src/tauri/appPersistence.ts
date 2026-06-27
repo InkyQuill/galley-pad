@@ -13,10 +13,17 @@ type JsonValue =
 
 export type PersistedAppSettings = {
   appearanceTheme?: string | null;
-  themeSettings?: ThemeSettings | JsonValue;
+  themeSettings?: ThemeSettings | null;
   editorFontFamily?: string | null;
   editorFontSize?: EditorFontSettings["size"] | null;
   openMode?: OpenMode | null;
+};
+
+export type RawPersistedAppSettings = Omit<
+  PersistedAppSettings,
+  "themeSettings"
+> & {
+  themeSettings?: ThemeSettings | JsonValue | null;
 };
 
 export type PersistedSwapState = {
@@ -39,12 +46,12 @@ export type PersistedSwapState = {
   }>;
 };
 
-export function readAppSettings(): Promise<PersistedAppSettings | null> {
+export function readAppSettings(): Promise<RawPersistedAppSettings | null> {
   if (!isTauriRuntime()) {
     return Promise.resolve(null);
   }
 
-  return invoke<PersistedAppSettings | null>("read_app_settings");
+  return invoke<RawPersistedAppSettings | null>("read_app_settings");
 }
 
 export function writeAppSettings(settings: PersistedAppSettings): Promise<void> {

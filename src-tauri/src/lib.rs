@@ -889,6 +889,62 @@ mod tests {
         let _ = fs::remove_dir_all(directory);
     }
 
+    #[test]
+    fn persisted_app_settings_deserializes_without_theme_settings() {
+        let settings = serde_json::from_str::<super::PersistedAppSettings>(
+            r#"{
+                "appearanceTheme": "galley-dark",
+                "editorFontFamily": "Fira Code",
+                "editorFontSize": "large",
+                "openMode": "tabs"
+            }"#,
+        )
+        .expect("deserialize old persisted app settings");
+
+        assert!(settings.theme_settings.is_none());
+    }
+
+    #[test]
+    fn persisted_app_settings_deserializes_null_theme_settings() {
+        let settings = serde_json::from_str::<super::PersistedAppSettings>(
+            r#"{
+                "appearanceTheme": "galley-dark",
+                "themeSettings": null,
+                "editorFontFamily": "Fira Code",
+                "editorFontSize": "large",
+                "openMode": "tabs"
+            }"#,
+        )
+        .expect("deserialize null theme settings");
+
+        assert!(settings.theme_settings.is_none());
+    }
+
+    #[test]
+    fn persisted_app_settings_preserves_malformed_theme_settings_value() {
+        let settings = serde_json::from_str::<super::PersistedAppSettings>(
+            r#"{
+                "appearanceTheme": "galley-dark",
+                "themeSettings": {
+                    "mode": "broken",
+                    "constantThemeId": 42
+                },
+                "editorFontFamily": "Fira Code",
+                "editorFontSize": "large",
+                "openMode": "tabs"
+            }"#,
+        )
+        .expect("deserialize malformed theme settings as raw value");
+
+        assert_eq!(
+            settings
+                .theme_settings
+                .expect("theme settings value")
+                .get("constantThemeId"),
+            Some(&serde_json::json!(42))
+        );
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn linux_wayland_disables_dmabuf_renderer_when_unconfigured() {

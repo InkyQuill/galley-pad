@@ -6,7 +6,11 @@ import {
   writeAppSettings,
   writeSwapState,
 } from "./appPersistence";
-import type { PersistedAppSettings, PersistedSwapState } from "./appPersistence";
+import type {
+  PersistedAppSettings,
+  PersistedSwapState,
+  RawPersistedAppSettings,
+} from "./appPersistence";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
@@ -83,6 +87,15 @@ describe("app persistence", () => {
     });
   });
 
+  it("rejects malformed theme settings writes at type level", () => {
+    if (false) {
+      // @ts-expect-error write payloads require valid ThemeSettings
+      void writeAppSettings({ themeSettings: "broken" });
+    }
+
+    expect(true).toBe(true);
+  });
+
   it("returns old app settings without themeSettings from Tauri", async () => {
     const settings: PersistedAppSettings = {
       appearanceTheme: "galley-dark",
@@ -106,12 +119,12 @@ describe("app persistence", () => {
       editorFontFamily: null,
       editorFontSize: "large",
       openMode: "tabs",
-    } satisfies PersistedAppSettings;
+    } satisfies RawPersistedAppSettings;
 
     invokeMock.mockResolvedValueOnce(malformedSettings).mockResolvedValueOnce({
       ...malformedSettings,
       themeSettings: null,
-    } satisfies PersistedAppSettings);
+    } satisfies RawPersistedAppSettings);
 
     await expect(readAppSettings()).resolves.toEqual(malformedSettings);
     await expect(readAppSettings()).resolves.toMatchObject({
