@@ -389,22 +389,56 @@ describe("App", () => {
       "/tmp/one.md",
       "/tmp/two.markdown",
     ]);
-    readTextFileMock
-      .mockResolvedValueOnce({
+    const firstRead = deferred<{
+      path: string;
+      content: string;
+      lineEnding: "lf";
+      lastModifiedAt: number;
+    }>();
+    const secondRead = deferred<{
+      path: string;
+      content: string;
+      lineEnding: "lf";
+      lastModifiedAt: number;
+    }>();
+    readTextFileMock.mockImplementation((path) => {
+      if (path === "/tmp/one.md") {
+        return firstRead.promise;
+      }
+      if (path === "/tmp/two.markdown") {
+        return secondRead.promise;
+      }
+      throw new Error(`Unexpected read path: ${path}`);
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(readTextFileMock).toHaveBeenCalledWith("/tmp/one.md");
+    });
+    secondRead.resolve({
+      path: "/tmp/two.markdown",
+      content: "# Two\n",
+      lineEnding: "lf",
+      lastModifiedAt: 31,
+    });
+    expect(readTextFileMock).not.toHaveBeenCalledWith("/tmp/two.markdown");
+    await act(async () => {
+      firstRead.resolve({
         path: "/tmp/one.md",
         content: "# One\n",
         lineEnding: "lf",
         lastModifiedAt: 30,
-      })
-      .mockResolvedValueOnce({
-        path: "/tmp/two.markdown",
-        content: "# Two\n",
-        lineEnding: "lf",
-        lastModifiedAt: 31,
       });
+      await firstRead.promise;
+    });
 
-    render(<App />);
-
+    await waitFor(() => {
+      expect(readTextFileMock).toHaveBeenCalledWith("/tmp/two.markdown");
+    });
+    await act(async () => {
+      await secondRead.promise;
+    });
     await waitFor(() => {
       expect(screen.getByRole("tab", { name: "two.markdown" })).toHaveAttribute(
         "aria-selected",

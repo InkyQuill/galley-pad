@@ -249,9 +249,14 @@ fn emit_or_queue_markdown_file_open<R: tauri::Runtime>(
         .or_else(|| windows.values().next());
 
     if let Some(window) = target {
-        window
-            .emit(MARKDOWN_FILE_OPENED_EVENT, path)
-            .map_err(|error| format!("Failed to emit Markdown file open event: {error}"))
+        if let Err(error) = window.emit(MARKDOWN_FILE_OPENED_EVENT, path.clone()) {
+            let emit_error = format!("Failed to emit Markdown file open event: {error}");
+            queue_pending_markdown_file_open(app, path)
+                .map_err(|queue_error| format!("{emit_error}; {queue_error}"))?;
+            Err(emit_error)
+        } else {
+            Ok(())
+        }
     } else {
         queue_pending_markdown_file_open(app, path)
     }

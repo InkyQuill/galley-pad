@@ -97,7 +97,7 @@ export default function App() {
 
     const windowLaunchPath = getWindowMarkdownFileOpen();
     if (windowLaunchPath) {
-      openFileInCurrentWindow(windowLaunchPath);
+      void openFileInCurrentWindow(windowLaunchPath);
       return () => {
         disposed = true;
         unlisten?.();
@@ -105,11 +105,12 @@ export default function App() {
     }
 
     void getPendingMarkdownFileOpens()
-      .then((paths) => {
-        if (!disposed) {
-          paths.forEach((path) => {
-            openFileInCurrentWindow(path);
-          });
+      .then(async (paths) => {
+        for (const path of paths) {
+          if (disposed) {
+            break;
+          }
+          await openFileInCurrentWindow(path);
         }
       })
       .catch((error: unknown) => {
@@ -218,11 +219,14 @@ export default function App() {
     setWorkspace((current) => addDocumentTab(current));
   }
 
-  function runOpenCommand(name: CommandName, command: () => Promise<DocumentSession | null>) {
+  function runOpenCommand(
+    name: CommandName,
+    command: () => Promise<DocumentSession | null>,
+  ): Promise<void> {
     setCommandError(null);
     setPendingCommand(name);
 
-    void command()
+    return command()
       .then((next) => {
         if (next) {
           setWorkspace((current) => openDocumentTab(current, next));
@@ -287,7 +291,7 @@ export default function App() {
   }
 
   function openFileInCurrentWindow(path: string) {
-    runOpenCommand("Open File", () => openDocumentPath(path, dependencies));
+    return runOpenCommand("Open File", () => openDocumentPath(path, dependencies));
   }
 
   function runMenuCommand(command: AppMenuCommand) {
