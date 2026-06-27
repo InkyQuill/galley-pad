@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
   MARKDOWN_FILE_OPENED_EVENT,
-  getPendingMarkdownFileOpen,
+  getPendingMarkdownFileOpens,
   getWindowMarkdownFileOpen,
   listenForMarkdownFileOpen,
 } from "./externalFiles";
@@ -28,7 +28,7 @@ describe("external Markdown file opens", () => {
   it("does nothing in a plain browser without Tauri internals", async () => {
     const unlisten = await listenForMarkdownFileOpen(() => undefined);
 
-    await expect(getPendingMarkdownFileOpen()).resolves.toBeNull();
+    await expect(getPendingMarkdownFileOpens()).resolves.toEqual([]);
     expect(invokeMock).not.toHaveBeenCalled();
     expect(listenMock).not.toHaveBeenCalled();
     expect(() => unlisten()).not.toThrow();
@@ -36,13 +36,13 @@ describe("external Markdown file opens", () => {
 
   it("uses Tauri commands and events when Tauri internals are present", async () => {
     (globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
-    invokeMock.mockResolvedValue("/tmp/opened.md");
+    invokeMock.mockResolvedValue(["/tmp/opened.md"]);
     listenMock.mockResolvedValue(() => undefined);
 
-    await expect(getPendingMarkdownFileOpen()).resolves.toBe("/tmp/opened.md");
+    await expect(getPendingMarkdownFileOpens()).resolves.toEqual(["/tmp/opened.md"]);
     await listenForMarkdownFileOpen(() => undefined);
 
-    expect(invokeMock).toHaveBeenCalledWith("take_pending_markdown_file_open");
+    expect(invokeMock).toHaveBeenCalledWith("take_pending_markdown_file_opens");
     expect(listenMock).toHaveBeenCalledWith(
       MARKDOWN_FILE_OPENED_EVENT,
       expect.any(Function),

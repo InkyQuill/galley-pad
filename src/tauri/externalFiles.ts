@@ -3,12 +3,12 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 export const MARKDOWN_FILE_OPENED_EVENT = "markdown-file-opened";
 
-export function getPendingMarkdownFileOpen(): Promise<string | null> {
+export function getPendingMarkdownFileOpens(): Promise<string[]> {
   if (!isTauriRuntime()) {
-    return Promise.resolve(null);
+    return Promise.resolve([]);
   }
 
-  return invoke<string | null>("take_pending_markdown_file_open");
+  return invoke<string[]>("take_pending_markdown_file_opens");
 }
 
 export function getWindowMarkdownFileOpen(): string | null {

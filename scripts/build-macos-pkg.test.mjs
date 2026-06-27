@@ -52,6 +52,18 @@ test("validates the staged app bundle with the configured CLI name", async () =>
   );
 });
 
+test("reports debug and release bundle build hints for missing app bundles", async () => {
+  const temp = await mkdtemp(join(tmpdir(), "galley-pad-pkg-"));
+
+  await assert.rejects(
+    stagePackageRoot({
+      appPath: join(temp, "Missing.app"),
+      rootDir: join(temp, "pkgroot"),
+    }),
+    /build --bundles app for release, or npm run tauri -- build --debug --bundles app for debug/,
+  );
+});
+
 test("builds pkgbuild arguments for installing at the filesystem root", () => {
   assert.deepEqual(
     pkgbuildArgs({

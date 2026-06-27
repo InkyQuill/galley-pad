@@ -81,7 +81,7 @@ async function assertAppBundle(appPath, cliName = CLI_NAME) {
     }
   } catch {
     throw new Error(
-      `Expected a built macOS app with ${cliName} at ${executable}. Run npm run tauri -- build --debug --bundles app first.`,
+      `Expected a built macOS app with ${cliName} at ${executable}. Run npm run tauri -- build --bundles app for release, or npm run tauri -- build --debug --bundles app for debug first.`,
     );
   }
 }

@@ -28,7 +28,7 @@ import {
 import { loadOpenMode, saveOpenMode } from "./settings/openMode";
 import { pickOpenFile, pickSaveFile } from "./tauri/dialogs";
 import {
-  getPendingMarkdownFileOpen,
+  getPendingMarkdownFileOpens,
   getWindowMarkdownFileOpen,
   listenForMarkdownFileOpen,
 } from "./tauri/externalFiles";
@@ -104,10 +104,12 @@ export default function App() {
       };
     }
 
-    void getPendingMarkdownFileOpen()
-      .then((path) => {
-        if (path && !disposed) {
-          openFileInCurrentWindow(path);
+    void getPendingMarkdownFileOpens()
+      .then((paths) => {
+        if (!disposed) {
+          paths.forEach((path) => {
+            openFileInCurrentWindow(path);
+          });
         }
       })
       .catch((error: unknown) => {

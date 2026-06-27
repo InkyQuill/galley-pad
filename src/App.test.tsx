@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import {
-  getPendingMarkdownFileOpen,
+  getPendingMarkdownFileOpens,
   getWindowMarkdownFileOpen,
   listenForMarkdownFileOpen,
 } from "./tauri/externalFiles";
@@ -24,7 +24,7 @@ vi.mock("./tauri/files", () => ({
   writeTextFile: vi.fn(),
 }));
 vi.mock("./tauri/externalFiles", () => ({
-  getPendingMarkdownFileOpen: vi.fn(),
+  getPendingMarkdownFileOpens: vi.fn(),
   getWindowMarkdownFileOpen: vi.fn(() =>
     new URLSearchParams(window.location.search).get("open"),
   ),
@@ -41,7 +41,7 @@ const pickOpenFileMock = vi.mocked(pickOpenFile);
 const pickSaveFileMock = vi.mocked(pickSaveFile);
 const readTextFileMock = vi.mocked(readTextFile);
 const writeTextFileMock = vi.mocked(writeTextFile);
-const getPendingMarkdownFileOpenMock = vi.mocked(getPendingMarkdownFileOpen);
+const getPendingMarkdownFileOpensMock = vi.mocked(getPendingMarkdownFileOpens);
 const getWindowMarkdownFileOpenMock = vi.mocked(getWindowMarkdownFileOpen);
 const listenForMarkdownFileOpenMock = vi.mocked(listenForMarkdownFileOpen);
 const listenForAppMenuCommandMock = vi.mocked(listenForAppMenuCommand);
@@ -52,7 +52,7 @@ describe("App", () => {
     vi.clearAllMocks();
     vi.spyOn(window, "confirm").mockReturnValue(true);
     document.title = "";
-    getPendingMarkdownFileOpenMock.mockResolvedValue(null);
+    getPendingMarkdownFileOpensMock.mockResolvedValue([]);
     getWindowMarkdownFileOpenMock.mockImplementation(() =>
       new URLSearchParams(window.location.search).get("open"),
     );
@@ -364,7 +364,7 @@ describe("App", () => {
   });
 
   it("opens a pending Markdown file provided by the OS at startup", async () => {
-    getPendingMarkdownFileOpenMock.mockResolvedValue("/tmp/launch.md");
+    getPendingMarkdownFileOpensMock.mockResolvedValue(["/tmp/launch.md"]);
     readTextFileMock.mockResolvedValue({
       path: "/tmp/launch.md",
       content: "# Launch\n",
@@ -382,6 +382,39 @@ describe("App", () => {
       "# Launch\n",
     );
     expect(screen.getByText("Saved")).toBeInTheDocument();
+  });
+
+  it("opens every pending Markdown file provided by the OS at startup", async () => {
+    getPendingMarkdownFileOpensMock.mockResolvedValue([
+      "/tmp/one.md",
+      "/tmp/two.markdown",
+    ]);
+    readTextFileMock
+      .mockResolvedValueOnce({
+        path: "/tmp/one.md",
+        content: "# One\n",
+        lineEnding: "lf",
+        lastModifiedAt: 30,
+      })
+      .mockResolvedValueOnce({
+        path: "/tmp/two.markdown",
+        content: "# Two\n",
+        lineEnding: "lf",
+        lastModifiedAt: 31,
+      });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "two.markdown" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+    });
+    expect(readTextFileMock).toHaveBeenCalledWith("/tmp/one.md");
+    expect(readTextFileMock).toHaveBeenCalledWith("/tmp/two.markdown");
+    expect(screen.getByRole("tab", { name: "one.md" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("# Two\n");
   });
 
   it("opens a window launch query path in the current window", async () => {

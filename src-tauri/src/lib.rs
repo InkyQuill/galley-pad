@@ -11,9 +11,9 @@ use std::{
 };
 #[cfg(desktop)]
 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::Emitter;
 #[cfg(desktop)]
 use tauri::{AppHandle, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Emitter, Manager};
 
 const MARKDOWN_FILE_OPENED_EVENT: &str = "markdown-file-opened";
 const APP_MENU_COMMAND_EVENT: &str = "app-menu-command";
@@ -54,13 +54,17 @@ pub struct FileWriteResult {
     pub last_modified_at: Option<u64>,
 }
 
-struct PendingMarkdownFileOpen(Mutex<Option<String>>);
+struct PendingMarkdownFileOpen(Mutex<Vec<String>>);
 
 #[tauri::command]
-fn take_pending_markdown_file_open(
+fn take_pending_markdown_file_opens(
     state: tauri::State<'_, PendingMarkdownFileOpen>,
-) -> Option<String> {
-    state.0.lock().ok()?.take()
+) -> Vec<String> {
+    state
+        .0
+        .lock()
+        .map(|mut paths| std::mem::take(&mut *paths))
+        .unwrap_or_default()
 }
 
 #[tauri::command]
@@ -122,10 +126,11 @@ fn system_time_to_ms(time: SystemTime) -> Option<u64> {
         .map(|duration| duration.as_millis() as u64)
 }
 
-fn first_markdown_path_from_args(args: &[OsString]) -> Option<String> {
+fn markdown_paths_from_os_args(args: &[OsString]) -> Vec<String> {
     args.iter()
         .skip(1)
-        .find_map(|arg| markdown_path_from_os_arg(arg))
+        .filter_map(|arg| markdown_path_from_os_arg(arg))
+        .collect()
 }
 
 fn markdown_paths_from_args(args: &[String]) -> Vec<String> {
@@ -217,6 +222,56 @@ fn menu_command_payload(menu_id: &str) -> Option<&'static str> {
         MENU_SETTINGS_ID => Some("settings"),
         _ => None,
     }
+}
+
+fn queue_pending_markdown_file_open<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    path: String,
+) -> Result<(), String> {
+    let state = app
+        .try_state::<PendingMarkdownFileOpen>()
+        .ok_or_else(|| "Pending Markdown file state is not available".to_string())?;
+    state
+        .0
+        .lock()
+        .map_err(|_| "Pending Markdown file state is unavailable".to_string())?
+        .push(path);
+    Ok(())
+}
+
+fn emit_or_queue_markdown_file_open<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    path: String,
+) -> Result<(), String> {
+    let windows = app.webview_windows();
+    let target = windows
+        .get(MAIN_WINDOW_LABEL)
+        .or_else(|| windows.values().next());
+
+    if let Some(window) = target {
+        window
+            .emit(MARKDOWN_FILE_OPENED_EVENT, path)
+            .map_err(|error| format!("Failed to emit Markdown file open event: {error}"))
+    } else {
+        queue_pending_markdown_file_open(app, path)
+    }
+}
+
+fn emit_app_menu_command<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    command: &str,
+) -> Result<(), String> {
+    let windows = app.webview_windows();
+    let target = windows
+        .values()
+        .find(|window| window.is_focused().unwrap_or(false))
+        .or_else(|| windows.get(MAIN_WINDOW_LABEL))
+        .or_else(|| windows.values().next())
+        .ok_or_else(|| "No window is available to receive the menu command".to_string())?;
+
+    target
+        .emit(APP_MENU_COMMAND_EVENT, command)
+        .map_err(|error| format!("Failed to emit app menu command event: {error}"))
 }
 
 #[cfg(desktop)]
@@ -338,26 +393,30 @@ pub fn run() {
 
     let args = std::env::args_os().collect::<Vec<_>>();
     let pending_markdown_file_open =
-        PendingMarkdownFileOpen(Mutex::new(first_markdown_path_from_args(&args)));
+        PendingMarkdownFileOpen(Mutex::new(markdown_paths_from_os_args(&args)));
 
     let app = tauri::Builder::default()
         .manage(pending_markdown_file_open)
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             for path in markdown_paths_from_args(&args) {
-                let _ = app.emit_to(MAIN_WINDOW_LABEL, MARKDOWN_FILE_OPENED_EVENT, path);
+                if let Err(error) = emit_or_queue_markdown_file_open(app, path) {
+                    eprintln!("{error}");
+                }
             }
         }))
         .plugin(tauri_plugin_dialog::init())
         .menu(build_native_menu)
         .on_menu_event(|app, event| {
             if let Some(command) = menu_command_payload(event.id().as_ref()) {
-                let _ = app.emit(APP_MENU_COMMAND_EVENT, command);
+                if let Err(error) = emit_app_menu_command(app, command) {
+                    eprintln!("{error}");
+                }
             }
         })
         .invoke_handler(tauri::generate_handler![
             read_text_file,
             write_text_file,
-            take_pending_markdown_file_open,
+            take_pending_markdown_file_opens,
             open_markdown_file_window
         ])
         .build(tauri::generate_context!())
@@ -367,7 +426,9 @@ pub fn run() {
         #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
         if let tauri::RunEvent::Opened { urls } = event {
             for path in markdown_paths_from_urls(&urls) {
-                let _ = app.emit_to(MAIN_WINDOW_LABEL, MARKDOWN_FILE_OPENED_EVENT, path);
+                if let Err(error) = emit_or_queue_markdown_file_open(app, path) {
+                    eprintln!("{error}");
+                }
             }
         }
     });
@@ -385,7 +446,7 @@ mod tests {
     }
 
     #[test]
-    fn first_markdown_path_from_args_ignores_non_markdown_values() {
+    fn markdown_paths_from_os_args_accepts_all_markdown_file_args() {
         let args = vec![
             OsString::from("galley-pad"),
             OsString::from("--flag"),
@@ -395,8 +456,11 @@ mod tests {
         ];
 
         assert_eq!(
-            super::first_markdown_path_from_args(&args),
-            Some("/tmp/draft.markdown".to_string())
+            super::markdown_paths_from_os_args(&args),
+            vec![
+                "/tmp/draft.markdown".to_string(),
+                "/tmp/other.md".to_string()
+            ]
         );
     }
 
