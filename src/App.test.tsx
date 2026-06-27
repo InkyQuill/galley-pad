@@ -401,15 +401,9 @@ describe("App", () => {
       lineEnding: "lf";
       lastModifiedAt: number;
     }>();
-    readTextFileMock.mockImplementation((path) => {
-      if (path === "/tmp/one.md") {
-        return firstRead.promise;
-      }
-      if (path === "/tmp/two.markdown") {
-        return secondRead.promise;
-      }
-      throw new Error(`Unexpected read path: ${path}`);
-    });
+    readTextFileMock
+      .mockImplementationOnce(() => firstRead.promise)
+      .mockImplementationOnce(() => secondRead.promise);
 
     render(<App />);
 
@@ -500,6 +494,73 @@ describe("App", () => {
     });
     expect(readTextFileMock).toHaveBeenCalledWith("/tmp/event.markdown");
     expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("# Event\n");
+  });
+
+  it("opens Markdown file events serially in arrival order", async () => {
+    let openHandler: ((path: string) => void) | null = null;
+    listenForMarkdownFileOpenMock.mockImplementation(async (handler) => {
+      openHandler = handler;
+      return () => undefined;
+    });
+    const firstRead = deferred<{
+      path: string;
+      content: string;
+      lineEnding: "lf";
+      lastModifiedAt: number;
+    }>();
+    const secondRead = deferred<{
+      path: string;
+      content: string;
+      lineEnding: "lf";
+      lastModifiedAt: number;
+    }>();
+    readTextFileMock
+      .mockImplementationOnce(() => firstRead.promise)
+      .mockImplementationOnce(() => secondRead.promise);
+
+    render(<App />);
+    await waitFor(() => {
+      expect(listenForMarkdownFileOpenMock).toHaveBeenCalled();
+    });
+
+    act(() => {
+      openHandler?.("/tmp/one.md");
+      openHandler?.("/tmp/two.markdown");
+    });
+    await waitFor(() => {
+      expect(readTextFileMock).toHaveBeenCalledWith("/tmp/one.md");
+    });
+    secondRead.resolve({
+      path: "/tmp/two.markdown",
+      content: "# Two\n",
+      lineEnding: "lf",
+      lastModifiedAt: 31,
+    });
+    expect(readTextFileMock).not.toHaveBeenCalledWith("/tmp/two.markdown");
+    await act(async () => {
+      firstRead.resolve({
+        path: "/tmp/one.md",
+        content: "# One\n",
+        lineEnding: "lf",
+        lastModifiedAt: 30,
+      });
+      await firstRead.promise;
+    });
+
+    await waitFor(() => {
+      expect(readTextFileMock).toHaveBeenCalledWith("/tmp/two.markdown");
+    });
+    await act(async () => {
+      await secondRead.promise;
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "two.markdown" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+    });
+    expect(screen.getByRole("tab", { name: "one.md" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("# Two\n");
   });
 
   it("opens OS file events in a new tab without replacing a dirty tab", async () => {

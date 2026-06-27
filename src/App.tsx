@@ -52,6 +52,7 @@ export default function App() {
   const latestWorkspace = useRef(workspace);
   const settingsDialogRef = useRef<HTMLDialogElement>(null);
   const settingsReturnFocusRef = useRef<HTMLElement | null>(null);
+  const externalOpenQueue = useRef(Promise.resolve());
   const dependencies = useMemo<LifecycleDependencies>(
     () =>
       createLifecycleDependencies({
@@ -86,7 +87,11 @@ export default function App() {
     let disposed = false;
 
     void listenForMarkdownFileOpen((path) => {
-      openExternalFile(path);
+      externalOpenQueue.current = externalOpenQueue.current.then(async () => {
+        if (!disposed) {
+          await openExternalFile(path);
+        }
+      });
     }).then((nextUnlisten) => {
       if (disposed) {
         nextUnlisten();
@@ -240,11 +245,15 @@ export default function App() {
       });
   }
 
-  function runOpenWindowCommand(name: CommandName, command: () => Promise<string | null>) {
+  function runOpenWindowCommand(
+    name: CommandName,
+    command: () => Promise<string | null>,
+  ): Promise<void> {
     setCommandError(null);
     setPendingCommand(name);
 
-    void command()
+    return command()
+      .then(() => undefined)
       .catch((error: unknown) => {
         setCommandError(errorMessage(error));
       })
@@ -281,13 +290,12 @@ export default function App() {
       });
   }
 
-  function openExternalFile(path: string) {
+  function openExternalFile(path: string): Promise<void> {
     if (latestWorkspace.current.openMode === "windows") {
-      runOpenWindowCommand("Open File", () => openMarkdownFileWindow(path));
-      return;
+      return runOpenWindowCommand("Open File", () => openMarkdownFileWindow(path));
     }
 
-    runOpenCommand("Open File", () => openDocumentPath(path, dependencies));
+    return runOpenCommand("Open File", () => openDocumentPath(path, dependencies));
   }
 
   function openFileInCurrentWindow(path: string) {

@@ -487,15 +487,17 @@ mod tests {
 
     #[test]
     fn markdown_paths_from_urls_accepts_file_urls_only() {
+        let markdown_path = std::env::temp_dir().join("README.MD");
+        let text_path = std::env::temp_dir().join("notes.txt");
         let urls = vec![
             Url::parse("https://example.com/readme.md").expect("parse https url"),
-            Url::from_file_path("/tmp/README.MD").expect("create file url"),
-            Url::from_file_path("/tmp/notes.txt").expect("create file url"),
+            Url::from_file_path(&markdown_path).expect("create markdown file url"),
+            Url::from_file_path(text_path).expect("create text file url"),
         ];
 
         assert_eq!(
             super::markdown_paths_from_urls(&urls),
-            vec!["/tmp/README.MD".to_string()]
+            vec![markdown_path.to_string_lossy().into_owned()]
         );
     }
 
