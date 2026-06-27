@@ -38,7 +38,7 @@ export function loadThemeSettings(
     return persisted;
   }
 
-  return migrateLegacyThemeSettings(storage) ?? DEFAULT_THEME_SETTINGS;
+  return migrateLegacyThemeSettings(storage);
 }
 
 export function saveThemeSettings(
@@ -74,16 +74,16 @@ export function parseThemeSettings(value: unknown): ThemeSettings | null {
 
 export function migrateLegacyThemeSettings(
   storage: Storage | null,
-): ThemeSettings | null {
+): ThemeSettings {
   if (!storage) {
-    return null;
+    return DEFAULT_THEME_SETTINGS;
   }
 
   const appearanceTheme = storage.getItem(LEGACY_APPEARANCE_THEME_STORAGE_KEY);
   if (appearanceTheme === "system") {
     return DEFAULT_THEME_SETTINGS;
   }
-  if (isThemeId(appearanceTheme)) {
+  if (appearanceTheme === "galley-light" || appearanceTheme === "galley-dark") {
     return {
       ...DEFAULT_THEME_SETTINGS,
       mode: "constant",
@@ -105,7 +105,7 @@ export function migrateLegacyThemeSettings(
         constantThemeId: DEFAULT_DARK_THEME_ID,
       };
     default:
-      return null;
+      return DEFAULT_THEME_SETTINGS;
   }
 }
 

@@ -5,6 +5,7 @@ import {
   LEGACY_EDITOR_THEME_STORAGE_KEY,
   THEME_SETTINGS_STORAGE_KEY,
   loadThemeSettings,
+  migrateLegacyThemeSettings,
   parseThemeSettings,
   saveThemeSettings,
 } from "./settings";
@@ -60,6 +61,27 @@ describe("theme settings", () => {
     localStorage.setItem(LEGACY_EDITOR_THEME_STORAGE_KEY, "dark");
 
     expect(loadThemeSettings()).toEqual({
+      ...DEFAULT_THEME_SETTINGS,
+      mode: "constant",
+      constantThemeId: "galley-dark",
+    });
+  });
+
+  it("migrates missing legacy storage to Galley defaults", () => {
+    expect(migrateLegacyThemeSettings(null)).toEqual(DEFAULT_THEME_SETTINGS);
+  });
+
+  it("ignores unknown legacy appearance theme values without editor legacy values", () => {
+    localStorage.setItem(LEGACY_APPEARANCE_THEME_STORAGE_KEY, "gruvbox-dark");
+
+    expect(migrateLegacyThemeSettings(localStorage)).toEqual(DEFAULT_THEME_SETTINGS);
+  });
+
+  it("falls through unknown legacy appearance theme values to editor legacy values", () => {
+    localStorage.setItem(LEGACY_APPEARANCE_THEME_STORAGE_KEY, "gruvbox-dark");
+    localStorage.setItem(LEGACY_EDITOR_THEME_STORAGE_KEY, "dark");
+
+    expect(migrateLegacyThemeSettings(localStorage)).toEqual({
       ...DEFAULT_THEME_SETTINGS,
       mode: "constant",
       constantThemeId: "galley-dark",
