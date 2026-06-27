@@ -231,12 +231,16 @@ describe("App", () => {
 
   it("normalizes mismatched persisted system theme selections before opening settings", async () => {
     readAppSettingsMock.mockResolvedValue({
+      appearanceTheme: "system",
       themeSettings: {
         mode: "system",
         constantThemeId: "catppuccin-mocha",
         lightThemeId: "tokyo-night",
         darkThemeId: "solarized-light",
       },
+      editorFontFamily: "Inter",
+      editorFontSize: "large",
+      openMode: "windows",
     });
 
     render(<App />);
@@ -255,6 +259,45 @@ describe("App", () => {
       );
       expect(appShell.style.getPropertyValue("--ge-color-bg")).toBe("#fbfaf7");
     });
+    await waitFor(() => {
+      expect(writeAppSettingsMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appearanceTheme: "system",
+          themeSettings: expect.objectContaining({
+            mode: "system",
+            constantThemeId: "catppuccin-mocha",
+            lightThemeId: "galley-light",
+            darkThemeId: "galley-dark",
+          }),
+          editorFontFamily: "Inter",
+          editorFontSize: "large",
+          openMode: "windows",
+        }),
+      );
+    });
+  });
+
+  it("repairs mismatched local theme settings during startup", () => {
+    localStorage.setItem(
+      "galley-pad.themeSettings",
+      JSON.stringify({
+        mode: "system",
+        constantThemeId: "catppuccin-mocha",
+        lightThemeId: "tokyo-night",
+        darkThemeId: "solarized-light",
+      }),
+    );
+
+    render(<App />);
+
+    expect(JSON.parse(localStorage.getItem("galley-pad.themeSettings")!)).toEqual(
+      {
+        mode: "system",
+        constantThemeId: "catppuccin-mocha",
+        lightThemeId: "galley-light",
+        darkThemeId: "galley-dark",
+      },
+    );
   });
 
   it("marks the session dirty when editor content changes and updates the title", () => {

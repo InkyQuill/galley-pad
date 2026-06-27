@@ -99,7 +99,7 @@ export default function App() {
   const [toolbarVisible, setToolbarVisible] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [themeSettings, setThemeSettings] = useState<ThemeSettings>(() =>
-    normalizeThemeSettings(loadThemeSettings()),
+    loadNormalizedThemeSettings(),
   );
   const [systemScheme, setSystemScheme] = useState<ThemeScheme>(() =>
     getSystemScheme(),
@@ -173,6 +173,12 @@ export default function App() {
               normalizeThemeSettings(parsedThemeSettings);
             setThemeSettings(normalizedThemeSettings);
             saveThemeSettings(normalizedThemeSettings);
+            if (!themeSettingsEqual(parsedThemeSettings, normalizedThemeSettings)) {
+              persistAppSettings({
+                ...settings,
+                themeSettings: normalizedThemeSettings,
+              });
+            }
           } else if (isAppearanceThemeId(settings.appearanceTheme)) {
             const migratedThemeSettings = normalizeThemeSettings(
               themeSettingsFromAppearanceThemeId(
@@ -1418,6 +1424,15 @@ function isAppearanceThemeId(value: unknown): value is AppearanceThemeId {
   );
 }
 
+function loadNormalizedThemeSettings(): ThemeSettings {
+  const settings = loadThemeSettings();
+  const normalized = normalizeThemeSettings(settings);
+  if (!themeSettingsEqual(settings, normalized)) {
+    saveThemeSettings(normalized);
+  }
+  return normalized;
+}
+
 function normalizeThemeSettings(settings: ThemeSettings): ThemeSettings {
   return {
     ...settings,
@@ -1428,6 +1443,15 @@ function normalizeThemeSettings(settings: ThemeSettings): ThemeSettings {
       ? settings.darkThemeId
       : DEFAULT_DARK_THEME_ID,
   };
+}
+
+function themeSettingsEqual(left: ThemeSettings, right: ThemeSettings): boolean {
+  return (
+    left.mode === right.mode &&
+    left.constantThemeId === right.constantThemeId &&
+    left.lightThemeId === right.lightThemeId &&
+    left.darkThemeId === right.darkThemeId
+  );
 }
 
 function themeMatchesScheme(themeId: ThemeId, scheme: ThemeScheme): boolean {
