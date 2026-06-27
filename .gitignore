@@ -6,6 +6,7 @@ dist/
 dist-ssr/
 coverage/
 .vite/
+.worktrees/
 test-results/
 playwright-report/
 *.tsbuildinfo
