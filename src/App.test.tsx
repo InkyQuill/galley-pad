@@ -300,6 +300,59 @@ describe("App", () => {
     );
   });
 
+  it("repairs delayed startup theme settings without stale preference writes", async () => {
+    const pendingSettings = deferred<Awaited<ReturnType<typeof readAppSettings>>>();
+    readAppSettingsMock.mockReturnValue(pendingSettings.promise);
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: ",", ctrlKey: true });
+    await screen.findByRole("dialog", { name: "Settings" });
+    fireEvent.click(screen.getByRole("radio", { name: "Separate windows" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Editor font size" }), {
+      target: { value: "large" },
+    });
+
+    await waitFor(() => {
+      expect(writeAppSettingsMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          editorFontSize: "large",
+          openMode: "windows",
+        }),
+      );
+    });
+    writeAppSettingsMock.mockClear();
+
+    await act(async () => {
+      pendingSettings.resolve({
+        themeSettings: {
+          mode: "system",
+          constantThemeId: "catppuccin-mocha",
+          lightThemeId: "tokyo-night",
+          darkThemeId: "solarized-light",
+        },
+        editorFontFamily: "Inter",
+        editorFontSize: "small",
+        openMode: "tabs",
+      });
+      await pendingSettings.promise;
+    });
+
+    await waitFor(() => {
+      expect(writeAppSettingsMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          themeSettings: expect.objectContaining({
+            mode: "system",
+            constantThemeId: "catppuccin-mocha",
+            lightThemeId: "galley-light",
+            darkThemeId: "galley-dark",
+          }),
+          editorFontSize: "large",
+          openMode: "windows",
+        }),
+      );
+    });
+  });
+
   it("marks the session dirty when editor content changes and updates the title", () => {
     render(<App />);
 

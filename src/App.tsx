@@ -174,10 +174,9 @@ export default function App() {
             setThemeSettings(normalizedThemeSettings);
             saveThemeSettings(normalizedThemeSettings);
             if (!themeSettingsEqual(parsedThemeSettings, normalizedThemeSettings)) {
-              persistAppSettings({
-                ...settings,
-                themeSettings: normalizedThemeSettings,
-              });
+              persistAppSettings(
+                repairedStartupThemeSettings(settings, normalizedThemeSettings),
+              );
             }
           } else if (isAppearanceThemeId(settings.appearanceTheme)) {
             const migratedThemeSettings = normalizeThemeSettings(
@@ -892,6 +891,32 @@ export default function App() {
       editorFontFamily: latestEditorFontSettings.current.family,
       editorFontSize: latestEditorFontSettings.current.size,
       openMode: latestWorkspace.current.openMode,
+    };
+  }
+
+  function repairedStartupThemeSettings(
+    settings: NonNullable<Awaited<ReturnType<typeof readAppSettings>>>,
+    themeSettings: ThemeSettings,
+  ): PersistedAppSettings {
+    const snapshot = currentAppSettingsSnapshot();
+
+    return {
+      ...snapshot,
+      themeSettings,
+      editorFontFamily:
+        !touchedPreferences.current.editorFont &&
+        settings.editorFontFamily?.trim()
+          ? settings.editorFontFamily
+          : snapshot.editorFontFamily,
+      editorFontSize:
+        !touchedPreferences.current.editorFont &&
+        isEditorFontSize(settings.editorFontSize)
+          ? settings.editorFontSize
+          : snapshot.editorFontSize,
+      openMode:
+        !touchedPreferences.current.openMode && isOpenMode(settings.openMode)
+          ? settings.openMode
+          : snapshot.openMode,
     };
   }
 
