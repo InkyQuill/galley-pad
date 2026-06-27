@@ -9,16 +9,22 @@ export function listenForWindowCloseRequest(
   }
 
   let approved = false;
+  let inFlight = false;
   return getCurrentWindow().onCloseRequested(async (event) => {
-    if (approved) {
+    if (approved || inFlight) {
       return;
     }
 
     event.preventDefault();
-    const canClose = await handler();
-    if (canClose) {
-      approved = true;
-      await getCurrentWindow().destroy();
+    inFlight = true;
+    try {
+      const canClose = await handler();
+      if (canClose) {
+        approved = true;
+        await getCurrentWindow().destroy();
+      }
+    } finally {
+      inFlight = false;
     }
   });
 }

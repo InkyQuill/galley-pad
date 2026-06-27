@@ -14,7 +14,7 @@ const header = message
   ?.trim();
 
 const conventionalCommitHeader =
-  /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9._-]+\))?!?: .{1,}$/;
+  /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([A-Za-z0-9._/-]+\))?!?: .{1,}$/;
 
 if (!header || !conventionalCommitHeader.test(header)) {
   console.error("Commit message must use Conventional Commits.");

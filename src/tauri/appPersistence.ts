@@ -50,7 +50,13 @@ export function readSwapState(): Promise<PersistedSwapState | null> {
     return Promise.resolve(null);
   }
 
-  return invoke<PersistedSwapState | null>("read_swap_state");
+  return invoke<unknown>("read_swap_state").then((state) => {
+    if (state === null) {
+      return null;
+    }
+
+    return isPersistedSwapState(state) ? state : null;
+  });
 }
 
 export function writeSwapState(state: PersistedSwapState): Promise<void> {
@@ -71,4 +77,56 @@ export function clearSwapState(): Promise<void> {
 
 function isTauriRuntime(): boolean {
   return "__TAURI_INTERNALS__" in globalThis;
+}
+
+function isPersistedSwapState(value: unknown): value is PersistedSwapState {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const state = value as PersistedSwapState;
+  return (
+    state.version === 1 &&
+    typeof state.savedAt === "number" &&
+    typeof state.activeTabId === "string" &&
+    isOpenMode(state.openMode) &&
+    Array.isArray(state.tabs) &&
+    state.tabs.every(isPersistedSwapTab)
+  );
+}
+
+function isPersistedSwapTab(
+  value: unknown,
+): value is PersistedSwapState["tabs"][number] {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const tab = value as PersistedSwapState["tabs"][number];
+  return typeof tab.id === "string" && isPersistedSession(tab.session);
+}
+
+function isPersistedSession(
+  value: unknown,
+): value is PersistedSwapState["tabs"][number]["session"] {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const session = value as PersistedSwapState["tabs"][number]["session"];
+  return (
+    typeof session.id === "string" &&
+    (typeof session.path === "string" || session.path === null) &&
+    typeof session.displayName === "string" &&
+    typeof session.content === "string" &&
+    typeof session.savedContent === "string" &&
+    typeof session.dirty === "boolean" &&
+    (session.lineEnding === "lf" || session.lineEnding === "crlf") &&
+    (typeof session.lastKnownModifiedAt === "number" ||
+      session.lastKnownModifiedAt === null)
+  );
+}
+
+function isOpenMode(value: unknown): value is OpenMode {
+  return value === "tabs" || value === "windows";
 }

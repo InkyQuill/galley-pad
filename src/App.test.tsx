@@ -191,6 +191,75 @@ describe("App", () => {
     });
   });
 
+  it("waits for swap restoration before applying pending file opens", async () => {
+    const pendingSwap = deferred<Awaited<ReturnType<typeof readSwapState>>>();
+    readSwapStateMock.mockReturnValue(pendingSwap.promise);
+    getPendingMarkdownFileOpensMock.mockResolvedValue(["/tmp/pending.md"]);
+    readTextFileMock.mockResolvedValue({
+      path: "/tmp/pending.md",
+      content: "# Pending\n",
+      lineEnding: "lf",
+      lastModifiedAt: 12,
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(readSwapStateMock).toHaveBeenCalled();
+    });
+    expect(getPendingMarkdownFileOpensMock).not.toHaveBeenCalled();
+    expect(readTextFileMock).not.toHaveBeenCalledWith("/tmp/pending.md");
+
+    await act(async () => {
+      pendingSwap.resolve(null);
+      await pendingSwap.promise;
+    });
+
+    await waitFor(() => {
+      expect(getPendingMarkdownFileOpensMock).toHaveBeenCalled();
+      expect(readTextFileMock).toHaveBeenCalledWith("/tmp/pending.md");
+    });
+  });
+
+  it("lets an explicit launch file take precedence over restored swap state", async () => {
+    window.history.replaceState(null, "", "/?open=/tmp/launch.md");
+    readSwapStateMock.mockResolvedValue({
+      version: 1,
+      savedAt: 1,
+      activeTabId: "swap-tab",
+      openMode: "tabs",
+      tabs: [
+        {
+          id: "swap-tab",
+          session: {
+            id: "swap-session",
+            path: null,
+            displayName: "Swap.md",
+            content: "Dirty swap",
+            savedContent: "",
+            dirty: true,
+            lineEnding: "lf",
+            lastKnownModifiedAt: null,
+          },
+        },
+      ],
+    });
+    readTextFileMock.mockResolvedValue({
+      path: "/tmp/launch.md",
+      content: "# Launch\n",
+      lineEnding: "lf",
+      lastModifiedAt: 20,
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(document.title).toBe("launch.md - Galley Pad");
+    });
+    expect(screen.queryByRole("tab", { name: "Swap.md" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("# Launch\n");
+  });
+
   it("creates a new tab without replacing the dirty active tab", () => {
     let menuHandler: ((command: AppMenuCommand) => void) | null = null;
     listenForAppMenuCommandMock.mockImplementation(async (handler) => {
@@ -298,6 +367,23 @@ describe("App", () => {
       "# Opened\n\nChanged before close.\n",
     );
     expect(clearSwapStateMock).toHaveBeenCalled();
+  });
+
+  it("does not block an approved window close when swap cleanup fails", async () => {
+    let closeHandler: (() => Promise<boolean>) | null = null;
+    listenForWindowCloseRequestMock.mockImplementation(async (handler) => {
+      closeHandler = handler;
+      return () => undefined;
+    });
+    clearSwapStateMock.mockRejectedValue(new Error("swap cleanup failed"));
+    render(<App />);
+
+    expect(closeHandler).not.toBeNull();
+
+    await expect(closeHandler!()).resolves.toBe(true);
+    expect(
+      await screen.findByRole("alert", { name: "File command error" }),
+    ).toHaveTextContent("swap cleanup failed");
   });
 
   it("opens a selected file and updates the session", async () => {

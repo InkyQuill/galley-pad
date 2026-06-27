@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 export function GalleyEditor({
   value,
@@ -27,7 +27,7 @@ export function GalleyEditor({
   theme?: string;
   surface?: {
     className?: string;
-    style?: React.CSSProperties;
+    style?: CSSProperties;
   };
 }) {
   const iconCount =

@@ -11,9 +11,7 @@ import {
 import { createPortal } from "react-dom";
 import {
   SYSTEM_EDITOR_FONT_FAMILY,
-  SYSTEM_EDITOR_FONT_STACK,
   editorFontCssValue,
-  quoteCssFontFamily,
 } from "../settings/appearance";
 import type { SystemFont } from "../tauri/systemFonts";
 
@@ -212,7 +210,7 @@ export function FontPicker({
                 <FontOption
                   family={SYSTEM_EDITOR_FONT_FAMILY}
                   label="System default"
-                  cssValue={SYSTEM_EDITOR_FONT_STACK}
+                  cssValue={editorFontCssValue(SYSTEM_EDITOR_FONT_FAMILY)}
                   previewText={sampleText}
                   selected={value === SYSTEM_EDITOR_FONT_FAMILY}
                   onSelect={selectFont}
@@ -222,10 +220,7 @@ export function FontPicker({
                     key={font.family}
                     family={font.family}
                     label={font.family}
-                    cssValue={
-                      font.cssValue ||
-                      `${quoteCssFontFamily(font.family)}, sans-serif`
-                    }
+                    cssValue={editorFontCssValue(font.family)}
                     previewText={sampleText}
                     selected={value === font.family}
                     onSelect={selectFont}

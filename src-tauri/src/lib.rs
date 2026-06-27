@@ -3,6 +3,7 @@ use std::{
     collections::BTreeMap,
     ffi::{OsStr, OsString},
     fs,
+    io::Write,
     path::{Component, Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -241,8 +242,66 @@ fn app_config_file(app: &AppHandle, file_name: &str) -> Result<PathBuf, String> 
 fn write_json_file<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
     let content = serde_json::to_string_pretty(value)
         .map_err(|error| format!("Failed to serialize '{}': {error}", path.display()))?;
-    fs::write(path, content)
-        .map_err(|error| format!("Failed to write '{}': {error}", path.display()))
+    let directory = path.parent().ok_or_else(|| {
+        format!(
+            "Failed to determine parent directory for '{}'",
+            path.display()
+        )
+    })?;
+    fs::create_dir_all(directory).map_err(|error| {
+        format!(
+            "Failed to create parent directory '{}': {error}",
+            directory.display()
+        )
+    })?;
+    let file_name = path
+        .file_name()
+        .and_then(OsStr::to_str)
+        .unwrap_or("settings.json");
+    let temp_path = directory.join(format!(
+        ".{file_name}.{}.{}.tmp",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0)
+    ));
+
+    let write_result = (|| -> Result<(), String> {
+        let mut temp_file = fs::File::create(&temp_path).map_err(|error| {
+            format!(
+                "Failed to create temporary file '{}': {error}",
+                temp_path.display()
+            )
+        })?;
+        temp_file.write_all(content.as_bytes()).map_err(|error| {
+            format!(
+                "Failed to write temporary file '{}': {error}",
+                temp_path.display()
+            )
+        })?;
+        temp_file.sync_all().map_err(|error| {
+            format!(
+                "Failed to sync temporary file '{}': {error}",
+                temp_path.display()
+            )
+        })?;
+        drop(temp_file);
+
+        fs::rename(&temp_path, path).map_err(|error| {
+            format!(
+                "Failed to replace '{}' with '{}': {error}",
+                path.display(),
+                temp_path.display()
+            )
+        })
+    })();
+
+    if write_result.is_err() {
+        let _ = fs::remove_file(&temp_path);
+    }
+
+    write_result
 }
 
 fn quote_css_font_family(family: &str) -> String {
@@ -321,13 +380,21 @@ fn absolute_path_from_arg(path: &Path, cwd: &Path) -> PathBuf {
 
 fn normalize_path(path: &Path) -> PathBuf {
     let mut normalized = PathBuf::new();
+    let mut absolute = false;
 
     for component in path.components() {
         match component {
             Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
-            Component::RootDir => normalized.push(component.as_os_str()),
+            Component::RootDir => {
+                normalized.push(component.as_os_str());
+                absolute = true;
+            }
             Component::CurDir => {}
             Component::ParentDir => {
+                if absolute && normalized.parent().is_none() {
+                    continue;
+                }
+
                 if !normalized.pop() {
                     normalized.push(component.as_os_str());
                 }
@@ -641,6 +708,7 @@ pub fn run() {
 mod tests {
     use super::app_title;
     use std::ffi::OsString;
+    use std::fs;
     use std::path::Path;
     use tauri::Url;
 
@@ -703,6 +771,18 @@ mod tests {
                 "/tmp/project/docs/draft.md".to_string(),
                 "/tmp/project/outside.markdown".to_string()
             ]
+        );
+    }
+
+    #[test]
+    fn normalize_path_clamps_parent_dirs_at_absolute_root() {
+        assert_eq!(
+            super::normalize_path(Path::new("/../tmp/../draft.md")),
+            Path::new("/draft.md")
+        );
+        assert_eq!(
+            super::normalize_path(Path::new("../draft.md")),
+            Path::new("../draft.md")
         );
     }
 
@@ -778,6 +858,34 @@ mod tests {
             super::quote_css_font_family("A \"Quoted\" Font"),
             "\"A \\\"Quoted\\\" Font\""
         );
+    }
+
+    #[test]
+    fn write_json_file_replaces_destination_with_complete_json() {
+        #[derive(serde::Serialize)]
+        struct TestSettings {
+            name: String,
+        }
+
+        let directory =
+            std::env::temp_dir().join(format!("galley-pad-json-test-{}", std::process::id()));
+        fs::create_dir_all(&directory).expect("create temp test directory");
+        let path = directory.join("settings.json");
+        fs::write(&path, "{\"name\":\"old\"}").expect("write existing file");
+
+        super::write_json_file(
+            &path,
+            &TestSettings {
+                name: "new".to_string(),
+            },
+        )
+        .expect("write json atomically");
+
+        assert_eq!(
+            fs::read_to_string(&path).expect("read replaced file"),
+            "{\n  \"name\": \"new\"\n}"
+        );
+        let _ = fs::remove_dir_all(directory);
     }
 
     #[cfg(target_os = "linux")]

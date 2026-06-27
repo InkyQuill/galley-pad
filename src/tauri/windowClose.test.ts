@@ -47,6 +47,24 @@ describe("listenForWindowCloseRequest", () => {
     expect(windowMock.destroy).toHaveBeenCalledOnce();
   });
 
+  it("ignores duplicate close requests while approval is pending", async () => {
+    const pendingApproval = deferred<boolean>();
+    const handler = vi.fn().mockReturnValue(pendingApproval.promise);
+    await listenForWindowCloseRequest(handler);
+    const closeHandler = windowMock.onCloseRequested.mock.calls[0][0];
+
+    const firstClose = closeHandler({ preventDefault: vi.fn() });
+    await closeHandler({ preventDefault: vi.fn() });
+
+    expect(handler).toHaveBeenCalledOnce();
+    expect(windowMock.destroy).not.toHaveBeenCalled();
+
+    pendingApproval.resolve(true);
+    await firstClose;
+
+    expect(windowMock.destroy).toHaveBeenCalledOnce();
+  });
+
   it("does not register a listener outside Tauri", async () => {
     // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
     delete (globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
@@ -58,3 +76,12 @@ describe("listenForWindowCloseRequest", () => {
     expect(unlisten()).toBeUndefined();
   });
 });
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+
+  return { promise, resolve };
+}

@@ -189,6 +189,10 @@ export default function App() {
           return;
         }
 
+        if (getWindowMarkdownFileOpen()) {
+          return;
+        }
+
         const restored = restoreWorkspaceFromSwap(swap);
         if (restored) {
           setWorkspace(restored);
@@ -236,6 +240,10 @@ export default function App() {
   }, [swapReady, workspace]);
 
   useEffect(() => {
+    if (!swapReady) {
+      return;
+    }
+
     let unlisten: (() => void) | null = null;
     let disposed = false;
 
@@ -278,7 +286,7 @@ export default function App() {
       disposed = true;
       unlisten?.();
     };
-  }, []);
+  }, [swapReady]);
 
   useEffect(() => {
     let unlisten: (() => void) | null = null;
@@ -287,7 +295,11 @@ export default function App() {
     void listenForWindowCloseRequest(async () => {
       const canClose = await resolveAllDirtyTabsForClose();
       if (canClose) {
-        await clearSwapState();
+        try {
+          await clearSwapState();
+        } catch (error: unknown) {
+          setCommandError(errorMessage(error));
+        }
       }
       return canClose;
     }).then((nextUnlisten) => {

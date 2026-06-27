@@ -6,19 +6,24 @@ Usage: python search.py "<query>" [--domain <domain>] [--stack <stack>] [--max-r
        python search.py "<query>" --design-system [-p "Project Name"]
        python search.py "<query>" --design-system --persist [-p "Project Name"] [--page "dashboard"]
 
-Domains: style, prompt, color, chart, landing, product, ux, typography, google-fonts
+Domains: style, color, chart, landing, product, ux, typography, icons, react, web, google-fonts
 Stacks: react, nextjs, vue, svelte, astro, swiftui, react-native, flutter, nuxtjs, nuxt-ui, html-tailwind, shadcn, jetpack-compose, threejs
 
 Persistence (Master + Overrides pattern):
-  --persist    Save design system to design-system/MASTER.md
-  --page       Also create a page-specific override file in design-system/pages/
+  --persist    Save design system to design-system/<project>/MASTER.md
+  --page       Also create a page-specific override file in design-system/<project>/pages/
 """
 
 import argparse
 import sys
 import io
 from core import CSV_CONFIG, AVAILABLE_STACKS, MAX_RESULTS, search, search_stack
-from design_system import generate_design_system, persist_design_system
+from design_system import (
+    DesignSystemGenerator,
+    format_ascii_box,
+    format_markdown,
+    persist_design_system,
+)
 
 # Force UTF-8 for stdout/stderr to handle emojis on Windows (cp1252 default)
 if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
@@ -65,35 +70,38 @@ if __name__ == "__main__":
     parser.add_argument("--project-name", "-p", type=str, default=None, help="Project name for design system output")
     parser.add_argument("--format", "-f", choices=["ascii", "markdown"], default="ascii", help="Output format for design system")
     # Persistence (Master + Overrides pattern)
-    parser.add_argument("--persist", action="store_true", help="Save design system to design-system/MASTER.md (creates hierarchical structure)")
-    parser.add_argument("--page", type=str, default=None, help="Create page-specific override file in design-system/pages/")
+    parser.add_argument("--persist", action="store_true", help="Save design system to design-system/<project>/MASTER.md (creates hierarchical structure)")
+    parser.add_argument("--page", type=str, default=None, help="Create page-specific override file in design-system/<project>/pages/")
     parser.add_argument("--output-dir", "-o", type=str, default=None, help="Output directory for persisted files (default: current directory)")
 
     args = parser.parse_args()
 
     # Design system takes priority
     if args.design_system:
-        result = generate_design_system(
-            args.query, 
-            args.project_name, 
-            args.format,
-            persist=args.persist,
-            page=args.page,
-            output_dir=args.output_dir
+        generator = DesignSystemGenerator()
+        design_system = generator.generate(args.query, args.project_name)
+        print(
+            format_markdown(design_system)
+            if args.format == "markdown"
+            else format_ascii_box(design_system)
         )
-        print(result)
         
         # Print persistence confirmation
         if args.persist:
-            project_slug = args.project_name.lower().replace(' ', '-') if args.project_name else "default"
+            persistence = persist_design_system(
+                design_system,
+                page=args.page,
+                output_dir=args.output_dir,
+                page_query=args.query,
+            )
+            design_system_dir = persistence["design_system_dir"]
             print("\n" + "=" * 60)
-            print(f"✅ Design system persisted to design-system/{project_slug}/")
-            print(f"   📄 design-system/{project_slug}/MASTER.md (Global Source of Truth)")
-            if args.page:
-                page_filename = args.page.lower().replace(' ', '-')
-                print(f"   📄 design-system/{project_slug}/pages/{page_filename}.md (Page Overrides)")
+            print(f"✅ Design system persisted to {design_system_dir}/")
+            for created_file in persistence["created_files"]:
+                label = "Global Source of Truth" if created_file.endswith("MASTER.md") else "Page Overrides"
+                print(f"   📄 {created_file} ({label})")
             print("")
-            print(f"📖 Usage: When building a page, check design-system/{project_slug}/pages/[page].md first.")
+            print(f"📖 Usage: When building a page, check {design_system_dir}/pages/[page].md first.")
             print(f"   If exists, its rules override MASTER.md. Otherwise, use MASTER.md.")
             print("=" * 60)
     # Stack search
