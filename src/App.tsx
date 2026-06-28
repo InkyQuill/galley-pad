@@ -770,7 +770,10 @@ export default function App() {
     touchedPreferences.current.appearanceTheme = true;
     latestThemeSettings.current = normalized;
     saveThemeSettings(normalized);
-    persistAppSettings({ themeSettings: normalized });
+    persistAppSettings({
+      appearanceTheme: appearanceThemeIdFromThemeSettings(normalized),
+      themeSettings: normalized,
+    });
     setThemeSettings(normalized);
   }
 

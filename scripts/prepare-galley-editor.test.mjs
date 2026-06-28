@@ -105,6 +105,21 @@ test("removes a stale Galley Editor build lock before waiting", async () => {
   assert.equal(ran, true);
 });
 
+test("removes an abandoned empty Galley Editor build lock after the grace period", async () => {
+  const { root } = await fixture();
+  const lockPath = join(root, ".galley-editor-build.lock");
+  await writeFile(lockPath, "");
+  const stale = new Date(Date.now() - 5_000);
+  await utimes(lockPath, stale, stale);
+
+  let ran = false;
+  await withBuildLock(root, async () => {
+    ran = true;
+  });
+
+  assert.equal(ran, true);
+});
+
 async function dependencyInputsHash(editorDir) {
   const hash = createHash("sha256");
   for (const input of ["package.json", "package-lock.json"]) {

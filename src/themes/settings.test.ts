@@ -102,13 +102,14 @@ describe("theme settings", () => {
   });
 
   it("rejects invalid persisted theme ids", () => {
-    localStorage.setItem(
-      THEME_SETTINGS_STORAGE_KEY,
-      JSON.stringify({
-        ...DEFAULT_THEME_SETTINGS,
-        darkThemeId: "missing-theme",
-      }),
-    );
+    const invalidSettings = JSON.stringify({
+      ...DEFAULT_THEME_SETTINGS,
+      darkThemeId: "missing-theme",
+    });
+
+    expect(parseThemeSettings(invalidSettings)).toBeNull();
+
+    localStorage.setItem(THEME_SETTINGS_STORAGE_KEY, invalidSettings);
 
     expect(loadThemeSettings()).toEqual(DEFAULT_THEME_SETTINGS);
     expect(JSON.parse(localStorage.getItem(THEME_SETTINGS_STORAGE_KEY)!)).toEqual(

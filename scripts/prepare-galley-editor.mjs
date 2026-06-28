@@ -20,6 +20,7 @@ export const EDITOR_DEPENDENCY_STAMP = ".galley-editor-deps";
 const EDITOR_BUILD_LOCK = ".galley-editor-build.lock";
 const LOCK_RETRY_MS = 250;
 const LOCK_TIMEOUT_MS = 120_000;
+const LOCK_STALE_GRACE_MS = 1_000;
 const EDITOR_DEPENDENCY_INPUTS = ["package.json", "package-lock.json"];
 
 const EDITOR_INPUTS = [
@@ -221,7 +222,16 @@ function isProcessRunning(pid) {
 }
 
 async function removeStaleBuildLock(lockPath) {
-  const lockOwner = Number.parseInt(await readFile(lockPath, "utf8"), 10);
+  const [lockStats, lockContents] = await Promise.all([
+    stat(lockPath),
+    readFile(lockPath, "utf8"),
+  ]);
+  const lockOwner = Number.parseInt(lockContents, 10);
+  const lockAgeMs = Date.now() - lockStats.mtimeMs;
+  if (!Number.isInteger(lockOwner) && lockAgeMs < LOCK_STALE_GRACE_MS) {
+    return false;
+  }
+
   if (isProcessRunning(lockOwner)) {
     return false;
   }
@@ -239,6 +249,7 @@ export async function withBuildLock(projectRoot, task) {
     try {
       handle = await open(lockPath, "wx");
       await handle.writeFile(`${process.pid}\n`);
+      await handle.sync();
       try {
         return await task();
       } finally {
