@@ -473,6 +473,26 @@ describe("App", () => {
     });
   });
 
+  it("persists migrated legacy appearance theme settings during startup", async () => {
+    readAppSettingsMock.mockResolvedValue({
+      appearanceTheme: "galley-dark",
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(writeAppSettingsMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appearanceTheme: "galley-dark",
+          themeSettings: expect.objectContaining({
+            mode: "constant",
+            constantThemeId: "galley-dark",
+          }),
+        }),
+      );
+    });
+  });
+
   it("marks the session dirty when editor content changes and updates the title", () => {
     render(<App />);
 

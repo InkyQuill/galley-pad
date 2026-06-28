@@ -17,7 +17,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 export const EDITOR_OUTPUTS = ["dist/index.js", "dist/style.css"];
 export const EDITOR_BUILD_STAMP = "dist/.galley-editor-head";
 export const EDITOR_DEPENDENCY_STAMP = ".galley-editor-deps";
-const EDITOR_BUILD_LOCK = ".galley-editor-build.lock";
+export const EDITOR_BUILD_LOCK = ".galley-editor-build.lock";
 const LOCK_RETRY_MS = 250;
 const LOCK_TIMEOUT_MS = 120_000;
 const LOCK_STALE_GRACE_MS = 1_000;

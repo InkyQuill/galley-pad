@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import {
   EDITOR_BUILD_STAMP,
+  EDITOR_BUILD_LOCK,
   EDITOR_DEPENDENCY_STAMP,
   EDITOR_OUTPUTS,
   shouldInstallEditorDependencies,
@@ -95,7 +96,7 @@ test("requires dependency install when editor dependency inputs change", async (
 
 test("removes a stale Galley Editor build lock before waiting", async () => {
   const { root } = await fixture();
-  await writeFile(join(root, ".galley-editor-build.lock"), "999999999\n");
+  await writeFile(join(root, EDITOR_BUILD_LOCK), "999999999\n");
 
   let ran = false;
   await withBuildLock(root, async () => {
@@ -107,7 +108,7 @@ test("removes a stale Galley Editor build lock before waiting", async () => {
 
 test("removes an abandoned empty Galley Editor build lock after the grace period", async () => {
   const { root } = await fixture();
-  const lockPath = join(root, ".galley-editor-build.lock");
+  const lockPath = join(root, EDITOR_BUILD_LOCK);
   await writeFile(lockPath, "");
   const stale = new Date(Date.now() - 5_000);
   await utimes(lockPath, stale, stale);
