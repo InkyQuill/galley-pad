@@ -476,6 +476,9 @@ describe("App", () => {
   it("persists migrated legacy appearance theme settings during startup", async () => {
     readAppSettingsMock.mockResolvedValue({
       appearanceTheme: "galley-dark",
+      editorFontFamily: "Inter",
+      editorFontSize: "large",
+      openMode: "windows",
     });
 
     render(<App />);
@@ -488,6 +491,9 @@ describe("App", () => {
             mode: "constant",
             constantThemeId: "galley-dark",
           }),
+          editorFontFamily: "Inter",
+          editorFontSize: "large",
+          openMode: "windows",
         }),
       );
     });

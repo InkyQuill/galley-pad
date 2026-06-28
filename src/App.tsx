@@ -262,12 +262,9 @@ export default function App() {
             setThemeSettings(migratedThemeSettings);
             saveThemeSettings(migratedThemeSettings);
             saveAppearanceThemeId(settings.appearanceTheme);
-            persistAppSettings({
-              appearanceTheme: appearanceThemeIdFromThemeSettings(
-                migratedThemeSettings,
-              ),
-              themeSettings: migratedThemeSettings,
-            });
+            persistAppSettings(
+              repairedStartupThemeSettings(settings, migratedThemeSettings),
+            );
           }
         }
 
