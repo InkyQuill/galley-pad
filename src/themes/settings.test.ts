@@ -44,27 +44,40 @@ describe("theme settings", () => {
   it("migrates legacy explicit appearance theme values", () => {
     localStorage.setItem(LEGACY_APPEARANCE_THEME_STORAGE_KEY, "galley-dark");
 
-    expect(loadThemeSettings()).toEqual({
+    const migrated = {
       ...DEFAULT_THEME_SETTINGS,
       mode: "constant",
       constantThemeId: "galley-dark",
-    });
+    };
+
+    expect(loadThemeSettings()).toEqual(migrated);
+    expect(JSON.parse(localStorage.getItem(THEME_SETTINGS_STORAGE_KEY)!)).toEqual(
+      migrated,
+    );
   });
 
   it("migrates legacy system appearance theme values to Galley defaults", () => {
     localStorage.setItem(LEGACY_APPEARANCE_THEME_STORAGE_KEY, "system");
 
     expect(loadThemeSettings()).toEqual(DEFAULT_THEME_SETTINGS);
+    expect(JSON.parse(localStorage.getItem(THEME_SETTINGS_STORAGE_KEY)!)).toEqual(
+      DEFAULT_THEME_SETTINGS,
+    );
   });
 
   it("migrates legacy dark editor theme values to a constant dark theme", () => {
     localStorage.setItem(LEGACY_EDITOR_THEME_STORAGE_KEY, "dark");
 
-    expect(loadThemeSettings()).toEqual({
+    const migrated = {
       ...DEFAULT_THEME_SETTINGS,
       mode: "constant",
       constantThemeId: "galley-dark",
-    });
+    };
+
+    expect(loadThemeSettings()).toEqual(migrated);
+    expect(JSON.parse(localStorage.getItem(THEME_SETTINGS_STORAGE_KEY)!)).toEqual(
+      migrated,
+    );
   });
 
   it("migrates missing legacy storage to Galley defaults", () => {
@@ -98,6 +111,11 @@ describe("theme settings", () => {
     );
 
     expect(loadThemeSettings()).toEqual(DEFAULT_THEME_SETTINGS);
-    expect(parseThemeSettings(localStorage.getItem(THEME_SETTINGS_STORAGE_KEY))).toBeNull();
+    expect(JSON.parse(localStorage.getItem(THEME_SETTINGS_STORAGE_KEY)!)).toEqual(
+      DEFAULT_THEME_SETTINGS,
+    );
+    expect(parseThemeSettings(localStorage.getItem(THEME_SETTINGS_STORAGE_KEY))).toEqual(
+      DEFAULT_THEME_SETTINGS,
+    );
   });
 });

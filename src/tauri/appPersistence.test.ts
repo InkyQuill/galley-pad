@@ -91,6 +91,8 @@ describe("app persistence", () => {
     if (false) {
       // @ts-expect-error write payloads require valid ThemeSettings
       void writeAppSettings({ themeSettings: "broken" });
+      // @ts-expect-error write payloads require valid legacy appearance ids
+      void writeAppSettings({ appearanceTheme: "broken" });
     }
 
     expect(true).toBe(true);

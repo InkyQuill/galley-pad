@@ -1416,7 +1416,11 @@ Use `ThemeId` instead of `string` if TypeScript narrowing is straightforward at 
 
 - [ ] **Step 4: Replace theme fieldset UI**
 
-In the settings dialog, replace the current `APPEARANCE_THEMES.map` fieldset with:
+In the settings dialog, replace the current `APPEARANCE_THEMES.map` fieldset with the
+new theme-mode radio group. The first implementation may use native selects as a
+v1 control, but the approved picker UX remains a richer swatch-based picker/combobox
+fed from `BUILT_IN_THEMES` and `listThemesByScheme()`. Do not revert to the legacy
+`APPEARANCE_THEMES.map` radio list.
 
 ```tsx
 <fieldset>
@@ -1499,7 +1503,11 @@ In the settings dialog, replace the current `APPEARANCE_THEMES.map` fieldset wit
 </fieldset>
 ```
 
-This uses native selects for v1. Do not build a custom searchable combobox in this task unless the user explicitly asks during review; the font picker already covers the portal-heavy picker pattern and theme select can remain native for now.
+This code sample is the native-select v1 baseline. If the task scope includes the
+approved picker UX, replace each `<select>` with the project picker component:
+constant mode reads from `BUILT_IN_THEMES`, system-based mode reads from
+`listThemesByScheme("light")` and `listThemesByScheme("dark")`, and each option
+must expose a theme swatch plus label/family metadata.
 
 - [ ] **Step 5: Add minimal styles**
 

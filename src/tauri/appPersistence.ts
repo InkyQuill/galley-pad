@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { OpenMode } from "../document/workspace";
-import type { EditorFontSettings } from "../settings/appearance";
+import type { AppearanceThemeId, EditorFontSettings } from "../settings/appearance";
 import type { ThemeSettings } from "../themes/settings";
 
 type JsonValue =
@@ -12,7 +12,7 @@ type JsonValue =
   | { [key: string]: JsonValue };
 
 export type PersistedAppSettings = {
-  appearanceTheme?: string | null;
+  appearanceTheme?: AppearanceThemeId | null;
   themeSettings?: ThemeSettings | null;
   editorFontFamily?: string | null;
   editorFontSize?: EditorFontSettings["size"] | null;
@@ -21,8 +21,9 @@ export type PersistedAppSettings = {
 
 export type RawPersistedAppSettings = Omit<
   PersistedAppSettings,
-  "themeSettings"
+  "appearanceTheme" | "themeSettings"
 > & {
+  appearanceTheme?: string | null;
   themeSettings?: ThemeSettings | JsonValue | null;
 };
 

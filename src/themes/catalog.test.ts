@@ -8,6 +8,7 @@ import {
   isThemeId,
   listThemesByScheme,
 } from "./catalog";
+import type { ThemeTokens } from "./tokens";
 
 const MINIMUM_NORMAL_TEXT_CONTRAST = 4.5;
 const APP_TOKEN_KEYS = [
@@ -25,7 +26,7 @@ const APP_TOKEN_KEYS = [
   "errorText",
   "dialogShadow",
   "backdrop",
-] as const;
+] as const satisfies readonly (keyof ThemeTokens["app"])[];
 const EDITOR_TOKEN_KEYS = [
   "text",
   "textMuted",
@@ -40,7 +41,7 @@ const EDITOR_TOKEN_KEYS = [
   "focusRing",
   "scrollbarThumb",
   "scrollbarThumbHover",
-] as const;
+] as const satisfies readonly (keyof ThemeTokens["editor"])[];
 const MARKDOWN_TOKEN_KEYS = [
   "codeFg",
   "codeBg",
@@ -51,7 +52,7 @@ const MARKDOWN_TOKEN_KEYS = [
   "divider",
   "tableBorder",
   "checkboxAccent",
-] as const;
+] as const satisfies readonly (keyof ThemeTokens["markdown"])[];
 const SYNTAX_TOKEN_KEYS = [
   "keyword",
   "string",
@@ -62,7 +63,7 @@ const SYNTAX_TOKEN_KEYS = [
   "function",
   "operator",
   "punctuation",
-] as const;
+] as const satisfies readonly (keyof ThemeTokens["syntax"])[];
 
 function contrastRatio(foreground: string, background: string): number {
   const foregroundLuminance = relativeLuminance(foreground);

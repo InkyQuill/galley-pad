@@ -974,6 +974,7 @@ export default function App() {
 
     return {
       ...snapshot,
+      appearanceTheme: appearanceThemeIdFromThemeSettings(themeSettings),
       themeSettings,
       editorFontFamily:
         !touchedPreferences.current.editorFont &&
@@ -1348,8 +1349,9 @@ export default function App() {
               <input
                 type="radio"
                 name="theme-mode"
-                checked={false}
+                checked={themeSettings.mode === "native"}
                 disabled
+                readOnly
                 aria-describedby="native-theme-help"
               />
               Native

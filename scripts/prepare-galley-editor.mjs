@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   access,
   copyFile,
@@ -15,9 +16,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const EDITOR_OUTPUTS = ["dist/index.js", "dist/style.css"];
 export const EDITOR_BUILD_STAMP = "dist/.galley-editor-head";
+export const EDITOR_DEPENDENCY_STAMP = ".galley-editor-deps";
 const EDITOR_BUILD_LOCK = ".galley-editor-build.lock";
 const LOCK_RETRY_MS = 250;
 const LOCK_TIMEOUT_MS = 120_000;
+const EDITOR_DEPENDENCY_INPUTS = ["package.json", "package-lock.json"];
 
 const EDITOR_INPUTS = [
   "src",
@@ -73,6 +76,17 @@ async function readStamp(editorDir) {
   } catch {
     return "";
   }
+}
+
+async function dependencyInputsHash(editorDir) {
+  const hash = createHash("sha256");
+  for (const input of EDITOR_DEPENDENCY_INPUTS) {
+    hash.update(input);
+    hash.update("\0");
+    hash.update(await readFile(join(editorDir, input)));
+    hash.update("\0");
+  }
+  return hash.digest("hex");
 }
 
 export async function shouldBuildEditor({ editorDir, gitHead }) {
@@ -166,15 +180,57 @@ function readGitHead(editorDir) {
   return result.stdout.trim();
 }
 
-async function ensureEditorDependencies(editorDir) {
+export async function shouldInstallEditorDependencies(editorDir) {
   const nodeModules = join(editorDir, "node_modules");
+  const stampPath = join(nodeModules, EDITOR_DEPENDENCY_STAMP);
+  const expectedStamp = await dependencyInputsHash(editorDir);
   const stats = await stat(nodeModules).catch(() => null);
-  if (stats?.isDirectory()) return;
+  if (stats?.isDirectory()) {
+    const actualStamp = await readFile(stampPath, "utf8").catch(() => "");
+    if (actualStamp.trim() === expectedStamp) {
+      return false;
+    }
+  }
 
-  run("npm", ["--prefix", editorDir, "ci"]);
+  return true;
 }
 
-async function withBuildLock(projectRoot, task) {
+async function ensureEditorDependencies(editorDir) {
+  if (!(await shouldInstallEditorDependencies(editorDir))) {
+    return;
+  }
+
+  run("npm", ["--prefix", editorDir, "ci"]);
+  const nodeModules = join(editorDir, "node_modules");
+  const stampPath = join(nodeModules, EDITOR_DEPENDENCY_STAMP);
+  const expectedStamp = await dependencyInputsHash(editorDir);
+  await writeFile(stampPath, `${expectedStamp}\n`);
+}
+
+function isProcessRunning(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return false;
+  }
+
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
+async function removeStaleBuildLock(lockPath) {
+  const lockOwner = Number.parseInt(await readFile(lockPath, "utf8"), 10);
+  if (isProcessRunning(lockOwner)) {
+    return false;
+  }
+
+  await rm(lockPath, { force: true });
+  return true;
+}
+
+export async function withBuildLock(projectRoot, task) {
   const lockPath = join(projectRoot, EDITOR_BUILD_LOCK);
   const start = Date.now();
 
@@ -200,6 +256,10 @@ async function withBuildLock(projectRoot, task) {
 
       if (Date.now() - start > LOCK_TIMEOUT_MS) {
         throw new Error("Timed out waiting for Galley Editor build lock.");
+      }
+
+      if (await removeStaleBuildLock(lockPath).catch(() => false)) {
+        continue;
       }
 
       await sleep(LOCK_RETRY_MS);

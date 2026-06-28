@@ -16,6 +16,17 @@ describe("resolveTheme", () => {
     expect(resolveTheme(settings, "dark").id).toBe("gruvbox-dark");
   });
 
+  it("uses the constant default when a constant theme id is invalid", () => {
+    const settings = {
+      ...DEFAULT_THEME_SETTINGS,
+      mode: "constant",
+      constantThemeId: "missing-theme",
+    } as const;
+
+    expect(resolveTheme(settings, "light").id).toBe("galley-light");
+    expect(resolveTheme(settings, "dark").id).toBe("galley-light");
+  });
+
   it("selects configured light and dark theme ids in system mode", () => {
     const settings = {
       ...DEFAULT_THEME_SETTINGS,

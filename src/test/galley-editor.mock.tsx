@@ -77,7 +77,6 @@ export function GalleyEditor({
             <span
               className="ge-footer-logo-wrap"
               aria-label="Galley Editor v.0.10.0 by Inky Quill"
-              tabIndex={0}
             >
               <svg
                 className="ge-footer-logo"

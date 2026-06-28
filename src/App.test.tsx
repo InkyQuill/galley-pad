@@ -445,6 +445,34 @@ describe("App", () => {
     });
   });
 
+  it("keeps legacy appearance theme aligned with repaired startup theme settings", async () => {
+    readAppSettingsMock.mockResolvedValue({
+      appearanceTheme: "system",
+      themeSettings: {
+        mode: "constant",
+        constantThemeId: "tokyo-night",
+        lightThemeId: "galley-light",
+        darkThemeId: "solarized-light",
+      },
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(writeAppSettingsMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appearanceTheme: "galley-dark",
+          themeSettings: expect.objectContaining({
+            mode: "constant",
+            constantThemeId: "tokyo-night",
+            lightThemeId: "galley-light",
+            darkThemeId: "galley-dark",
+          }),
+        }),
+      );
+    });
+  });
+
   it("marks the session dirty when editor content changes and updates the title", () => {
     render(<App />);
 
@@ -1030,12 +1058,23 @@ describe("App", () => {
   });
 
   it("shows native theme mode as unavailable", async () => {
+    localStorage.setItem(
+      "galley-pad.themeSettings",
+      JSON.stringify({
+        mode: "native",
+        constantThemeId: "galley-light",
+        lightThemeId: "galley-light",
+        darkThemeId: "galley-dark",
+      }),
+    );
     render(<App />);
 
     fireEvent.keyDown(window, { key: ",", ctrlKey: true });
     await screen.findByRole("dialog", { name: "Settings" });
 
-    expect(screen.getByRole("radio", { name: /Native/ })).toBeDisabled();
+    const nativeTheme = screen.getByRole("radio", { name: /Native/ });
+    expect(nativeTheme).toBeChecked();
+    expect(nativeTheme).toBeDisabled();
     expect(
       screen.getByText("Native shell colors are not available yet."),
     ).toBeVisible();

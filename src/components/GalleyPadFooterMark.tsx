@@ -5,7 +5,6 @@ export function GalleyPadFooterMark() {
     <span
       className="ge-footer-logo-wrap"
       aria-label={APP_BRAND_LABEL}
-      tabIndex={0}
     >
       <svg
         className="ge-footer-logo"

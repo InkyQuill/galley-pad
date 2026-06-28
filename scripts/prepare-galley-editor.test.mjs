@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, stat, utimes, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, readFile, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
   EDITOR_BUILD_STAMP,
+  EDITOR_DEPENDENCY_STAMP,
   EDITOR_OUTPUTS,
+  shouldInstallEditorDependencies,
   shouldBuildEditor,
+  withBuildLock,
 } from "./prepare-galley-editor.mjs";
 
 async function fixture() {
@@ -15,7 +19,8 @@ async function fixture() {
   await mkdir(join(editorDir, "src"), { recursive: true });
   await writeFile(join(editorDir, "src", "index.ts"), "export const value = 1;\n");
   await writeFile(join(editorDir, "package.json"), "{}\n");
-  return { editorDir };
+  await writeFile(join(editorDir, "package-lock.json"), "{}\n");
+  return { root, editorDir };
 }
 
 async function writeOutputs(editorDir, stamp = "abc123") {
@@ -67,3 +72,46 @@ test("requires a build when editor source is newer than dist outputs", async () 
     reason: "editor inputs are newer than dist outputs",
   });
 });
+
+test("requires dependency install when editor dependency inputs change", async () => {
+  const { editorDir } = await fixture();
+  const nodeModules = join(editorDir, "node_modules");
+  await mkdir(nodeModules);
+
+  assert.equal(await shouldInstallEditorDependencies(editorDir), true);
+
+  await writeFile(join(nodeModules, EDITOR_DEPENDENCY_STAMP), "stale\n");
+  assert.equal(await shouldInstallEditorDependencies(editorDir), true);
+
+  await writeFile(join(editorDir, "package.json"), "{\"name\":\"fixture\"}\n");
+  assert.equal(await shouldInstallEditorDependencies(editorDir), true);
+
+  await writeFile(
+    join(nodeModules, EDITOR_DEPENDENCY_STAMP),
+    `${await dependencyInputsHash(editorDir)}\n`,
+  );
+  assert.equal(await shouldInstallEditorDependencies(editorDir), false);
+});
+
+test("removes a stale Galley Editor build lock before waiting", async () => {
+  const { root } = await fixture();
+  await writeFile(join(root, ".galley-editor-build.lock"), "999999999\n");
+
+  let ran = false;
+  await withBuildLock(root, async () => {
+    ran = true;
+  });
+
+  assert.equal(ran, true);
+});
+
+async function dependencyInputsHash(editorDir) {
+  const hash = createHash("sha256");
+  for (const input of ["package.json", "package-lock.json"]) {
+    hash.update(input);
+    hash.update("\0");
+    hash.update(await readFile(join(editorDir, input)));
+    hash.update("\0");
+  }
+  return hash.digest("hex");
+}

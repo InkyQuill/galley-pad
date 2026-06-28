@@ -38,7 +38,9 @@ export function loadThemeSettings(
     return persisted;
   }
 
-  return migrateLegacyThemeSettings(storage);
+  const migrated = migrateLegacyThemeSettings(storage);
+  saveThemeSettings(migrated, storage);
+  return migrated;
 }
 
 export function saveThemeSettings(
