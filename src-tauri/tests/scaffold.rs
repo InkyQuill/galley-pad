@@ -103,6 +103,16 @@ fn tauri_config_declares_installable_markdown_file_associations() {
         windows.iter().any(|value| value == "markdown-file-*"),
         "dynamic Markdown file windows should receive default app permissions"
     );
+    let permissions = capability
+        .get("permissions")
+        .and_then(Value::as_array)
+        .expect("default capability should list permissions");
+    assert!(
+        permissions
+            .iter()
+            .any(|value| value == "core:window:allow-destroy"),
+        "approved close requests destroy the Tauri window after the app handles unsaved changes"
+    );
 
     let cargo_manifest = include_str!("../Cargo.toml");
     assert!(

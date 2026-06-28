@@ -22,11 +22,13 @@ import {
   Undo2,
   type LucideIcon,
 } from "lucide-react";
+import { GalleyPadFooterMark } from "./GalleyPadFooterMark";
 import {
   editorFontStyle,
-  type AppearanceTheme,
   type EditorFontSettings,
 } from "../settings/appearance";
+
+type EditorSurfaceStyle = CSSProperties & Record<`--${string}`, string>;
 
 export type DocumentViewProps = {
   content: string;
@@ -34,7 +36,8 @@ export type DocumentViewProps = {
   panelId?: string;
   labelledBy?: string;
   toolbarVisible?: boolean;
-  theme?: AppearanceTheme;
+  editorScheme?: "auto" | "light" | "dark";
+  editorStyle?: EditorSurfaceStyle;
   fontSettings?: EditorFontSettings;
   status?: string;
 };
@@ -45,7 +48,8 @@ export function DocumentView({
   panelId,
   labelledBy,
   toolbarVisible = false,
-  theme,
+  editorScheme,
+  editorStyle,
   fontSettings = { family: "system", size: "medium" },
   status = "Draft",
 }: DocumentViewProps) {
@@ -63,10 +67,11 @@ export function DocumentView({
         value={content}
         onChange={onContentChange}
         layout="fill"
-        theme={theme?.editorScheme ?? "auto"}
+        theme={editorScheme ?? "auto"}
         surface={{
           className: "galley-pad-editor-surface",
           style: {
+            ...editorStyle,
             "--ge-font-body": fontStyle.fontFamily,
             "--ge-font-size": fontStyle.fontSize,
           } as CSSProperties,
@@ -81,10 +86,14 @@ export function DocumentView({
         footer={{
           before: <span className="document-footer-status">{status}</span>,
           after: ({ wordCount }: GalleyFooterContext) => (
-            <span className="document-footer-words">
-              {wordCount} {wordCount === 1 ? "word" : "words"}
-            </span>
+            <>
+              <span className="document-footer-words">
+                {wordCount} {wordCount === 1 ? "word" : "words"}
+              </span>
+              <GalleyPadFooterMark />
+            </>
           ),
+          logo: false,
           wordCount: false,
           characterCount: true,
         }}

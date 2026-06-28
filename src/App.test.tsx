@@ -1,4 +1,11 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import {
@@ -21,7 +28,10 @@ import {
   writeAppSettings,
   writeSwapState,
 } from "./tauri/appPersistence";
-import { listenForWindowCloseRequest } from "./tauri/windowClose";
+import {
+  closeCurrentWindow,
+  listenForWindowCloseRequest,
+} from "./tauri/windowClose";
 
 vi.mock("@inky/galley-editor", () => import("./test/galley-editor.mock"));
 vi.mock("./tauri/dialogs", () => ({
@@ -56,6 +66,7 @@ vi.mock("./tauri/appPersistence", () => ({
   writeSwapState: vi.fn(),
 }));
 vi.mock("./tauri/windowClose", () => ({
+  closeCurrentWindow: vi.fn(),
   listenForWindowCloseRequest: vi.fn(),
 }));
 
@@ -74,6 +85,7 @@ const readAppSettingsMock = vi.mocked(readAppSettings);
 const readSwapStateMock = vi.mocked(readSwapState);
 const writeAppSettingsMock = vi.mocked(writeAppSettings);
 const writeSwapStateMock = vi.mocked(writeSwapState);
+const closeCurrentWindowMock = vi.mocked(closeCurrentWindow);
 const listenForWindowCloseRequestMock = vi.mocked(listenForWindowCloseRequest);
 
 describe("App", () => {
@@ -110,6 +122,10 @@ describe("App", () => {
         },
       ],
     });
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: undefined,
+    });
     localStorage.clear();
     window.history.replaceState(null, "", "/");
   });
@@ -135,13 +151,12 @@ describe("App", () => {
       "id",
       activeTab.getAttribute("aria-controls"),
     );
-    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
-      "# Untitled\n\nStart writing Markdown.\n",
-    );
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("");
     expect(screen.getByLabelText("Mock Galley Footer")).toHaveTextContent("Draft");
     expect(screen.getByLabelText("Mock Galley Footer")).toHaveTextContent(
-      "5 words",
+      "0 words",
     );
+    expect(screen.getByLabelText("Galley Pad v0.1.0")).toBeInTheDocument();
     expect(document.title).toBe("Untitled.md - Galley Pad");
 
     const appShell = container.querySelector(".app-shell");
@@ -151,6 +166,337 @@ describe("App", () => {
     expect(
       screen.queryByRole("alert", { name: "File command error" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("renders close and dismiss controls as accessible icon buttons", async () => {
+    readAppSettingsMock.mockRejectedValue(new Error("Settings unavailable"));
+
+    render(<App />);
+
+    const tabClose = screen.getByRole("button", { name: "Close Untitled.md" });
+    expect(tabClose.querySelector("svg")).toBeInTheDocument();
+    expect(tabClose).not.toHaveTextContent("x");
+
+    fireEvent.keyDown(window, { key: ",", ctrlKey: true });
+    await screen.findByRole("dialog", { name: "Settings" });
+    const settingsClose = screen.getByRole("button", { name: "Close settings" });
+    expect(settingsClose.querySelector("svg")).toBeInTheDocument();
+    expect(settingsClose).not.toHaveTextContent("x");
+
+    await screen.findByRole("alert", { name: "File command error" });
+    const dismissError = screen.getByRole("button", {
+      name: "Dismiss file command error",
+    });
+    expect(dismissError.querySelector("svg")).toBeInTheDocument();
+    expect(dismissError).not.toHaveTextContent("x");
+  });
+
+  it("creates a new empty tab from the tab strip action", () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "New tab" }));
+
+    expect(screen.getAllByRole("tab", { name: /Untitled\.md/ })).toHaveLength(2);
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("");
+  });
+
+  it("shows a tab menu with select and close actions", async () => {
+    render(<App />);
+    fireEvent.change(screen.getByLabelText("Mock Galley Editor"), {
+      target: { value: "First draft" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "New tab" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Show tabs" }));
+    const menu = screen.getByRole("menu", { name: "Open tabs" });
+    const items = within(menu).getAllByRole("menuitem");
+
+    fireEvent.click(items[0]);
+
+    expect(screen.queryByRole("menu", { name: "Open tabs" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("First draft");
+
+    fireEvent.click(screen.getByRole("button", { name: "Show tabs" }));
+    const reopenedMenu = screen.getByRole("menu", { name: "Open tabs" });
+    fireEvent.click(
+      within(reopenedMenu).getAllByRole("button", { name: "Close Untitled.md" })[1],
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByRole("tab", { name: /Untitled\.md/ })).toHaveLength(1);
+    });
+  });
+
+  it("renders tab strip scroll controls", () => {
+    render(<App />);
+
+    expect(
+      screen.getByRole("button", { name: "Scroll tabs left" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Scroll tabs right" }),
+    ).toBeInTheDocument();
+  });
+
+  it("applies theme variables on the app shell for chrome and editor inheritance", async () => {
+    render(<App />);
+
+    const shell = screen.getByTestId("app-shell");
+    expect(shell.style.getPropertyValue("--app-panel")).toBeTruthy();
+    expect(shell.style.getPropertyValue("--app-border")).toBeTruthy();
+    expect(shell.style.getPropertyValue("--ge-color-text")).toBeTruthy();
+    expect(shell.style.getPropertyValue("--ge-color-code-fence-bg")).toBeTruthy();
+    expect(shell.style.getPropertyValue("--ge-color-token-string")).toBeTruthy();
+  });
+
+  it("applies persisted theme settings to the app shell and editor", async () => {
+    readAppSettingsMock.mockResolvedValue({
+      themeSettings: {
+        mode: "constant",
+        constantThemeId: "tokyo-night",
+        lightThemeId: "galley-light",
+        darkThemeId: "galley-dark",
+      },
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+        "data-theme",
+        "dark",
+      );
+    });
+
+    const appShell = screen.getByTestId("app-shell");
+    expect(appShell.style.getPropertyValue("--app-bg")).not.toBe("");
+    expect(appShell.style.getPropertyValue("--ge-color-bg")).not.toBe("");
+    expect(
+      screen
+        .getByTestId("mock-galley-editor-shell")
+        .style.getPropertyValue("--ge-color-bg"),
+    ).toBe("#1a1b26");
+    expect(
+      screen
+        .getByTestId("mock-galley-editor-shell")
+        .style.getPropertyValue("--ge-color-link"),
+    ).toBe("#7aa2f7");
+  });
+
+  it("updates resolved system theme variables when the system color scheme changes", async () => {
+    const systemColorScheme = mockSystemColorScheme(false);
+    readAppSettingsMock.mockResolvedValue({
+      themeSettings: {
+        mode: "system",
+        constantThemeId: "tokyo-night",
+        lightThemeId: "galley-light",
+        darkThemeId: "galley-dark",
+      },
+    });
+
+    render(<App />);
+
+    const appShell = screen.getByTestId("app-shell");
+    await waitFor(() => {
+      expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+        "data-theme",
+        "auto",
+      );
+      expect(appShell.style.getPropertyValue("--ge-color-bg")).not.toBe("");
+    });
+    const lightEditorBg = appShell.style.getPropertyValue("--ge-color-bg");
+
+    act(() => {
+      systemColorScheme.setDark(true);
+    });
+
+    await waitFor(() => {
+      expect(appShell.style.getPropertyValue("--ge-color-bg")).not.toBe(
+        lightEditorBg,
+      );
+    });
+    expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+      "data-theme",
+      "auto",
+    );
+  });
+
+  it("normalizes mismatched persisted system theme selections before opening settings", async () => {
+    readAppSettingsMock.mockResolvedValue({
+      appearanceTheme: "system",
+      themeSettings: {
+        mode: "system",
+        constantThemeId: "catppuccin-mocha",
+        lightThemeId: "tokyo-night",
+        darkThemeId: "solarized-light",
+      },
+      editorFontFamily: "Inter",
+      editorFontSize: "large",
+      openMode: "windows",
+    });
+
+    render(<App />);
+    const appShell = screen.getByTestId("app-shell");
+
+    fireEvent.keyDown(window, { key: ",", ctrlKey: true });
+    await screen.findByRole("dialog", { name: "Settings" });
+
+    await waitFor(() => {
+      expect(screen.getByRole("radio", { name: "System-based" })).toBeChecked();
+      expect(screen.getByRole("combobox", { name: "Light theme" })).toHaveValue(
+        "galley-light",
+      );
+      expect(screen.getByRole("combobox", { name: "Dark theme" })).toHaveValue(
+        "galley-dark",
+      );
+      expect(appShell.style.getPropertyValue("--ge-color-bg")).toBe("#fbfaf7");
+    });
+    await waitFor(() => {
+      expect(writeAppSettingsMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appearanceTheme: "system",
+          themeSettings: expect.objectContaining({
+            mode: "system",
+            constantThemeId: "catppuccin-mocha",
+            lightThemeId: "galley-light",
+            darkThemeId: "galley-dark",
+          }),
+          editorFontFamily: "Inter",
+          editorFontSize: "large",
+          openMode: "windows",
+        }),
+      );
+    });
+  });
+
+  it("repairs mismatched local theme settings during startup", () => {
+    localStorage.setItem(
+      "galley-pad.themeSettings",
+      JSON.stringify({
+        mode: "system",
+        constantThemeId: "catppuccin-mocha",
+        lightThemeId: "tokyo-night",
+        darkThemeId: "solarized-light",
+      }),
+    );
+
+    render(<App />);
+
+    expect(JSON.parse(localStorage.getItem("galley-pad.themeSettings")!)).toEqual(
+      {
+        mode: "system",
+        constantThemeId: "catppuccin-mocha",
+        lightThemeId: "galley-light",
+        darkThemeId: "galley-dark",
+      },
+    );
+  });
+
+  it("repairs delayed startup theme settings without stale preference writes", async () => {
+    const pendingSettings = deferred<Awaited<ReturnType<typeof readAppSettings>>>();
+    readAppSettingsMock.mockReturnValue(pendingSettings.promise);
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: ",", ctrlKey: true });
+    await screen.findByRole("dialog", { name: "Settings" });
+    fireEvent.click(screen.getByRole("radio", { name: "Separate windows" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Editor font size" }), {
+      target: { value: "large" },
+    });
+
+    await waitFor(() => {
+      expect(writeAppSettingsMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          editorFontSize: "large",
+          openMode: "windows",
+        }),
+      );
+    });
+    writeAppSettingsMock.mockClear();
+
+    await act(async () => {
+      pendingSettings.resolve({
+        themeSettings: {
+          mode: "system",
+          constantThemeId: "catppuccin-mocha",
+          lightThemeId: "tokyo-night",
+          darkThemeId: "solarized-light",
+        },
+        editorFontFamily: "Inter",
+        editorFontSize: "small",
+        openMode: "tabs",
+      });
+      await pendingSettings.promise;
+    });
+
+    await waitFor(() => {
+      expect(writeAppSettingsMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          themeSettings: expect.objectContaining({
+            mode: "system",
+            constantThemeId: "catppuccin-mocha",
+            lightThemeId: "galley-light",
+            darkThemeId: "galley-dark",
+          }),
+          editorFontSize: "large",
+          openMode: "windows",
+        }),
+      );
+    });
+  });
+
+  it("keeps legacy appearance theme aligned with repaired startup theme settings", async () => {
+    readAppSettingsMock.mockResolvedValue({
+      appearanceTheme: "system",
+      themeSettings: {
+        mode: "constant",
+        constantThemeId: "tokyo-night",
+        lightThemeId: "galley-light",
+        darkThemeId: "solarized-light",
+      },
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(writeAppSettingsMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appearanceTheme: "galley-dark",
+          themeSettings: expect.objectContaining({
+            mode: "constant",
+            constantThemeId: "tokyo-night",
+            lightThemeId: "galley-light",
+            darkThemeId: "galley-dark",
+          }),
+        }),
+      );
+    });
+  });
+
+  it("persists migrated legacy appearance theme settings during startup", async () => {
+    readAppSettingsMock.mockResolvedValue({
+      appearanceTheme: "galley-dark",
+      editorFontFamily: "Inter",
+      editorFontSize: "large",
+      openMode: "windows",
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(writeAppSettingsMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appearanceTheme: "galley-dark",
+          themeSettings: expect.objectContaining({
+            mode: "constant",
+            constantThemeId: "galley-dark",
+          }),
+          editorFontFamily: "Inter",
+          editorFontSize: "large",
+          openMode: "windows",
+        }),
+      );
+    });
   });
 
   it("marks the session dirty when editor content changes and updates the title", () => {
@@ -277,9 +623,7 @@ describe("App", () => {
 
     expect(window.confirm).not.toHaveBeenCalled();
     expect(screen.getAllByRole("tab", { name: /Untitled\.md/ })).toHaveLength(2);
-    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
-      "# Untitled\n\nStart writing Markdown.\n",
-    );
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("");
     expect(screen.getByText("Draft")).toBeInTheDocument();
   });
 
@@ -322,10 +666,19 @@ describe("App", () => {
     await screen.findByRole("dialog", { name: "Save changes?" });
     fireEvent.click(screen.getByRole("button", { name: "Discard" }));
     await waitFor(() => {
-      expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
-        "# Untitled\n\nStart writing Markdown.\n",
-      );
+      expect(closeCurrentWindowMock).toHaveBeenCalledOnce();
     });
+  });
+
+  it("closes the application when closing the final clean tab", async () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Close Untitled.md" }));
+
+    await waitFor(() => {
+      expect(closeCurrentWindowMock).toHaveBeenCalledOnce();
+    });
+    expect(clearSwapStateMock).toHaveBeenCalledOnce();
   });
 
   it("saves a dirty file-backed document when window close is requested", async () => {
@@ -472,7 +825,10 @@ describe("App", () => {
       menuHandler?.("settings");
     });
     await screen.findByRole("dialog", { name: "Settings" });
-    fireEvent.click(screen.getByRole("radio", { name: "Galley Dark" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Constant" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Theme" }), {
+      target: { value: "catppuccin-mocha" },
+    });
     expect(writeAppSettingsMock).toHaveBeenCalledTimes(1);
 
     expect(closeHandler).not.toBeNull();
@@ -562,7 +918,7 @@ describe("App", () => {
     expect(document.title).toBe("* Untitled.md - Galley Pad");
   });
 
-  it("opens settings from the native menu and persists preferences", async () => {
+  it("opens settings from the native menu and persists constant theme preferences", async () => {
     let menuHandler: ((command: AppMenuCommand) => void) | null = null;
     listenForAppMenuCommandMock.mockImplementation(async (handler) => {
       menuHandler = handler;
@@ -578,7 +934,10 @@ describe("App", () => {
     });
     await screen.findByRole("dialog", { name: "Settings" });
     fireEvent.click(screen.getByRole("radio", { name: "Separate windows" }));
-    fireEvent.click(screen.getByRole("radio", { name: "Galley Dark" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Constant" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Theme" }), {
+      target: { value: "catppuccin-mocha" },
+    });
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /System default/ })).toHaveTextContent(
         "Съешь",
@@ -600,15 +959,24 @@ describe("App", () => {
     });
 
     expect(localStorage.getItem("galley-pad.openMode")).toBe("windows");
-    expect(localStorage.getItem("galley-pad.appearanceTheme")).toBe(
-      "galley-dark",
+    expect(JSON.parse(localStorage.getItem("galley-pad.themeSettings")!)).toEqual(
+      expect.objectContaining({
+        mode: "constant",
+        constantThemeId: "catppuccin-mocha",
+      }),
     );
     expect(localStorage.getItem("galley-pad.editorFontFamily")).toBe("Fira Code");
     expect(localStorage.getItem("galley-pad.editorFontSize")).toBe("large");
     expect(
       screen.getByRole("radio", { name: "Separate windows" }),
     ).toBeChecked();
-    expect(screen.getByRole("radio", { name: "Galley Dark" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Constant" })).toBeChecked();
+    expect(screen.getByRole("combobox", { name: "Theme" })).toHaveValue(
+      "catppuccin-mocha",
+    );
+    expect(
+      screen.queryByRole("combobox", { name: "Light theme" }),
+    ).not.toBeInTheDocument();
     expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
       "data-theme",
       "dark",
@@ -622,7 +990,10 @@ describe("App", () => {
     await waitFor(() => {
       expect(writeAppSettingsMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          appearanceTheme: "galley-dark",
+          themeSettings: expect.objectContaining({
+            mode: "constant",
+            constantThemeId: "catppuccin-mocha",
+          }),
           editorFontFamily: "Fira Code",
           editorFontSize: "large",
           openMode: "windows",
@@ -651,7 +1022,10 @@ describe("App", () => {
     });
     await screen.findByRole("dialog", { name: "Settings" });
 
-    fireEvent.click(screen.getByRole("radio", { name: "Galley Dark" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Constant" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Theme" }), {
+      target: { value: "catppuccin-mocha" },
+    });
     fireEvent.click(screen.getByRole("radio", { name: "Separate windows" }));
 
     expect(writeAppSettingsMock).toHaveBeenCalledTimes(1);
@@ -666,10 +1040,70 @@ describe("App", () => {
     });
     expect(writeAppSettingsMock).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        appearanceTheme: "galley-dark",
+        themeSettings: expect.objectContaining({
+          mode: "constant",
+          constantThemeId: "catppuccin-mocha",
+        }),
         openMode: "windows",
       }),
     );
+  });
+
+  it("persists system-based light and dark theme selections", async () => {
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: ",", ctrlKey: true });
+    await screen.findByRole("dialog", { name: "Settings" });
+    fireEvent.click(screen.getByRole("radio", { name: "System-based" }));
+
+    expect(
+      screen.getByRole("combobox", { name: "Light theme" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("combobox", { name: "Dark theme" }),
+    ).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Light theme" }), {
+      target: { value: "solarized-light" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "Dark theme" }), {
+      target: { value: "tokyo-night" },
+    });
+
+    await waitFor(() => {
+      expect(writeAppSettingsMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          themeSettings: expect.objectContaining({
+            mode: "system",
+            lightThemeId: "solarized-light",
+            darkThemeId: "tokyo-night",
+          }),
+        }),
+      );
+    });
+  });
+
+  it("shows native theme mode as unavailable", async () => {
+    localStorage.setItem(
+      "galley-pad.themeSettings",
+      JSON.stringify({
+        mode: "native",
+        constantThemeId: "galley-light",
+        lightThemeId: "galley-light",
+        darkThemeId: "galley-dark",
+      }),
+    );
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: ",", ctrlKey: true });
+    await screen.findByRole("dialog", { name: "Settings" });
+
+    const nativeTheme = screen.getByRole("radio", { name: /Native/ });
+    expect(nativeTheme).toBeChecked();
+    expect(nativeTheme).toBeDisabled();
+    expect(
+      screen.getByText("Native shell colors are not available yet."),
+    ).toBeVisible();
   });
 
   it("does not let late startup settings overwrite user preference edits", async () => {
@@ -679,7 +1113,10 @@ describe("App", () => {
 
     fireEvent.keyDown(window, { key: ",", ctrlKey: true });
     await screen.findByRole("dialog", { name: "Settings" });
-    fireEvent.click(screen.getByRole("radio", { name: "Galley Dark" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Constant" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Theme" }), {
+      target: { value: "catppuccin-mocha" },
+    });
     fireEvent.click(screen.getByRole("radio", { name: "Separate windows" }));
     fireEvent.change(screen.getByRole("combobox", { name: "Editor font size" }), {
       target: { value: "large" },
@@ -695,13 +1132,19 @@ describe("App", () => {
       await pendingSettings.promise;
     });
 
-    expect(screen.getByRole("radio", { name: "Galley Dark" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Constant" })).toBeChecked();
+    expect(screen.getByRole("combobox", { name: "Theme" })).toHaveValue(
+      "catppuccin-mocha",
+    );
     expect(screen.getByRole("radio", { name: "Separate windows" })).toBeChecked();
     expect(screen.getByRole("combobox", { name: "Editor font size" })).toHaveValue(
       "large",
     );
-    expect(localStorage.getItem("galley-pad.appearanceTheme")).toBe(
-      "galley-dark",
+    expect(JSON.parse(localStorage.getItem("galley-pad.themeSettings")!)).toEqual(
+      expect.objectContaining({
+        mode: "constant",
+        constantThemeId: "catppuccin-mocha",
+      }),
     );
     expect(localStorage.getItem("galley-pad.openMode")).toBe("windows");
     expect(localStorage.getItem("galley-pad.editorFontSize")).toBe("large");
@@ -765,9 +1208,7 @@ describe("App", () => {
       expect(openMarkdownFileWindowMock).toHaveBeenCalledWith("/tmp/window.md");
     });
     expect(readTextFileMock).not.toHaveBeenCalled();
-    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
-      "# Untitled\n\nStart writing Markdown.\n",
-    );
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("");
   });
 
   it("opens OS file events in a separate window when window mode is enabled", async () => {
@@ -1436,4 +1877,52 @@ function deferred<T>() {
   });
 
   return { promise, resolve };
+}
+
+function mockSystemColorScheme(initialDark: boolean) {
+  let matches = initialDark;
+  const listeners = new Set<(event: MediaQueryListEvent) => void>();
+  const media = "(prefers-color-scheme: dark)";
+
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: vi.fn((query: string) => ({
+      matches: query === media ? matches : false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(
+        (event: string, listener: (event: MediaQueryListEvent) => void) => {
+          if (query === media && event === "change") {
+            listeners.add(listener);
+          }
+        },
+      ),
+      removeEventListener: vi.fn(
+        (event: string, listener: (event: MediaQueryListEvent) => void) => {
+          if (query === media && event === "change") {
+            listeners.delete(listener);
+          }
+        },
+      ),
+      addListener: vi.fn((listener: (event: MediaQueryListEvent) => void) => {
+        if (query === media) {
+          listeners.add(listener);
+        }
+      }),
+      removeListener: vi.fn((listener: (event: MediaQueryListEvent) => void) => {
+        if (query === media) {
+          listeners.delete(listener);
+        }
+      }),
+      dispatchEvent: vi.fn(),
+    })),
+  });
+
+  return {
+    setDark(nextMatches: boolean) {
+      matches = nextMatches;
+      const event = { matches, media } as MediaQueryListEvent;
+      listeners.forEach((listener) => listener(event));
+    },
+  };
 }

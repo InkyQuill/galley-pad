@@ -31,128 +31,6 @@
   color: var(--app-text);
 }
 
-:root,
-.theme-galley-light,
-.theme-system {
-  --ge-color-text: #202522;
-  --ge-color-text-muted: #69726e;
-  --ge-color-bg: #fbfaf7;
-  --ge-color-surface: #f3f0e9;
-  --ge-color-surface-elevated: #f8f6f0;
-  --ge-color-border: #d8d3c8;
-  --ge-color-link: #2f6388;
-  --ge-color-link-hover: #214d6d;
-  --ge-color-code-fg: #202522;
-  --ge-color-code-bg: rgb(76 85 81 / 12%);
-  --ge-color-code-fence-bg: rgb(76 85 81 / 8%);
-  --ge-color-code-header-bg: rgb(76 85 81 / 8%);
-  --ge-color-token-keyword: #6f4aa8;
-  --ge-color-token-string: #39765e;
-  --ge-color-token-number: #9a5d28;
-  --ge-color-blockquote-border: rgb(76 85 81 / 34%);
-  --ge-color-blockquote-fg: #59635f;
-  --ge-color-divider: rgb(76 85 81 / 28%);
-  --ge-color-table-border: rgb(76 85 81 / 28%);
-  --ge-color-checkbox-accent: #2f6388;
-  --ge-color-selection: rgb(47 99 136 / 24%);
-  --ge-color-caret: currentColor;
-  --ge-color-focus-ring: var(--app-focus);
-  --ge-color-scrollbar-thumb: rgb(105 114 110 / 34%);
-  --ge-color-scrollbar-thumb-hover: rgb(105 114 110 / 54%);
-  --ge-shadow-editor: none;
-}
-
-.theme-galley-light {
-  color-scheme: light;
-}
-
-.theme-galley-dark {
-  color-scheme: dark;
-  --app-bg: #171a19;
-  --app-text: #f1ece3;
-  --app-panel: #111820;
-  --app-panel-muted: #1d211f;
-  --app-border: #343936;
-  --app-text-muted: #a8b0ac;
-  --app-tab-text: #a8b0ac;
-  --app-hover: #303633;
-  --app-focus: #60a5fa;
-  --app-error-bg: #321f1b;
-  --app-error-border: #63352d;
-  --app-error-text: #ffb8a8;
-  --app-dialog-shadow: 0 18px 54px rgb(0 0 0 / 32%);
-  --app-backdrop: rgb(0 0 0 / 36%);
-  --ge-color-text: #e8e3da;
-  --ge-color-text-muted: #a8b0ac;
-  --ge-color-bg: #111820;
-  --ge-color-surface: #171f29;
-  --ge-color-surface-elevated: #18212c;
-  --ge-color-border: #303a45;
-  --ge-color-link: #8ec7ff;
-  --ge-color-link-hover: #b8ddff;
-  --ge-color-code-fg: #e8e3da;
-  --ge-color-code-bg: rgb(168 176 172 / 17%);
-  --ge-color-code-fence-bg: rgb(0 0 0 / 20%);
-  --ge-color-code-header-bg: rgb(168 176 172 / 8%);
-  --ge-color-token-keyword: #c7b8ff;
-  --ge-color-token-string: #9fd8b6;
-  --ge-color-token-number: #f0c179;
-  --ge-color-blockquote-border: rgb(168 176 172 / 34%);
-  --ge-color-blockquote-fg: #b7bfbb;
-  --ge-color-divider: rgb(168 176 172 / 26%);
-  --ge-color-table-border: rgb(168 176 172 / 26%);
-  --ge-color-checkbox-accent: #8ec7ff;
-  --ge-color-selection: rgb(96 165 250 / 30%);
-  --ge-color-caret: currentColor;
-  --ge-color-focus-ring: var(--app-focus);
-  --ge-color-scrollbar-thumb: rgb(168 176 172 / 36%);
-  --ge-color-scrollbar-thumb-hover: rgb(168 176 172 / 56%);
-  --ge-shadow-editor: none;
-}
-
-@media (prefers-color-scheme: dark) {
-  .theme-system {
-    color-scheme: dark;
-    --app-bg: #171a19;
-    --app-text: #f1ece3;
-    --app-panel: #111820;
-    --app-panel-muted: #1d211f;
-    --app-border: #343936;
-    --app-text-muted: #a8b0ac;
-    --app-tab-text: #a8b0ac;
-    --app-hover: #303633;
-    --app-focus: #60a5fa;
-    --app-error-bg: #321f1b;
-    --app-error-border: #63352d;
-    --app-error-text: #ffb8a8;
-    --app-dialog-shadow: 0 18px 54px rgb(0 0 0 / 32%);
-    --app-backdrop: rgb(0 0 0 / 36%);
-    --ge-color-text: #e8e3da;
-    --ge-color-text-muted: #a8b0ac;
-    --ge-color-bg: #111820;
-    --ge-color-surface: #171f29;
-    --ge-color-surface-elevated: #18212c;
-    --ge-color-border: #303a45;
-    --ge-color-link: #8ec7ff;
-    --ge-color-link-hover: #b8ddff;
-    --ge-color-code-fg: #e8e3da;
-    --ge-color-code-bg: rgb(168 176 172 / 17%);
-    --ge-color-code-fence-bg: rgb(0 0 0 / 20%);
-    --ge-color-code-header-bg: rgb(168 176 172 / 8%);
-    --ge-color-token-keyword: #c7b8ff;
-    --ge-color-token-string: #9fd8b6;
-    --ge-color-token-number: #f0c179;
-    --ge-color-blockquote-border: rgb(168 176 172 / 34%);
-    --ge-color-blockquote-fg: #b7bfbb;
-    --ge-color-divider: rgb(168 176 172 / 26%);
-    --ge-color-table-border: rgb(168 176 172 / 26%);
-    --ge-color-checkbox-accent: #8ec7ff;
-    --ge-color-selection: rgb(96 165 250 / 30%);
-    --ge-color-scrollbar-thumb: rgb(168 176 172 / 36%);
-    --ge-color-scrollbar-thumb-hover: rgb(168 176 172 / 56%);
-  }
-}
-
 * {
   box-sizing: border-box;
 }
@@ -187,13 +65,33 @@ textarea {
 }
 
 .tabstrip {
+  position: relative;
+  z-index: 30;
   display: flex;
   align-items: stretch;
   min-width: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: visible;
   border-bottom: 1px solid var(--app-border);
   background: var(--app-panel-muted);
+}
+
+.tabstrip-tabs {
+  display: flex;
+  align-items: stretch;
+  flex: 1 1 auto;
+  min-width: 0;
+  scrollbar-width: none;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.tabstrip-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tabstrip-menu {
+  position: relative;
+  flex: 0 0 auto;
 }
 
 .tab {
@@ -227,6 +125,9 @@ textarea {
 
 .tab button[role="tab"]:focus-visible,
 .tab-close:focus-visible,
+.tabstrip-action:focus-visible,
+.tab-menu-select:focus-visible,
+.tab-menu-close:focus-visible,
 .command-error button:focus-visible,
 .settings-dialog button:focus-visible,
 .settings-dialog input:focus-visible,
@@ -239,6 +140,9 @@ textarea {
 }
 
 .tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 24px;
   width: 24px;
   height: 24px;
@@ -251,7 +155,113 @@ textarea {
   line-height: 1;
 }
 
+.tab-close svg {
+  display: block;
+}
+
 .tab-close:hover {
+  background: var(--app-hover);
+  color: var(--app-text);
+}
+
+.tabstrip-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 33px;
+  border: 0;
+  border-right: 1px solid var(--app-border);
+  background: transparent;
+  color: var(--app-text-muted);
+}
+
+.tabstrip-action svg {
+  display: block;
+}
+
+.tabstrip-action:hover {
+  background: var(--app-hover);
+  color: var(--app-text);
+}
+
+.tabstrip-action:disabled {
+  color: color-mix(in srgb, var(--app-text-muted) 42%, transparent);
+  cursor: default;
+}
+
+.tabstrip-action:disabled:hover {
+  background: transparent;
+}
+
+.tabstrip-tabs + .tabstrip-action {
+  border-left: 1px solid var(--app-border);
+}
+
+.tab-menu {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 4px);
+  left: 4px;
+  width: min(320px, calc(100vw - 16px));
+  max-height: min(360px, calc(100vh - 72px));
+  overflow: auto;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  background: var(--app-panel);
+  box-shadow: var(--app-dialog-shadow);
+}
+
+.tab-menu ul {
+  display: grid;
+  gap: 1px;
+  padding: 4px;
+  margin: 0;
+  list-style: none;
+}
+
+.tab-menu-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  align-items: center;
+  min-height: 32px;
+  color: var(--app-tab-text);
+}
+
+.tab-menu-item-active {
+  background: var(--app-panel-muted);
+  color: var(--app-text);
+}
+
+.tab-menu-select,
+.tab-menu-close {
+  height: 32px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.tab-menu-select {
+  min-width: 0;
+  padding: 0 8px;
+  overflow: hidden;
+  font-size: 12px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-menu-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  color: var(--app-text-muted);
+}
+
+.tab-menu-select:hover,
+.tab-menu-close:hover {
   background: var(--app-hover);
   color: var(--app-text);
 }
@@ -269,6 +279,9 @@ textarea {
 }
 
 .command-error button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 auto;
   width: 24px;
   height: 24px;
@@ -277,6 +290,10 @@ textarea {
   background: transparent;
   color: inherit;
   line-height: 1;
+}
+
+.command-error button svg {
+  display: block;
 }
 
 .command-error button:hover {
@@ -359,12 +376,19 @@ textarea {
 }
 
 .settings-dialog-header button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 28px;
   height: 28px;
   border: 0;
   border-radius: 4px;
   background: transparent;
   color: var(--app-text-muted);
+}
+
+.settings-dialog-header button svg {
+  display: block;
 }
 
 .settings-dialog fieldset {
@@ -403,6 +427,13 @@ textarea {
 
 .settings-field-label {
   font-size: 13px;
+}
+
+.settings-help {
+  margin: -4px 0 0 24px;
+  color: var(--app-text-muted);
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .settings-dialog select {

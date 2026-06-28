@@ -1,51 +1,23 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-  APPEARANCE_THEME_STORAGE_KEY,
   EDITOR_FONT_FAMILY_STORAGE_KEY,
   EDITOR_FONT_SIZE_STORAGE_KEY,
-  LEGACY_EDITOR_THEME_STORAGE_KEY,
   editorFontStyle,
-  getAppearanceTheme,
   loadAppearanceThemeId,
   loadEditorFontSettings,
   saveAppearanceThemeId,
   saveEditorFontSettings,
 } from "./appearance";
+import {
+  DEFAULT_THEME_SETTINGS,
+  LEGACY_APPEARANCE_THEME_STORAGE_KEY,
+  loadThemeSettings,
+  saveThemeSettings,
+} from "../themes/settings";
 
 describe("appearance settings", () => {
   beforeEach(() => {
     localStorage.clear();
-  });
-
-  it("defaults to the system theme", () => {
-    expect(loadAppearanceThemeId()).toBe("system");
-    expect(getAppearanceTheme(loadAppearanceThemeId())).toMatchObject({
-      editorScheme: "auto",
-      appClassName: "theme-system",
-    });
-  });
-
-  it("saves and loads an explicit theme preference", () => {
-    saveAppearanceThemeId("galley-dark");
-
-    expect(localStorage.getItem(APPEARANCE_THEME_STORAGE_KEY)).toBe(
-      "galley-dark",
-    );
-    expect(loadAppearanceThemeId()).toBe("galley-dark");
-  });
-
-  it("loads legacy light and dark editor theme preferences", () => {
-    localStorage.setItem(LEGACY_EDITOR_THEME_STORAGE_KEY, "dark");
-    expect(loadAppearanceThemeId()).toBe("galley-dark");
-
-    localStorage.setItem(LEGACY_EDITOR_THEME_STORAGE_KEY, "light");
-    expect(loadAppearanceThemeId()).toBe("galley-light");
-  });
-
-  it("ignores invalid stored theme values", () => {
-    localStorage.setItem(APPEARANCE_THEME_STORAGE_KEY, "sepia");
-
-    expect(loadAppearanceThemeId()).toBe("system");
   });
 
   it("saves, loads, and resolves editor font settings", () => {
@@ -70,6 +42,62 @@ describe("appearance settings", () => {
     expect(loadEditorFontSettings()).toEqual({
       family: "system",
       size: "medium",
+    });
+  });
+
+  it("projects non-Galley constant themes to the legacy Galley theme ids", () => {
+    saveThemeSettings({
+      ...DEFAULT_THEME_SETTINGS,
+      mode: "constant",
+      constantThemeId: "gruvbox-dark",
+    });
+    expect(loadAppearanceThemeId()).toBe("galley-dark");
+
+    saveThemeSettings({
+      ...DEFAULT_THEME_SETTINGS,
+      mode: "constant",
+      constantThemeId: "catppuccin-latte",
+    });
+    expect(loadAppearanceThemeId()).toBe("galley-light");
+  });
+
+  it("preserves custom light and dark theme selections when saving system mode", () => {
+    saveThemeSettings({
+      mode: "native",
+      constantThemeId: "gruvbox-dark",
+      lightThemeId: "catppuccin-latte",
+      darkThemeId: "tokyo-night",
+    });
+
+    saveAppearanceThemeId("system");
+
+    expect(localStorage.getItem(LEGACY_APPEARANCE_THEME_STORAGE_KEY)).toBe("system");
+    expect(loadThemeSettings()).toEqual({
+      mode: "system",
+      constantThemeId: "gruvbox-dark",
+      lightThemeId: "catppuccin-latte",
+      darkThemeId: "tokyo-night",
+    });
+  });
+
+  it("preserves custom light and dark theme selections when saving Galley constant mode", () => {
+    saveThemeSettings({
+      mode: "native",
+      constantThemeId: "gruvbox-dark",
+      lightThemeId: "catppuccin-latte",
+      darkThemeId: "tokyo-night",
+    });
+
+    saveAppearanceThemeId("galley-dark");
+
+    expect(localStorage.getItem(LEGACY_APPEARANCE_THEME_STORAGE_KEY)).toBe(
+      "galley-dark",
+    );
+    expect(loadThemeSettings()).toEqual({
+      mode: "constant",
+      constantThemeId: "galley-dark",
+      lightThemeId: "catppuccin-latte",
+      darkThemeId: "tokyo-night",
     });
   });
 });

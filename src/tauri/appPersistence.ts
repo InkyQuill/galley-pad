@@ -1,12 +1,30 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppearanceThemeId, EditorFontSettings } from "../settings/appearance";
 import type { OpenMode } from "../document/workspace";
+import type { AppearanceThemeId, EditorFontSettings } from "../settings/appearance";
+import type { ThemeSettings } from "../themes/settings";
+
+type JsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | JsonValue[]
+  | { [key: string]: JsonValue };
 
 export type PersistedAppSettings = {
-  appearanceTheme?: AppearanceThemeId;
-  editorFontFamily?: string;
-  editorFontSize?: EditorFontSettings["size"];
-  openMode?: OpenMode;
+  appearanceTheme?: AppearanceThemeId | null;
+  themeSettings?: ThemeSettings | null;
+  editorFontFamily?: string | null;
+  editorFontSize?: EditorFontSettings["size"] | null;
+  openMode?: OpenMode | null;
+};
+
+export type RawPersistedAppSettings = Omit<
+  PersistedAppSettings,
+  "appearanceTheme" | "themeSettings"
+> & {
+  appearanceTheme?: string | null;
+  themeSettings?: ThemeSettings | JsonValue | null;
 };
 
 export type PersistedSwapState = {
@@ -29,12 +47,12 @@ export type PersistedSwapState = {
   }>;
 };
 
-export function readAppSettings(): Promise<PersistedAppSettings | null> {
+export function readAppSettings(): Promise<RawPersistedAppSettings | null> {
   if (!isTauriRuntime()) {
     return Promise.resolve(null);
   }
 
-  return invoke<PersistedAppSettings | null>("read_app_settings");
+  return invoke<RawPersistedAppSettings | null>("read_app_settings");
 }
 
 export function writeAppSettings(settings: PersistedAppSettings): Promise<void> {

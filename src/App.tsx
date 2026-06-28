@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronLeft, ChevronRight, List, Plus, X } from "lucide-react";
 import { DocumentView } from "./components/DocumentView";
 import { FontPicker } from "./components/FontPicker";
 import {
@@ -27,10 +28,8 @@ import {
   type OpenMode,
 } from "./document/workspace";
 import {
-  APPEARANCE_THEMES,
   EDITOR_FONT_SIZES,
   getAppearanceTheme,
-  loadAppearanceThemeId,
   loadEditorFontSettings,
   saveAppearanceThemeId,
   saveEditorFontSettings,
@@ -61,12 +60,32 @@ import {
   type AppMenuCommand,
 } from "./tauri/menuEvents";
 import { openMarkdownFileWindow } from "./tauri/windows";
-import { listenForWindowCloseRequest } from "./tauri/windowClose";
+import {
+  closeCurrentWindow,
+  listenForWindowCloseRequest,
+} from "./tauri/windowClose";
 import {
   listSystemFonts,
   type SystemFont,
   type SystemFontCatalog,
 } from "./tauri/systemFonts";
+import {
+  BUILT_IN_THEMES,
+  DEFAULT_DARK_THEME_ID,
+  DEFAULT_LIGHT_THEME_ID,
+  isThemeId,
+  listThemesByScheme,
+} from "./themes/catalog";
+import { resolveTheme } from "./themes/resolve";
+import {
+  loadThemeSettings,
+  parseThemeSettings,
+  saveThemeSettings,
+  type ThemeMode,
+  type ThemeSettings,
+} from "./themes/settings";
+import { themeToCssVariables } from "./themes/style";
+import type { ThemeId, ThemeScheme } from "./themes/tokens";
 
 type CommandName = "Open" | "Save" | "Save As" | "Open File";
 type UnsavedChoice = "save" | "save-as" | "discard" | "cancel";
@@ -83,8 +102,11 @@ export default function App() {
   const [commandError, setCommandError] = useState<string | null>(null);
   const [toolbarVisible, setToolbarVisible] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [appearanceThemeId, setAppearanceThemeId] = useState<AppearanceThemeId>(
-    () => loadAppearanceThemeId(),
+  const [themeSettings, setThemeSettings] = useState<ThemeSettings>(() =>
+    loadNormalizedThemeSettings(),
+  );
+  const [systemScheme, setSystemScheme] = useState<ThemeScheme>(() =>
+    getSystemScheme(),
   );
   const [editorFontSettings, setEditorFontSettings] =
     useState<EditorFontSettings>(() => loadEditorFontSettings());
@@ -95,11 +117,16 @@ export default function App() {
   });
   const [fontsLoading, setFontsLoading] = useState(false);
   const [swapReady, setSwapReady] = useState(false);
+  const [tabMenuOpen, setTabMenuOpen] = useState(false);
+  const [tabScrollState, setTabScrollState] = useState({
+    canScrollLeft: false,
+    canScrollRight: false,
+  });
   const [unsavedPrompt, setUnsavedPrompt] = useState<UnsavedPromptState | null>(
     null,
   );
   const latestWorkspace = useRef(workspace);
-  const latestAppearanceThemeId = useRef(appearanceThemeId);
+  const latestThemeSettings = useRef(themeSettings);
   const latestEditorFontSettings = useRef(editorFontSettings);
   const swapWriteTimer = useRef<number | null>(null);
   const swapWriteChain = useRef<Promise<void>>(Promise.resolve());
@@ -114,6 +141,8 @@ export default function App() {
   const settingsDialogRef = useRef<HTMLDialogElement>(null);
   const unsavedDialogRef = useRef<HTMLDialogElement>(null);
   const settingsReturnFocusRef = useRef<HTMLElement | null>(null);
+  const tabMenuRef = useRef<HTMLDivElement>(null);
+  const tabScrollerRef = useRef<HTMLDivElement>(null);
   const externalOpenQueue = useRef(Promise.resolve());
   const dependencies = useMemo<LifecycleDependencies>(
     () =>
@@ -127,7 +156,7 @@ export default function App() {
   );
 
   latestWorkspace.current = workspace;
-  latestAppearanceThemeId.current = appearanceThemeId;
+  latestThemeSettings.current = themeSettings;
   latestEditorFontSettings.current = editorFontSettings;
   const activeTab = getActiveDocumentTab(workspace);
   const document = activeTab.session;
@@ -139,6 +168,69 @@ export default function App() {
   }, [document.dirty, document.displayName]);
 
   useEffect(() => {
+    if (!tabMenuOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        tabMenuRef.current &&
+        !tabMenuRef.current.contains(target)
+      ) {
+        setTabMenuOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setTabMenuOpen(false);
+      }
+    }
+
+    globalThis.document.addEventListener("pointerdown", handlePointerDown);
+    globalThis.document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      globalThis.document.removeEventListener("pointerdown", handlePointerDown);
+      globalThis.document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [tabMenuOpen]);
+
+  useEffect(() => {
+    const tabScroller = tabScrollerRef.current;
+    if (!tabScroller) {
+      return;
+    }
+    const scroller: HTMLDivElement = tabScroller;
+
+    function updateTabScrollState() {
+      const maxScrollLeft = scroller.scrollWidth - scroller.clientWidth;
+      setTabScrollState({
+        canScrollLeft: scroller.scrollLeft > 0,
+        canScrollRight: scroller.scrollLeft < maxScrollLeft - 1,
+      });
+    }
+
+    updateTabScrollState();
+    scroller.addEventListener("scroll", updateTabScrollState, { passive: true });
+    globalThis.addEventListener("resize", updateTabScrollState);
+
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(updateTabScrollState);
+    observer?.observe(scroller);
+
+    return () => {
+      scroller.removeEventListener("scroll", updateTabScrollState);
+      globalThis.removeEventListener("resize", updateTabScrollState);
+      observer?.disconnect();
+    };
+  }, [workspace.tabs.length]);
+
+  useEffect(() => {
     let disposed = false;
 
     void readAppSettings()
@@ -147,12 +239,33 @@ export default function App() {
           return;
         }
 
-        if (
-          !touchedPreferences.current.appearanceTheme &&
-          isAppearanceThemeId(settings.appearanceTheme)
-        ) {
-          setAppearanceThemeId(settings.appearanceTheme);
-          saveAppearanceThemeId(settings.appearanceTheme);
+        if (!touchedPreferences.current.appearanceTheme) {
+          const parsedThemeSettings = parseThemeSettings(settings.themeSettings);
+
+          if (parsedThemeSettings) {
+            const normalizedThemeSettings =
+              normalizeThemeSettings(parsedThemeSettings);
+            setThemeSettings(normalizedThemeSettings);
+            saveThemeSettings(normalizedThemeSettings);
+            if (!themeSettingsEqual(parsedThemeSettings, normalizedThemeSettings)) {
+              persistAppSettings(
+                repairedStartupThemeSettings(settings, normalizedThemeSettings),
+              );
+            }
+          } else if (isAppearanceThemeId(settings.appearanceTheme)) {
+            const migratedThemeSettings = normalizeThemeSettings(
+              themeSettingsFromAppearanceThemeId(
+                settings.appearanceTheme,
+                latestThemeSettings.current,
+              ),
+            );
+            setThemeSettings(migratedThemeSettings);
+            saveThemeSettings(migratedThemeSettings);
+            saveAppearanceThemeId(settings.appearanceTheme);
+            persistAppSettings(
+              repairedStartupThemeSettings(settings, migratedThemeSettings),
+            );
+          }
         }
 
         if (!touchedPreferences.current.editorFont) {
@@ -228,6 +341,26 @@ export default function App() {
 
     return () => {
       disposed = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia?.("(prefers-color-scheme: dark)");
+    if (!mediaQuery) {
+      return;
+    }
+
+    const updateSystemScheme = (event: MediaQueryListEvent) => {
+      setSystemScheme(event.matches ? "dark" : "light");
+    };
+
+    setSystemScheme(mediaQuery.matches ? "dark" : "light");
+    mediaQuery.addEventListener?.("change", updateSystemScheme);
+    mediaQuery.addListener?.(updateSystemScheme);
+
+    return () => {
+      mediaQuery.removeEventListener?.("change", updateSystemScheme);
+      mediaQuery.removeListener?.(updateSystemScheme);
     };
   }, []);
 
@@ -319,15 +452,7 @@ export default function App() {
     void listenForWindowCloseRequest(async () => {
       const canClose = await resolveAllDirtyTabsForClose();
       if (canClose) {
-        closingRef.current = true;
-        clearPendingSwapWrite();
-        await waitForSwapWrite();
-        await waitForAppSettingsWrite();
-        try {
-          await clearSwapState();
-        } catch (error: unknown) {
-          setCommandError(errorMessage(error));
-        }
+        await prepareApprovedClose();
       }
       return canClose;
     }).then((nextUnlisten) => {
@@ -624,6 +749,12 @@ export default function App() {
     }
 
     const confirmed = await resolveDirtyTabForClose(tabId);
+    if (confirmed && latestWorkspace.current.tabs.length === 1) {
+      await prepareApprovedClose();
+      closeCurrentWindow();
+      return;
+    }
+
     const result = closeDocumentTab(latestWorkspace.current, tabId, confirmed);
     if (result.closed) {
       setWorkspace(result.workspace);
@@ -637,11 +768,56 @@ export default function App() {
     setWorkspace((current) => setOpenMode(current, openMode));
   }
 
-  function updateAppearanceTheme(themeId: AppearanceThemeId) {
+  function updateThemeSettings(next: ThemeSettings) {
+    const normalized = normalizeThemeSettings(next);
     touchedPreferences.current.appearanceTheme = true;
-    saveAppearanceThemeId(themeId);
-    persistAppSettings({ appearanceTheme: themeId });
-    setAppearanceThemeId(themeId);
+    latestThemeSettings.current = normalized;
+    saveThemeSettings(normalized);
+    persistAppSettings({
+      appearanceTheme: appearanceThemeIdFromThemeSettings(normalized),
+      themeSettings: normalized,
+    });
+    setThemeSettings(normalized);
+  }
+
+  function updateThemeMode(mode: ThemeMode) {
+    updateThemeSettings({
+      ...latestThemeSettings.current,
+      mode,
+    });
+  }
+
+  function updateConstantTheme(themeId: ThemeId) {
+    if (!isThemeId(themeId)) {
+      return;
+    }
+
+    updateThemeSettings({
+      ...latestThemeSettings.current,
+      constantThemeId: themeId,
+    });
+  }
+
+  function updateLightTheme(themeId: ThemeId) {
+    if (!themeMatchesScheme(themeId, "light")) {
+      return;
+    }
+
+    updateThemeSettings({
+      ...latestThemeSettings.current,
+      lightThemeId: themeId,
+    });
+  }
+
+  function updateDarkTheme(themeId: ThemeId) {
+    if (!themeMatchesScheme(themeId, "dark")) {
+      return;
+    }
+
+    updateThemeSettings({
+      ...latestThemeSettings.current,
+      darkThemeId: themeId,
+    });
   }
 
   function updateEditorFontFamily(family: EditorFontFamily) {
@@ -786,10 +962,40 @@ export default function App() {
 
   function currentAppSettingsSnapshot(): PersistedAppSettings {
     return {
-      appearanceTheme: latestAppearanceThemeId.current,
+      appearanceTheme: appearanceThemeIdFromThemeSettings(
+        latestThemeSettings.current,
+      ),
+      themeSettings: latestThemeSettings.current,
       editorFontFamily: latestEditorFontSettings.current.family,
       editorFontSize: latestEditorFontSettings.current.size,
       openMode: latestWorkspace.current.openMode,
+    };
+  }
+
+  function repairedStartupThemeSettings(
+    settings: NonNullable<Awaited<ReturnType<typeof readAppSettings>>>,
+    themeSettings: ThemeSettings,
+  ): PersistedAppSettings {
+    const snapshot = currentAppSettingsSnapshot();
+
+    return {
+      ...snapshot,
+      appearanceTheme: appearanceThemeIdFromThemeSettings(themeSettings),
+      themeSettings,
+      editorFontFamily:
+        !touchedPreferences.current.editorFont &&
+        settings.editorFontFamily?.trim()
+          ? settings.editorFontFamily
+          : snapshot.editorFontFamily,
+      editorFontSize:
+        !touchedPreferences.current.editorFont &&
+        isEditorFontSize(settings.editorFontSize)
+          ? settings.editorFontSize
+          : snapshot.editorFontSize,
+      openMode:
+        !touchedPreferences.current.openMode && isOpenMode(settings.openMode)
+          ? settings.openMode
+          : snapshot.openMode,
     };
   }
 
@@ -810,50 +1016,172 @@ export default function App() {
     }
   }
 
+  async function prepareApprovedClose() {
+    closingRef.current = true;
+    clearPendingSwapWrite();
+    await waitForSwapWrite();
+    await waitForAppSettingsWrite();
+    try {
+      await clearSwapState();
+    } catch (error: unknown) {
+      setCommandError(errorMessage(error));
+    }
+  }
+
   function closeSettings() {
     setSettingsOpen(false);
   }
 
+  function selectDocumentTab(tabId: string) {
+    setWorkspace((current) => setActiveDocumentTab(current, tabId));
+    setTabMenuOpen(false);
+    window.requestAnimationFrame(() => {
+      globalThis.document
+        .getElementById(tabButtonId(tabId))
+        ?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    });
+  }
+
+  function scrollTabs(direction: "left" | "right") {
+    const scroller = tabScrollerRef.current;
+    if (!scroller) {
+      return;
+    }
+
+    scroller.scrollBy({
+      left: (direction === "left" ? -1 : 1) * Math.max(160, scroller.clientWidth * 0.75),
+      behavior: "smooth",
+    });
+  }
+
   const activeTabButtonId = tabButtonId(workspace.activeTabId);
   const activeTabPanelId = tabPanelId(workspace.activeTabId);
+  const resolvedTheme = resolveTheme(themeSettings, systemScheme);
+  const themeStyle = themeToCssVariables(resolvedTheme);
+  const editorScheme =
+    themeSettings.mode === "constant" ? resolvedTheme.scheme : "auto";
+  const appearanceThemeId = appearanceThemeIdFromThemeSettings(themeSettings);
   const appearanceTheme = getAppearanceTheme(appearanceThemeId);
+  const lightThemes = listThemesByScheme("light");
+  const darkThemes = listThemesByScheme("dark");
 
   return (
-    <div className={`app-shell ${appearanceTheme.appClassName}`}>
-      <nav className="tabstrip" role="tablist" aria-label="Open documents">
-        {workspace.tabs.map((tab) => (
-          <div
-            className={
-              tab.id === workspace.activeTabId ? "tab tab-active" : "tab"
-            }
-            key={tab.id}
+    <div
+      className={`app-shell ${appearanceTheme.appClassName}`}
+      data-testid="app-shell"
+      style={themeStyle}
+    >
+      <nav className="tabstrip" aria-label="Open documents">
+        <div className="tabstrip-menu" ref={tabMenuRef}>
+          <button
+            type="button"
+            className="tabstrip-action"
+            aria-label="Show tabs"
+            aria-haspopup="menu"
+            aria-expanded={tabMenuOpen}
+            onClick={() => setTabMenuOpen((open) => !open)}
           >
-            <button
-              type="button"
-              role="tab"
-              id={tabButtonId(tab.id)}
-              aria-controls={tabPanelId(tab.id)}
-              aria-label={tab.session.displayName}
-              aria-selected={tab.id === workspace.activeTabId}
-              onClick={() =>
-                setWorkspace((current) => setActiveDocumentTab(current, tab.id))
+            <List size={15} strokeWidth={2} aria-hidden="true" />
+          </button>
+          {tabMenuOpen ? (
+            <div className="tab-menu" role="menu" aria-label="Open tabs">
+              <ul>
+                {workspace.tabs.map((tab) => (
+                  <li
+                    className={
+                      tab.id === workspace.activeTabId
+                        ? "tab-menu-item tab-menu-item-active"
+                        : "tab-menu-item"
+                    }
+                    key={tab.id}
+                  >
+                    <button
+                      type="button"
+                      className="tab-menu-select"
+                      role="menuitem"
+                      onClick={() => selectDocumentTab(tab.id)}
+                    >
+                      <span>{tab.session.displayName}</span>
+                      {tab.session.dirty ? <span aria-hidden="true"> *</span> : null}
+                    </button>
+                    <button
+                      type="button"
+                      className="tab-menu-close"
+                      aria-label={`Close ${tab.session.displayName}`}
+                      onClick={() => void requestCloseTab(tab.id)}
+                    >
+                      <X size={14} strokeWidth={2} aria-hidden="true" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+        <div
+          className="tabstrip-tabs"
+          role="tablist"
+          aria-label="Open documents"
+          ref={tabScrollerRef}
+        >
+          {workspace.tabs.map((tab) => (
+            <div
+              className={
+                tab.id === workspace.activeTabId ? "tab tab-active" : "tab"
               }
+              key={tab.id}
             >
-              <span aria-hidden="true">{tab.session.displayName}</span>
-              {tab.session.dirty ? <span aria-hidden="true"> *</span> : null}
-            </button>
-            {tab.id === workspace.activeTabId ? (
               <button
                 type="button"
-                className="tab-close"
-                aria-label={`Close ${tab.session.displayName}`}
-                onClick={() => void requestCloseTab(tab.id)}
+                role="tab"
+                id={tabButtonId(tab.id)}
+                aria-controls={tabPanelId(tab.id)}
+                aria-label={tab.session.displayName}
+                aria-selected={tab.id === workspace.activeTabId}
+                onClick={() => selectDocumentTab(tab.id)}
               >
-                x
+                <span aria-hidden="true">{tab.session.displayName}</span>
+                {tab.session.dirty ? <span aria-hidden="true"> *</span> : null}
               </button>
-            ) : null}
-          </div>
-        ))}
+              {tab.id === workspace.activeTabId ? (
+                <button
+                  type="button"
+                  className="tab-close"
+                  aria-label={`Close ${tab.session.displayName}`}
+                  onClick={() => void requestCloseTab(tab.id)}
+                >
+                  <X size={14} strokeWidth={2} aria-hidden="true" />
+                </button>
+              ) : null}
+            </div>
+          ))}
+        </div>
+        <button
+          type="button"
+          className="tabstrip-action"
+          aria-label="Scroll tabs left"
+          disabled={!tabScrollState.canScrollLeft}
+          onClick={() => scrollTabs("left")}
+        >
+          <ChevronLeft size={15} strokeWidth={2} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="tabstrip-action"
+          aria-label="Scroll tabs right"
+          disabled={!tabScrollState.canScrollRight}
+          onClick={() => scrollTabs("right")}
+        >
+          <ChevronRight size={15} strokeWidth={2} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="tabstrip-action"
+          aria-label="New tab"
+          onClick={addNewTab}
+        >
+          <Plus size={15} strokeWidth={2} aria-hidden="true" />
+        </button>
       </nav>
 
       <div className="command-error-slot">
@@ -869,7 +1197,7 @@ export default function App() {
               aria-label="Dismiss file command error"
               onClick={() => setCommandError(null)}
             >
-              x
+              <X size={14} strokeWidth={2} aria-hidden="true" />
             </button>
           </div>
         ) : null}
@@ -880,7 +1208,8 @@ export default function App() {
         panelId={activeTabPanelId}
         labelledBy={activeTabButtonId}
         toolbarVisible={toolbarVisible}
-        theme={appearanceTheme}
+        editorScheme={editorScheme}
+        editorStyle={themeStyle}
         fontSettings={editorFontSettings}
         status={
           pendingCommand
@@ -924,7 +1253,7 @@ export default function App() {
               aria-label="Close settings"
               onClick={closeSettings}
             >
-              x
+              <X size={16} strokeWidth={2} aria-hidden="true" />
             </button>
           </header>
           <fieldset>
@@ -950,17 +1279,92 @@ export default function App() {
           </fieldset>
           <fieldset>
             <legend>Theme</legend>
-            {APPEARANCE_THEMES.map((theme) => (
-              <label key={theme.id}>
-                <input
-                  type="radio"
-                  name="appearance-theme"
-                  checked={appearanceThemeId === theme.id}
-                  onChange={() => updateAppearanceTheme(theme.id)}
-                />
-                {theme.label}
+            <label>
+              <input
+                type="radio"
+                name="theme-mode"
+                checked={themeSettings.mode === "constant"}
+                onChange={() => updateThemeMode("constant")}
+              />
+              Constant
+            </label>
+            {themeSettings.mode === "constant" ? (
+              <label className="settings-field">
+                Theme
+                <select
+                  aria-label="Theme"
+                  value={themeSettings.constantThemeId}
+                  onChange={(event) =>
+                    updateConstantTheme(event.currentTarget.value)
+                  }
+                >
+                  {BUILT_IN_THEMES.map((theme) => (
+                    <option key={theme.id} value={theme.id}>
+                      {themeOptionLabel(theme)}
+                    </option>
+                  ))}
+                </select>
               </label>
-            ))}
+            ) : null}
+            <label>
+              <input
+                type="radio"
+                name="theme-mode"
+                checked={themeSettings.mode === "system"}
+                onChange={() => updateThemeMode("system")}
+              />
+              System-based
+            </label>
+            {themeSettings.mode === "system" ? (
+              <>
+                <label className="settings-field">
+                  Light theme
+                  <select
+                    aria-label="Light theme"
+                    value={themeSettings.lightThemeId}
+                    onChange={(event) =>
+                      updateLightTheme(event.currentTarget.value)
+                    }
+                  >
+                    {lightThemes.map((theme) => (
+                      <option key={theme.id} value={theme.id}>
+                        {themeOptionLabel(theme)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="settings-field">
+                  Dark theme
+                  <select
+                    aria-label="Dark theme"
+                    value={themeSettings.darkThemeId}
+                    onChange={(event) =>
+                      updateDarkTheme(event.currentTarget.value)
+                    }
+                  >
+                    {darkThemes.map((theme) => (
+                      <option key={theme.id} value={theme.id}>
+                        {themeOptionLabel(theme)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </>
+            ) : null}
+            <label>
+              <input
+                type="radio"
+                name="theme-mode"
+                checked={themeSettings.mode === "native"}
+                disabled
+                readOnly
+                aria-describedby="native-theme-help"
+              />
+              Native
+            </label>
+            <p className="settings-help" id="native-theme-help">
+              Native shell colors are not available yet.
+            </p>
           </fieldset>
           <fieldset>
             <legend>Editor font</legend>
@@ -1185,12 +1589,93 @@ function isDocumentSession(value: unknown): value is DocumentSession {
   );
 }
 
+function getSystemScheme(): ThemeScheme {
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
+}
+
+function themeSettingsFromAppearanceThemeId(
+  themeId: AppearanceThemeId,
+  current: ThemeSettings,
+): ThemeSettings {
+  if (themeId === "system") {
+    return {
+      ...current,
+      mode: "system",
+    };
+  }
+
+  return {
+    ...current,
+    mode: "constant",
+    constantThemeId: themeId,
+  };
+}
+
+function appearanceThemeIdFromThemeSettings(
+  settings: ThemeSettings,
+): AppearanceThemeId {
+  if (settings.mode !== "constant") {
+    return "system";
+  }
+
+  if (
+    settings.constantThemeId === "galley-light" ||
+    settings.constantThemeId === "galley-dark"
+  ) {
+    return settings.constantThemeId;
+  }
+
+  return resolveTheme(settings, "light").scheme === "dark"
+    ? "galley-dark"
+    : "galley-light";
+}
+
 function isAppearanceThemeId(value: unknown): value is AppearanceThemeId {
   return (
     value === "system" ||
     value === "galley-light" ||
     value === "galley-dark"
   );
+}
+
+function loadNormalizedThemeSettings(): ThemeSettings {
+  const settings = loadThemeSettings();
+  const normalized = normalizeThemeSettings(settings);
+  if (!themeSettingsEqual(settings, normalized)) {
+    saveThemeSettings(normalized);
+  }
+  return normalized;
+}
+
+function normalizeThemeSettings(settings: ThemeSettings): ThemeSettings {
+  return {
+    ...settings,
+    lightThemeId: themeMatchesScheme(settings.lightThemeId, "light")
+      ? settings.lightThemeId
+      : DEFAULT_LIGHT_THEME_ID,
+    darkThemeId: themeMatchesScheme(settings.darkThemeId, "dark")
+      ? settings.darkThemeId
+      : DEFAULT_DARK_THEME_ID,
+  };
+}
+
+function themeSettingsEqual(left: ThemeSettings, right: ThemeSettings): boolean {
+  return (
+    left.mode === right.mode &&
+    left.constantThemeId === right.constantThemeId &&
+    left.lightThemeId === right.lightThemeId &&
+    left.darkThemeId === right.darkThemeId
+  );
+}
+
+function themeMatchesScheme(themeId: ThemeId, scheme: ThemeScheme): boolean {
+  return listThemesByScheme(scheme).some((theme) => theme.id === themeId);
+}
+
+function themeOptionLabel(theme: (typeof BUILT_IN_THEMES)[number]): string {
+  return `${theme.label} (${theme.family}, ${theme.scheme})`;
 }
 
 function isEditorFontSize(value: unknown): value is EditorFontSize {

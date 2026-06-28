@@ -22,6 +22,7 @@ export function GalleyEditor({
         }) => ReactNode;
         wordCount?: boolean;
         characterCount?: boolean;
+        logo?: boolean;
       };
   layout?: string;
   theme?: string;
@@ -72,6 +73,21 @@ export function GalleyEditor({
             wordCount: words,
             characterCount: value.length,
           })}
+          {footerOptions.logo === false ? null : (
+            <span
+              className="ge-footer-logo-wrap"
+              aria-label="Galley Editor v.0.10.0 by Inky Quill"
+            >
+              <svg
+                className="ge-footer-logo"
+                aria-hidden="true"
+                focusable="false"
+              />
+              <span className="ge-footer-tooltip" role="tooltip">
+                Galley Editor v.0.10.0 by Inky Quill
+              </span>
+            </span>
+          )}
         </div>
       ) : null}
     </div>
