@@ -9,6 +9,7 @@ import {
   createLifecycleDependencies,
   newDocument,
   openDocument,
+  openDocumentPath,
   saveDocument,
   saveDocumentAs,
 } from "./lifecycle";
@@ -59,6 +60,31 @@ describe("document lifecycle commands", () => {
 
     await expect(openDocument(deps)).resolves.toBeNull();
     expect(deps.readTextFile).not.toHaveBeenCalled();
+  });
+
+  it("opens a missing file path as an empty clean file-backed session", async () => {
+    const deps = createLifecycleDependencies({
+      pickOpenFile: vi.fn(),
+      pickSaveFile: vi.fn(),
+      readTextFile: vi.fn().mockResolvedValue({
+        path: "/tmp/new-draft.md",
+        content: "",
+        lineEnding: "lf",
+        lastModifiedAt: null,
+      }),
+      writeTextFile: vi.fn(),
+    });
+
+    await expect(openDocumentPath("/tmp/new-draft.md", deps)).resolves.toMatchObject({
+      id: "file:/tmp/new-draft.md",
+      path: "/tmp/new-draft.md",
+      displayName: "new-draft.md",
+      content: "",
+      savedContent: "",
+      dirty: false,
+      lastKnownModifiedAt: null,
+    });
+    expect(deps.readTextFile).toHaveBeenCalledWith("/tmp/new-draft.md");
   });
 
   it("saves a file-backed document when the file has not changed externally", async () => {
