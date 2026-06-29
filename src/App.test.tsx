@@ -1283,6 +1283,30 @@ describe("App", () => {
     expect(screen.getByText("Saved")).toBeInTheDocument();
   });
 
+  it("opens a pending missing Markdown file as an empty file-backed tab", async () => {
+    getPendingMarkdownFileOpensMock.mockResolvedValue(["/tmp/new-draft.md"]);
+    readTextFileMock.mockResolvedValue({
+      path: "/tmp/new-draft.md",
+      content: "",
+      lineEnding: "lf",
+      lastModifiedAt: null,
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(document.title).toBe("new-draft.md - Galley Pad");
+    });
+    expect(readTextFileMock).toHaveBeenCalledWith("/tmp/new-draft.md");
+    expect(screen.getAllByRole("tab")).toHaveLength(1);
+    expect(screen.getByRole("tab", { name: "new-draft.md" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("");
+    expect(screen.getByText("Saved")).toBeInTheDocument();
+  });
+
   it("opens every pending Markdown file provided by the OS at startup", async () => {
     getPendingMarkdownFileOpensMock.mockResolvedValue([
       "/tmp/one.md",

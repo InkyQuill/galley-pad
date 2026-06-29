@@ -3,16 +3,19 @@ use std::{
     collections::BTreeMap,
     ffi::{OsStr, OsString},
     fs,
-    io::Write,
+    io::{ErrorKind, Write},
     path::{Component, Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
         Mutex,
     },
-    time::{SystemTime, UNIX_EPOCH},
+    thread,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
+#[cfg(target_os = "macos")]
+use tauri::menu::AboutMetadata;
 #[cfg(desktop)]
-use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter, Manager};
 #[cfg(desktop)]
 use tauri::{WebviewUrl, WebviewWindowBuilder};
@@ -128,8 +131,18 @@ fn read_text_file(path: String) -> Result<FileReadResult, String> {
 }
 
 pub fn read_text_file_from_path(path: String) -> Result<FileReadResult, String> {
-    let content = fs::read_to_string(&path)
-        .map_err(|error| format!("Failed to read text file '{path}': {error}"))?;
+    let content = match fs::read_to_string(&path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            return Ok(FileReadResult {
+                path,
+                line_ending: LineEnding::Lf,
+                content: String::new(),
+                last_modified_at: None,
+            });
+        }
+        Err(error) => return Err(format!("Failed to read text file '{path}': {error}")),
+    };
     let last_modified_at = last_modified_at_ms(&path)?;
 
     Ok(FileReadResult {
@@ -434,6 +447,7 @@ fn normalize_path(path: &Path) -> PathBuf {
     normalized
 }
 
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "android", test))]
 fn markdown_paths_from_urls(urls: &[tauri::Url]) -> Vec<String> {
     urls.iter()
         .filter_map(|url| {
@@ -567,8 +581,11 @@ fn emit_app_menu_command<R: tauri::Runtime>(
 
 #[cfg(desktop)]
 fn build_native_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<Menu<R>> {
+    #[cfg(target_os = "macos")]
     let pkg_info = app.package_info();
+    #[cfg(target_os = "macos")]
     let config = app.config();
+    #[cfg(target_os = "macos")]
     let about_metadata = AboutMetadata {
         name: Some(pkg_info.name.clone()),
         version: Some(pkg_info.version.to_string()),
@@ -661,26 +678,178 @@ fn build_native_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Res
 
 #[cfg(target_os = "linux")]
 fn should_disable_dmabuf_renderer(
-    wayland_display_present: bool,
+    effective_wayland_backend: bool,
     dmabuf_renderer_configured: bool,
 ) -> bool {
-    wayland_display_present && !dmabuf_renderer_configured
+    effective_wayland_backend && !dmabuf_renderer_configured
 }
 
 #[cfg(target_os = "linux")]
-fn configure_linux_webkit_wayland_renderer() {
+fn should_supervise_linux_display_backend(
+    display_child: bool,
+    gdk_backend_configured: bool,
+    wayland_display_present: bool,
+    x11_display_present: bool,
+) -> bool {
+    !display_child && !gdk_backend_configured && wayland_display_present && x11_display_present
+}
+
+#[cfg(target_os = "linux")]
+fn should_disable_compositing_mode(
+    effective_wayland_backend: bool,
+    compositing_mode_configured: bool,
+) -> bool {
+    effective_wayland_backend && !compositing_mode_configured
+}
+
+#[cfg(target_os = "linux")]
+fn configure_linux_display_backend() {
+    let effective_wayland_backend = std::env::var_os("WAYLAND_DISPLAY").is_some()
+        && std::env::var_os("GDK_BACKEND").is_none_or(|backend| backend != "x11");
+
     if should_disable_dmabuf_renderer(
-        std::env::var_os("WAYLAND_DISPLAY").is_some(),
+        effective_wayland_backend,
         std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_some(),
     ) {
         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
     }
+
+    if should_disable_compositing_mode(
+        effective_wayland_backend,
+        std::env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").is_some(),
+    ) {
+        std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+    }
+}
+
+#[cfg(target_os = "linux")]
+enum LinuxDisplayChildStatus {
+    Started(std::process::ExitStatus),
+    ExitedBeforeReady(std::process::ExitStatus),
+}
+
+#[cfg(target_os = "linux")]
+fn run_with_linux_display_supervisor_if_needed() -> Option<i32> {
+    if !should_supervise_linux_display_backend(
+        std::env::var_os("GALLEY_PAD_DISPLAY_CHILD").is_some(),
+        std::env::var_os("GDK_BACKEND").is_some(),
+        std::env::var_os("WAYLAND_DISPLAY").is_some(),
+        std::env::var_os("DISPLAY").is_some(),
+    ) {
+        return None;
+    }
+
+    let wayland_status = match run_linux_display_child("wayland") {
+        Ok(status) => status,
+        Err(error) => {
+            eprintln!("{error}");
+            return None;
+        }
+    };
+    if !should_retry_x11_after_wayland_child(&wayland_status) {
+        return Some(exit_code_from_linux_display_child_status(wayland_status));
+    }
+
+    eprintln!("Galley Pad Wayland startup failed; retrying with X11.");
+    match run_linux_display_child("x11") {
+        Ok(status) => Some(exit_code_from_linux_display_child_status(status)),
+        Err(error) => {
+            eprintln!("{error}");
+            Some(exit_code_from_linux_display_child_status(wayland_status))
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn run_linux_display_child(gdk_backend: &str) -> Result<LinuxDisplayChildStatus, String> {
+    let executable = std::env::current_exe().map_err(|error| {
+        format!("Failed to resolve Galley Pad executable for display backend retry: {error}")
+    })?;
+    let ready_file = linux_display_ready_file(gdk_backend);
+    let _ = fs::remove_file(&ready_file);
+
+    let mut child = std::process::Command::new(executable)
+        .args(std::env::args_os().skip(1))
+        .env("GALLEY_PAD_DISPLAY_CHILD", "1")
+        .env("GDK_BACKEND", gdk_backend)
+        .env("GALLEY_PAD_DISPLAY_READY_FILE", &ready_file)
+        .spawn()
+        .map_err(|error| format!("Failed to launch Galley Pad with {gdk_backend}: {error}"))?;
+
+    loop {
+        if ready_file.exists() {
+            let status = child.wait().map_err(|error| {
+                format!("Failed waiting for Galley Pad with {gdk_backend}: {error}")
+            })?;
+            let _ = fs::remove_file(&ready_file);
+            return Ok(LinuxDisplayChildStatus::Started(status));
+        }
+
+        if let Some(status) = child
+            .try_wait()
+            .map_err(|error| format!("Failed checking Galley Pad with {gdk_backend}: {error}"))?
+        {
+            let _ = fs::remove_file(&ready_file);
+            return Ok(LinuxDisplayChildStatus::ExitedBeforeReady(status));
+        }
+
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_display_ready_file(gdk_backend: &str) -> PathBuf {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    std::env::temp_dir().join(format!(
+        "galley-pad-display-ready-{}-{gdk_backend}-{unique}",
+        std::process::id()
+    ))
+}
+
+#[cfg(target_os = "linux")]
+fn signal_linux_display_ready_once(signaled: &mut bool) {
+    if *signaled {
+        return;
+    }
+    *signaled = true;
+
+    if let Some(path) = std::env::var_os("GALLEY_PAD_DISPLAY_READY_FILE") {
+        if let Err(error) = fs::write(path, b"ready") {
+            eprintln!("Failed to signal Galley Pad display startup readiness: {error}");
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn should_retry_x11_after_wayland_child(status: &LinuxDisplayChildStatus) -> bool {
+    matches!(status, LinuxDisplayChildStatus::ExitedBeforeReady(exit_status) if !exit_status.success())
+}
+
+#[cfg(target_os = "linux")]
+fn exit_code_from_linux_display_child_status(status: LinuxDisplayChildStatus) -> i32 {
+    match status {
+        LinuxDisplayChildStatus::Started(exit_status)
+        | LinuxDisplayChildStatus::ExitedBeforeReady(exit_status) => exit_code(exit_status),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn exit_code(status: std::process::ExitStatus) -> i32 {
+    status.code().unwrap_or(1)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "linux")]
-    configure_linux_webkit_wayland_renderer();
+    if let Some(code) = run_with_linux_display_supervisor_if_needed() {
+        std::process::exit(code);
+    }
+
+    #[cfg(target_os = "linux")]
+    configure_linux_display_backend();
 
     let args = std::env::args_os().collect::<Vec<_>>();
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -720,7 +889,18 @@ pub fn run() {
         .build(tauri::generate_context!())
         .unwrap_or_else(|error| panic!("error while building {}: {error}", app_title()));
 
-    app.run(|app, event| {
+    #[cfg(target_os = "linux")]
+    let mut linux_display_ready_signaled = false;
+
+    app.run(move |app, event| {
+        #[cfg(target_os = "linux")]
+        let _ = &app;
+
+        #[cfg(target_os = "linux")]
+        if matches!(&event, tauri::RunEvent::Ready) {
+            signal_linux_display_ready_once(&mut linux_display_ready_signaled);
+        }
+
         #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
         if let tauri::RunEvent::Opened { urls } = event {
             for path in markdown_paths_from_urls(&urls) {
@@ -800,6 +980,49 @@ mod tests {
                 "/tmp/project/outside.markdown".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn markdown_paths_from_args_resolves_creation_paths_from_cli_cwd() {
+        let cwd = Path::new("/tmp/project/docs");
+        let args = vec![
+            "gpad".to_string(),
+            "new-file.md".to_string(),
+            "/tmp/absolute/new-file.markdown".to_string(),
+        ];
+
+        assert_eq!(
+            super::markdown_paths_from_args(&args, cwd),
+            vec![
+                "/tmp/project/docs/new-file.md".to_string(),
+                "/tmp/absolute/new-file.markdown".to_string()
+            ]
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_display_supervisor_retries_x11_only_before_startup_ready() {
+        use std::os::unix::process::ExitStatusExt;
+
+        let failed_before_ready = super::LinuxDisplayChildStatus::ExitedBeforeReady(
+            std::process::ExitStatus::from_raw(1 << 8),
+        );
+        let failed_after_ready =
+            super::LinuxDisplayChildStatus::Started(std::process::ExitStatus::from_raw(1 << 8));
+        let succeeded_before_ready = super::LinuxDisplayChildStatus::ExitedBeforeReady(
+            std::process::ExitStatus::from_raw(0),
+        );
+
+        assert!(super::should_retry_x11_after_wayland_child(
+            &failed_before_ready
+        ));
+        assert!(!super::should_retry_x11_after_wayland_child(
+            &failed_after_ready
+        ));
+        assert!(!super::should_retry_x11_after_wayland_child(
+            &succeeded_before_ready
+        ));
     }
 
     #[test]
@@ -1048,6 +1271,34 @@ mod tests {
         assert!(!super::should_disable_dmabuf_renderer(false, false));
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_mixed_wayland_x11_session_supervises_wayland_first_when_unconfigured() {
+        assert!(super::should_supervise_linux_display_backend(
+            false, false, true, true
+        ));
+        assert!(!super::should_supervise_linux_display_backend(
+            true, false, true, true
+        ));
+        assert!(!super::should_supervise_linux_display_backend(
+            false, true, true, true
+        ));
+        assert!(!super::should_supervise_linux_display_backend(
+            false, false, true, false
+        ));
+        assert!(!super::should_supervise_linux_display_backend(
+            false, false, false, true
+        ));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_wayland_disables_webkit_compositing_mode_when_unconfigured() {
+        assert!(super::should_disable_compositing_mode(true, false));
+        assert!(!super::should_disable_compositing_mode(true, true));
+        assert!(!super::should_disable_compositing_mode(false, false));
+    }
+
     #[test]
     fn read_text_file_returns_content_metadata_and_line_ending() {
         let directory = tempfile::tempdir().expect("create temp dir");
@@ -1061,6 +1312,21 @@ mod tests {
         assert_eq!(result.content, "# Draft\r\n\r\nBody\r\n");
         assert_eq!(result.line_ending, super::LineEnding::Crlf);
         assert!(result.last_modified_at.is_some());
+    }
+
+    #[test]
+    fn read_text_file_returns_empty_result_for_missing_file_path() {
+        let directory = tempfile::tempdir().expect("create temp dir");
+        let path = directory.path().join("new-draft.md");
+
+        let result = super::read_text_file_from_path(path.to_string_lossy().into_owned())
+            .expect("read missing text file as new file");
+
+        assert_eq!(result.path, path.to_string_lossy());
+        assert_eq!(result.content, "");
+        assert_eq!(result.line_ending, super::LineEnding::Lf);
+        assert_eq!(result.last_modified_at, None);
+        assert!(!path.exists());
     }
 
     #[test]
