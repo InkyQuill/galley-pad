@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { DocumentView } from "./DocumentView";
 
-vi.mock("@inky/galley-editor", () => import("../test/galley-editor.mock"));
+vi.mock("@inkyquill/galley-editor", () => import("../test/galley-editor.mock"));
 
 describe("DocumentView", () => {
   it("renders the markdown editor region", () => {

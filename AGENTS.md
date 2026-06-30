@@ -2,7 +2,7 @@
 
 ## Project
 
-Galley Pad is a Tauri desktop Markdown editor. The frontend is React + Vite, and the editor surface is wrapped through `@inky/galley-editor`.
+Galley Pad is a Tauri desktop Markdown editor. The frontend is React + Vite, and the editor surface is wrapped through `@inkyquill/galley-editor`.
 
 ## Important Paths
 
@@ -91,7 +91,7 @@ Every new feature needs both unit and integration coverage.
 - Use `cargo test --manifest-path src-tauri/Cargo.toml` for Rust tests.
 - Use `mise run verify` before committing.
 
-Do not mock `@inky/galley-editor` in Playwright tests. Unit tests may mock it when testing Galley Pad state management or wrappers.
+Do not mock `@inkyquill/galley-editor` in Playwright tests. Unit tests may mock it when testing Galley Pad state management or wrappers.
 
 ## Commit Convention
 
@@ -117,7 +117,7 @@ The repository uses `.githooks/` as `core.hooksPath`. The pre-commit hook runs `
 
 ## Galley Editor Boundary
 
-Treat `@inky/galley-editor` as an external editor package. Keep Galley Pad-specific integration code in `DocumentView`.
+Treat `@inkyquill/galley-editor` as an external editor package. Keep Galley Pad-specific integration code in `DocumentView`.
 
 If an implementation concern appears to be inside Galley Editor itself, do not work around it silently in this repo. If `../galley-editor` exists, record the concern in `../galley-editor/known-issues.md` with:
 

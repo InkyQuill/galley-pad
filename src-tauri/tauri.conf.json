@@ -42,6 +42,15 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "category": "Utility",
+    "linux": {
+      "deb": {
+        "desktopTemplate": "linux/galley-pad.desktop"
+      },
+      "rpm": {
+        "desktopTemplate": "linux/galley-pad.desktop"
+      }
+    },
     "fileAssociations": [
       {
         "ext": ["md", "markdown"],

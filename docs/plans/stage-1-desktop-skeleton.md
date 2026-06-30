@@ -11,20 +11,18 @@ This stage does not implement file open/save. It proves that the app can launch,
 ## Proposed Tasks
 
 1. Scaffold a Tauri + React + TypeScript project in the repo.
-2. Add `.npmrc` for the `@inky` registry.
-3. Install `@inky/galley-editor` and required peer dependencies.
-4. Import Galley Editor styles.
-5. Create the minimal app shell with a single editor surface.
-6. Add a quiet default layout with no sidebar, dashboard, or workspace UI.
-7. Add basic light/dark theme handling using system preference.
-8. Verify startup with the Tauri dev command.
+2. Install `@inkyquill/galley-editor` from npmjs and required peer dependencies.
+3. Import Galley Editor styles.
+4. Create the minimal app shell with a single editor surface.
+5. Add a quiet default layout with no sidebar, dashboard, or workspace UI.
+6. Add basic light/dark theme handling using system preference.
+7. Verify startup with the Tauri dev command.
 
 ## Initial File Targets
 
 Expected files after scaffold:
 
 - `package.json`
-- `.npmrc`
 - `src/App.tsx`
 - `src/main.tsx`
 - `src/styles.css`

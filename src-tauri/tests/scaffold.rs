@@ -121,6 +121,24 @@ fn tauri_config_declares_installable_markdown_file_associations() {
     );
 }
 
+#[test]
+fn linux_desktop_template_launches_packaged_gpad_with_markdown_files() {
+    let desktop_entry = include_str!("../linux/galley-pad.desktop");
+
+    assert!(
+        desktop_entry
+            .lines()
+            .any(|line| line == "Exec=/usr/bin/gpad %F"),
+        "KDE should launch the packaged gpad binary and pass selected files"
+    );
+    assert!(
+        desktop_entry
+            .lines()
+            .any(|line| line == "MimeType=text/markdown;text/x-markdown;"),
+        "desktop entry should cover common Markdown MIME types"
+    );
+}
+
 fn assert_cli_alias_is_safe(config: &Value) {
     let alias = config
         .get("mainBinaryName")
