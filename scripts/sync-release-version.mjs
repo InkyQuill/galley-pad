@@ -11,12 +11,6 @@ export async function syncReleaseVersion(version, root = PROJECT_ROOT) {
   await updateJsonFile(resolve(root, "package.json"), (json) => {
     json.version = version;
   });
-  await updateJsonFile(resolve(root, "package-lock.json"), (json) => {
-    json.version = version;
-    if (json.packages?.[""]) {
-      json.packages[""].version = version;
-    }
-  });
   await updateJsonFile(resolve(root, "src-tauri", "tauri.conf.json"), (json) => {
     json.version = version;
   });

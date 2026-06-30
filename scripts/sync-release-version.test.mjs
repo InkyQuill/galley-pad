@@ -14,23 +14,6 @@ test("syncReleaseVersion writes the release version to every build metadata file
       JSON.stringify({ name: "galley-pad", version: "0.1.0" }, null, 2),
     );
     await writeFile(
-      join(root, "package-lock.json"),
-      JSON.stringify(
-        {
-          name: "galley-pad",
-          version: "0.1.0",
-          packages: {
-            "": {
-              name: "galley-pad",
-              version: "0.1.0",
-            },
-          },
-        },
-        null,
-        2,
-      ),
-    );
-    await writeFile(
       join(root, "src-tauri", "tauri.conf.json"),
       JSON.stringify({ productName: "Galley Pad", version: "0.1.0" }, null, 2),
     );
@@ -46,9 +29,6 @@ test("syncReleaseVersion writes the release version to every build metadata file
     await syncReleaseVersion("1.2.3", root);
 
     assert.equal(JSON.parse(await readFile(join(root, "package.json"))).version, "1.2.3");
-    const packageLock = JSON.parse(await readFile(join(root, "package-lock.json")));
-    assert.equal(packageLock.version, "1.2.3");
-    assert.equal(packageLock.packages[""].version, "1.2.3");
     assert.equal(
       JSON.parse(await readFile(join(root, "src-tauri", "tauri.conf.json"))).version,
       "1.2.3",
@@ -84,10 +64,6 @@ test("syncReleaseVersion updates Cargo.lock package stanzas with CRLF endings", 
     await mkdir(join(root, "src-tauri"), { recursive: true });
     await writeFile(
       join(root, "package.json"),
-      JSON.stringify({ name: "galley-pad", version: "0.1.0" }, null, 2),
-    );
-    await writeFile(
-      join(root, "package-lock.json"),
       JSON.stringify({ name: "galley-pad", version: "0.1.0" }, null, 2),
     );
     await writeFile(

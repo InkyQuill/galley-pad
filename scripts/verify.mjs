@@ -20,11 +20,11 @@ function run(command, args, options = {}) {
   }
 }
 
-run("npm", ["audit", "--json"]);
-run("npm", ["run", "test:unit"]);
-run("npm", ["run", "test:scripts"]);
-run("npm", ["run", "test:integration"]);
-run("npm", ["run", "build"]);
+run("bun", ["audit", "--json"]);
+run("bun", ["run", "test:unit"]);
+run("bun", ["run", "test:scripts"]);
+run("bun", ["run", "test:integration"]);
+run("bun", ["run", "build"]);
 run("cargo", ["fmt", "--manifest-path", "src-tauri/Cargo.toml", "--", "--check"]);
 run("cargo", ["test", "--manifest-path", "src-tauri/Cargo.toml"]);
 run(process.execPath, ["scripts/tauri-info.mjs"], { shell: false });
@@ -33,7 +33,7 @@ run(
   [
     "scripts/with-timeout.mjs",
     "120",
-    "npm",
+    "bun",
     "run",
     "tauri",
     "--",
