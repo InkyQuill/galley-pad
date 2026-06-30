@@ -9,15 +9,23 @@ import { test } from "node:test";
 const execFileAsync = promisify(execFile);
 
 async function checkCommitMessage(message) {
+  return checkCommitMessageWith(
+    ["node", "scripts/check-conventional-commit.mjs"],
+    message,
+  );
+}
+
+async function checkCommitMessageHook(message) {
+  return checkCommitMessageWith([".githooks/commit-msg"], message);
+}
+
+async function checkCommitMessageWith(command, message) {
   const temp = await mkdtemp(join(tmpdir(), "galley-pad-commit-msg-"));
   const commitMessagePath = join(temp, "COMMIT_EDITMSG");
 
   try {
     await writeFile(commitMessagePath, message);
-    await execFileAsync("node", [
-      "scripts/check-conventional-commit.mjs",
-      commitMessagePath,
-    ]);
+    await execFileAsync(command[0], [...command.slice(1), commitMessagePath]);
     return { ok: true };
   } catch (error) {
     return {
@@ -45,6 +53,13 @@ test("accepts common Git-generated merge commit messages", async () => {
   ]) {
     assert.deepEqual(await checkCommitMessage(message), { ok: true });
   }
+});
+
+test("accepts merge commit messages through the commit-msg hook", async () => {
+  assert.deepEqual(
+    await checkCommitMessageHook("Merge branch 'main' into feature/file-tabs\n"),
+    { ok: true },
+  );
 });
 
 test("rejects non-conventional non-merge commit messages", async () => {

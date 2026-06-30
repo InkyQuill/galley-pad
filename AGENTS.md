@@ -106,7 +106,7 @@ type(scope): short description
 Allowed types are `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, and `revert`. The scope is optional, and breaking-change `!` is allowed before the colon.
 Git-generated merge commit messages such as `Merge branch 'main' into feature` are also accepted.
 
-The repository uses `.githooks/` as `core.hooksPath`. The pre-commit hook runs `bun run verify:fast`, and the commit-msg hook runs `bun run commitlint`.
+The repository uses `.githooks/` as `core.hooksPath`. The pre-commit hook runs `bun run verify:fast`, and the commit-msg hook runs `bun run commitlint -- "$1"` with the commit message file path forwarded as `"$1"`.
 
 ## Verification Notes
 
