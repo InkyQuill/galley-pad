@@ -51,10 +51,14 @@ test("semantic-release treats app change commit types as release-worthy", () => 
   const releaseRules = new Map(
     commitAnalyzer.releaseRules
       .filter((rule) => rule.type)
-      .map((rule) => [rule.type, rule.release]),
+      .map((rule) => [
+        rule.scope ? `${rule.type}:${rule.scope}` : rule.type,
+        rule.release,
+      ]),
   );
 
   assert.equal(releaseRules.get("feat"), "minor");
+  assert.equal(releaseRules.get("chore:release"), false);
   for (const type of [
     "fix",
     "perf",
@@ -83,6 +87,7 @@ test("GitHub release workflows dispatch and upload all installer families", asyn
   assert.match(semanticWorkflow, /actions: write/);
   assert.match(semanticWorkflow, /oven-sh\/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6/);
   assert.match(semanticWorkflow, /bun install --frozen-lockfile/);
+  assert.match(semanticWorkflow, /git config --unset core\.hooksPath \|\| true/);
   assert.match(semanticWorkflow, /bunx semantic-release/);
   assert.match(semanticWorkflow, /gh workflow run build-release\.yml --ref main -f tag=/);
   assert.match(semanticWorkflow, /gh run watch "\$RUN_ID" --exit-status --interval 30/);
