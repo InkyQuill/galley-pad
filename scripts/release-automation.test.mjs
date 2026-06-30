@@ -34,7 +34,7 @@ test("semantic-release updates changelog and every build-time version source", (
     [
       "CHANGELOG.md",
       "package.json",
-      "package-lock.json",
+      "bun.lock",
       "src-tauri/Cargo.toml",
       "src-tauri/Cargo.lock",
       "src-tauri/tauri.conf.json",
@@ -81,9 +81,14 @@ test("GitHub release workflows dispatch and upload all installer families", asyn
   );
 
   assert.match(semanticWorkflow, /actions: write/);
+  assert.match(semanticWorkflow, /oven-sh\/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6/);
+  assert.match(semanticWorkflow, /bun install --frozen-lockfile/);
+  assert.match(semanticWorkflow, /bunx semantic-release/);
   assert.match(semanticWorkflow, /gh workflow run build-release\.yml --ref main -f tag=/);
   assert.match(semanticWorkflow, /gh run watch "\$RUN_ID" --exit-status --interval 30/);
   assert.match(buildWorkflow, /workflow_dispatch:/);
+  assert.match(buildWorkflow, /oven-sh\/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6/);
+  assert.match(buildWorkflow, /bun install --frozen-lockfile/);
   assert.match(buildWorkflow, /Validate release tag/);
   assert.equal(
     buildWorkflow.match(/ref: refs\/tags\/\$\{\{ inputs\.tag \}\}/g)?.length,
@@ -99,9 +104,9 @@ test("GitHub release workflows dispatch and upload all installer families", asyn
   for (const workflow of [semanticWorkflow, buildWorkflow]) {
     assert.doesNotMatch(workflow, /uses: [^\n]+@(v\d+|stable|main|master)\b/);
   }
-  assert.match(buildWorkflow, /npm run tauri -- build --bundles deb,rpm,appimage/);
-  assert.match(buildWorkflow, /npm run tauri -- build --bundles nsis/);
-  assert.match(buildWorkflow, /npm run tauri -- build --bundles app,dmg/);
+  assert.match(buildWorkflow, /bun run tauri -- build --bundles deb,rpm,appimage/);
+  assert.match(buildWorkflow, /bun run tauri -- build --bundles nsis/);
+  assert.match(buildWorkflow, /bun run tauri -- build --bundles app,dmg/);
   assert.match(buildWorkflow, /scripts\/build-macos-pkg\.mjs --release --skip-app-build/);
 
   for (const glob of [

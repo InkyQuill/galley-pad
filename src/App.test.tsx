@@ -33,7 +33,7 @@ import {
   listenForWindowCloseRequest,
 } from "./tauri/windowClose";
 
-vi.mock("@inky/galley-editor", () => import("./test/galley-editor.mock"));
+vi.mock("@inkyquill/galley-editor", () => import("./test/galley-editor.mock"));
 vi.mock("./tauri/dialogs", () => ({
   pickOpenFile: vi.fn(),
   pickSaveFile: vi.fn(),

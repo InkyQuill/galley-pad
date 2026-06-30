@@ -39,16 +39,20 @@ jobs:
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
           node-version: 26
-          cache: npm
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.3.14
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
 
       - name: Install dependencies
-        run: npm ci
+        run: bun install --frozen-lockfile
 
       - name: Run frontend and script tests
-        run: npm test
+        run: bun run test
 
       - name: Check Rust formatting
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
@@ -57,7 +61,7 @@ jobs:
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
       - name: Build frontend
-        run: npm run build
+        run: bun run build
 
       - name: Create semantic release
         id: semantic
@@ -66,7 +70,7 @@ jobs:
         run: |
           trap 'git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"' EXIT
           git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          npx semantic-release
+          bunx semantic-release
 
       - name: Build release installers
         if: steps.semantic.outputs.released == 'true'

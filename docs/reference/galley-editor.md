@@ -1,30 +1,22 @@
 # Galley Editor Integration Notes
 
-Galley Pad uses `@inky/galley-editor` as its Markdown editor.
+Galley Pad uses `@inkyquill/galley-editor` as its Markdown editor.
 
-## Registry Configuration
+## Package Source
 
-Galley Editor is published from a public self-hosted GitLab package registry. Consumers do not need a token to install packages.
-
-Create or update `.npmrc`:
-
-```ini
-@inky:registry=https://git.inkyquill.net/api/v4/packages/npm/
-```
-
-Authenticated registry access is only needed for maintainers publishing new versions.
+Galley Editor is published to npmjs under the `@inkyquill` scope. Galley Pad does not need a project-level `.npmrc` for this package.
 
 ## Install
 
 ```bash
-npm install @inky/galley-editor
+bun add @inkyquill/galley-editor
 ```
 
 ## Import
 
 ```ts
-import { GalleyEditor } from "@inky/galley-editor";
-import "@inky/galley-editor/style.css";
+import { GalleyEditor } from "@inkyquill/galley-editor";
+import "@inkyquill/galley-editor/style.css";
 ```
 
 The stylesheet is optional but recommended. It provides the default Galley theme, CSS variables, toolbar/footer styling, image widgets, tables, code fences, and overlay-style scrollbars.

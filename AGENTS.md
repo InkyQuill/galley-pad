@@ -2,7 +2,7 @@
 
 ## Project
 
-Galley Pad is a Tauri desktop Markdown editor. The frontend is React + Vite, and the editor surface is wrapped through `@inky/galley-editor`.
+Galley Pad is a Tauri desktop Markdown editor. The frontend is React + Vite, and the editor surface is wrapped through `@inkyquill/galley-editor`.
 
 ## Important Paths
 
@@ -24,23 +24,23 @@ mise install
 Install JavaScript dependencies from the lockfile:
 
 ```bash
-npm ci
+bun install --frozen-lockfile
 ```
 
-For dependency updates during scaffold work, use `npm install` so `package.json` and `package-lock.json` stay in sync.
+For dependency updates during scaffold work, use `bun add` or `bun install` so `package.json` and `bun.lock` stay in sync.
 
 ## Common Commands
 
 Run frontend tests:
 
 ```bash
-npm test
+bun run test
 ```
 
 Build the frontend:
 
 ```bash
-npm run build
+bun run build
 ```
 
 Check Rust formatting:
@@ -52,25 +52,25 @@ cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 Print Tauri environment and config info:
 
 ```bash
-node scripts/with-timeout.mjs 30 npm run tauri -- info
+node scripts/with-timeout.mjs 30 bun run tauri -- info
 ```
 
 Build the Tauri debug app without bundling:
 
 ```bash
-node scripts/with-timeout.mjs 120 npm run tauri -- build --debug --no-bundle
+node scripts/with-timeout.mjs 120 bun run tauri -- build --debug --no-bundle
 ```
 
 Run the desktop app during development:
 
 ```bash
-npm run tauri:dev
+bun run tauri:dev
 ```
 
-Check npm advisories:
+Check Bun audit advisories:
 
 ```bash
-npm audit --json
+bun audit --json
 ```
 
 Run the full verification suite through mise:
@@ -86,12 +86,12 @@ Every new feature needs both unit and integration coverage.
 - Unit tests live next to the TypeScript module or inside Rust `#[cfg(test)]` modules.
 - Frontend integration tests live in `tests/integration/` and run through Playwright against Vite.
 - Rust integration tests live in `src-tauri/tests/`.
-- Use `npm run test:unit` for frontend unit tests.
-- Use `npm run test:integration` for browser integration tests.
+- Use `bun run test:unit` for frontend unit tests.
+- Use `bun run test:integration` for browser integration tests.
 - Use `cargo test --manifest-path src-tauri/Cargo.toml` for Rust tests.
 - Use `mise run verify` before committing.
 
-Do not mock `@inky/galley-editor` in Playwright tests. Unit tests may mock it when testing Galley Pad state management or wrappers.
+Do not mock `@inkyquill/galley-editor` in Playwright tests. Unit tests may mock it when testing Galley Pad state management or wrappers.
 
 ## Commit Convention
 
@@ -104,12 +104,13 @@ type(scope): short description
 ```
 
 Allowed types are `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, and `revert`. The scope is optional, and breaking-change `!` is allowed before the colon.
+Git-generated merge commit messages such as `Merge branch 'main' into feature` are also accepted.
 
-The repository uses `.githooks/` as `core.hooksPath`. The pre-commit hook runs `npm run verify`, and the commit-msg hook runs `npm run commitlint`.
+The repository uses `.githooks/` as `core.hooksPath`. The pre-commit hook runs `bun run verify:fast`, and the commit-msg hook runs `bun run commitlint -- "$1"` with the commit message file path forwarded as `"$1"`.
 
 ## Verification Notes
 
-- `npm run tauri -- info` checks Tauri/Rust package metadata over the network and can stall before printing output. Use the Node timeout wrapper above and continue with `tauri-build` if it exits with timeout code 124.
+- `bun run tauri -- info` checks Tauri/Rust package metadata over the network and can stall before printing output. Use the Node timeout wrapper above and continue with `tauri-build` if it exits with timeout code 124.
 - The app uses TypeScript 6, Vite 8, and Vitest 4. Keep `moduleResolution` set to `Bundler`.
 - CSS side-effect imports are declared in `src/vite-env.d.ts`.
 - Tauri CSP is enabled in `src-tauri/tauri.conf.json`; do not set `security.csp` back to `null`.
@@ -117,7 +118,7 @@ The repository uses `.githooks/` as `core.hooksPath`. The pre-commit hook runs `
 
 ## Galley Editor Boundary
 
-Treat `@inky/galley-editor` as an external editor package. Keep Galley Pad-specific integration code in `DocumentView`.
+Treat `@inkyquill/galley-editor` as an external editor package. Keep Galley Pad-specific integration code in `DocumentView`.
 
 If an implementation concern appears to be inside Galley Editor itself, do not work around it silently in this repo. If `../galley-editor` exists, record the concern in `../galley-editor/known-issues.md` with:
 

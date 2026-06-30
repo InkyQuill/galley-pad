@@ -47,7 +47,7 @@ module.exports = {
         assets: [
           "CHANGELOG.md",
           "package.json",
-          "package-lock.json",
+          "bun.lock",
           "src-tauri/Cargo.toml",
           "src-tauri/Cargo.lock",
           "src-tauri/tauri.conf.json",
