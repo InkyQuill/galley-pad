@@ -1,5 +1,12 @@
 import { spawnSync } from "node:child_process";
 
+/**
+ * Runs a command and exits the process if it fails.
+ * @param {string} command - The command to execute.
+ * @param {string[]} args - The command arguments.
+ * @param {{ shell?: boolean }} [options] - Execution options.
+ * @param {boolean} [options.shell] - Whether to run the command through a shell.
+ */
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     stdio: "inherit",

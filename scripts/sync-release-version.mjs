@@ -5,6 +5,11 @@ import semver from "semver";
 
 const PROJECT_ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
+/**
+ * Updates release version fields across the project.
+ * @param {string} version - The semantic version to apply.
+ * @param {string} [root=PROJECT_ROOT] - The project root directory.
+ */
 export async function syncReleaseVersion(version, root = PROJECT_ROOT) {
   assertSemver(version);
 

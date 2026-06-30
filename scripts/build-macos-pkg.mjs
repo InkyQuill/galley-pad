@@ -71,6 +71,12 @@ export function pkgbuildArgs({
   ];
 }
 
+/**
+ * Verifies that a built macOS app bundle exists and contains the expected CLI executable.
+ * @param {string} appPath - Path to the `.app` bundle.
+ * @param {string} [cliName=CLI_NAME] - Name of the embedded command-line executable.
+ * @throws {Error} If the app bundle or expected executable is missing or invalid.
+ */
 async function assertAppBundle(appPath, cliName = CLI_NAME) {
   const executable = join(appPath, "Contents", "MacOS", cliName);
   try {
@@ -161,6 +167,11 @@ function tauriArchName(arch) {
   return arch;
 }
 
+/**
+ * Builds and packages the macOS app into a `.pkg` installer.
+ * @param {string[]} argv - Command-line arguments.
+ * @throws {Error} When run on a non-macOS platform.
+ */
 async function main(argv) {
   if (process.platform !== "darwin") {
     throw new Error("macOS pkg packaging requires macOS.");
