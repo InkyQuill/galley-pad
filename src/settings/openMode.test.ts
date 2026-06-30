@@ -26,4 +26,21 @@ describe("open mode settings", () => {
 
     expect(loadOpenMode()).toBe("tabs");
   });
+
+  it("falls back to tabs when localStorage access throws", () => {
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      get() {
+        throw new Error("storage is unavailable");
+      },
+    });
+
+    try {
+      expect(loadOpenMode()).toBe("tabs");
+      expect(() => saveOpenMode("windows")).not.toThrow();
+    } finally {
+      Object.defineProperty(globalThis, "localStorage", descriptor!);
+    }
+  });
 });

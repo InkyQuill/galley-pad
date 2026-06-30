@@ -45,6 +45,30 @@ describe("appearance settings", () => {
     });
   });
 
+  it("falls back to defaults when localStorage access throws", () => {
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      get() {
+        throw new Error("storage is unavailable");
+      },
+    });
+
+    try {
+      expect(loadEditorFontSettings()).toEqual({
+        family: "system",
+        size: "medium",
+      });
+      expect(loadAppearanceThemeId()).toBe("system");
+      expect(() =>
+        saveEditorFontSettings({ family: "Fira Code", size: "large" }),
+      ).not.toThrow();
+      expect(() => saveAppearanceThemeId("galley-dark")).not.toThrow();
+    } finally {
+      Object.defineProperty(globalThis, "localStorage", descriptor!);
+    }
+  });
+
   it("projects non-Galley constant themes to the legacy Galley theme ids", () => {
     saveThemeSettings({
       ...DEFAULT_THEME_SETTINGS,

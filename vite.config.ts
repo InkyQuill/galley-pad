@@ -6,7 +6,18 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   clearScreen: false,
   resolve: {
-    dedupe: ["react", "react-dom", "react/jsx-runtime"],
+    dedupe: [
+      "react",
+      "react-dom",
+      "react/jsx-runtime",
+      "@codemirror/commands",
+      "@codemirror/lang-markdown",
+      "@codemirror/language",
+      "@codemirror/state",
+      "@codemirror/view",
+      "@lezer/highlight",
+      "@lezer/markdown",
+    ],
   },
   server: {
     host: "127.0.0.1",

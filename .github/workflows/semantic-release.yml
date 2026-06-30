@@ -104,3 +104,51 @@ jobs:
           fi
 
           gh run watch "$RUN_ID" --exit-status --interval 30
+
+      - name: Publish AUR package
+        if: steps.semantic.outputs.released == 'true'
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          AUR_SSH_KNOWN_HOSTS: ${{ vars.AUR_SSH_KNOWN_HOSTS }}
+        run: |
+          if [ -z "${AUR_SSH_PRIVATE_KEY:-}" ]; then
+            echo "AUR_SSH_PRIVATE_KEY is not configured; skipping AUR publish."
+            exit 0
+          fi
+
+          TAG="${{ steps.semantic.outputs.tag }}"
+          VERSION="${TAG#v}"
+          AUR_REPO="ssh://aur@aur.archlinux.org/galley-pad-bin.git"
+          WORK_DIR="$(mktemp -d)"
+          trap 'rm -rf "$WORK_DIR"' EXIT
+
+          node scripts/update-aur-package.mjs "$VERSION"
+
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > "$HOME/.ssh/aur"
+          chmod 600 "$HOME/.ssh/aur"
+          if [ -n "${AUR_SSH_KNOWN_HOSTS:-}" ]; then
+            printf '%s\n' "$AUR_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          else
+            ssh-keyscan aur.archlinux.org > "$HOME/.ssh/known_hosts"
+          fi
+
+          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/aur -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
+          if ! git clone "$AUR_REPO" "$WORK_DIR/aur"; then
+            mkdir -p "$WORK_DIR/aur"
+            cd "$WORK_DIR/aur"
+            git init
+            git remote add origin "$AUR_REPO"
+          fi
+          cp packaging/aur/galley-pad-bin/PKGBUILD packaging/aur/galley-pad-bin/.SRCINFO "$WORK_DIR/aur/"
+
+          cd "$WORK_DIR/aur"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add PKGBUILD .SRCINFO
+          if git diff --cached --quiet; then
+            echo "AUR package is already up to date."
+            exit 0
+          fi
+          git commit -m "Update to ${VERSION}"
+          git push origin HEAD:master

@@ -183,7 +183,11 @@ function isEditorFontSize(value: string | null): value is EditorFontSize {
 }
 
 function getStorage(): Storage | null {
-  return typeof globalThis.localStorage === "undefined"
-    ? null
-    : globalThis.localStorage;
+  try {
+    return typeof globalThis.localStorage === "undefined"
+      ? null
+      : globalThis.localStorage;
+  } catch {
+    return null;
+  }
 }

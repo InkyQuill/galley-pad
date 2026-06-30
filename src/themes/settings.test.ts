@@ -41,6 +41,23 @@ describe("theme settings", () => {
     expect(loadThemeSettings()).toEqual(settings);
   });
 
+  it("falls back to defaults when localStorage access throws", () => {
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      get() {
+        throw new Error("storage is unavailable");
+      },
+    });
+
+    try {
+      expect(loadThemeSettings()).toEqual(DEFAULT_THEME_SETTINGS);
+      expect(() => saveThemeSettings(DEFAULT_THEME_SETTINGS)).not.toThrow();
+    } finally {
+      Object.defineProperty(globalThis, "localStorage", descriptor!);
+    }
+  });
+
   it("migrates legacy explicit appearance theme values", () => {
     localStorage.setItem(LEGACY_APPEARANCE_THEME_STORAGE_KEY, "galley-dark");
 

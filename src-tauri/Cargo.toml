@@ -3,6 +3,7 @@ name = "galley-pad"
 version = "1.0.0"
 description = "A simple desktop Markdown editor powered by Galley."
 authors = ["Inky Quill"]
+license = "MIT"
 edition = "2021"
 
 [lib]

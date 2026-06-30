@@ -156,6 +156,10 @@ xdg-mime default net.inkyquill.GalleyPad.desktop text/x-markdown
 - [Stage plans](docs/plans/)
 - [Galley Editor integration notes](docs/reference/galley-editor.md)
 
+## License
+
+Galley Pad is released under the MIT License. See `LICENSE`.
+
 ## Releases
 
 Releases are automated with GitHub Actions and semantic-release.
