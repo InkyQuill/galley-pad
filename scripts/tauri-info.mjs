@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 
 const result = spawnSync(
   process.execPath,
-  ["scripts/with-timeout.mjs", "30", "npm", "run", "tauri", "--", "info"],
+  ["scripts/with-timeout.mjs", "30", "bun", "run", "tauri", "--", "info"],
   { stdio: "inherit" },
 );
 

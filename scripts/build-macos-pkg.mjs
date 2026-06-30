@@ -81,7 +81,7 @@ async function assertAppBundle(appPath, cliName = CLI_NAME) {
     }
   } catch {
     throw new Error(
-      `Expected a built macOS app with ${cliName} at ${executable}. Run npm run tauri -- build --bundles app for release, or npm run tauri -- build --debug --bundles app for debug first.`,
+      `Expected a built macOS app with ${cliName} at ${executable}. Run bun run tauri -- build --bundles app for release, or bun run tauri -- build --debug --bundles app for debug first.`,
     );
   }
 }
@@ -176,7 +176,7 @@ async function main(argv) {
       options.profile === "release"
         ? ["run", "tauri", "--", "build", "--bundles", "app"]
         : ["run", "tauri", "--", "build", "--debug", "--bundles", "app"];
-    await run("npm", buildArgs);
+    await run("bun", buildArgs);
   }
 
   await mkdir(dirname(outputPath), { recursive: true });

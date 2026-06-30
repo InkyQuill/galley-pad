@@ -9,7 +9,7 @@ Galley Editor is published to npmjs under the `@inkyquill` scope. Galley Pad doe
 ## Install
 
 ```bash
-npm install @inkyquill/galley-editor
+bun add @inkyquill/galley-editor
 ```
 
 ## Import
