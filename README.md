@@ -115,14 +115,14 @@ install -Dm755 src-tauri/target/release/gpad ~/.local/bin/gpad
 install -Dm644 src-tauri/icons/icon.png ~/.local/share/icons/hicolor/512x512/apps/gpad.png
 ```
 
-Create a desktop entry at `~/.local/share/applications/net.inkyquill.GalleyPad.desktop`:
+Create a desktop entry at `~/.local/share/applications/net.inkyquill.GalleyPad.desktop`. In the desktop file snippet, set `Exec` to the absolute path where `gpad` is installed:
 
 ```ini
 [Desktop Entry]
 Type=Application
 Name=Galley Pad
 Comment=A simple desktop Markdown editor powered by Galley.
-Exec=/home/inky/.local/bin/gpad %F
+Exec=/replace/with/absolute/path/to/gpad %F
 Icon=gpad
 Terminal=false
 StartupWMClass=gpad

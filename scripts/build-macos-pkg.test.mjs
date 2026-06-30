@@ -60,7 +60,17 @@ test("reports debug and release bundle build hints for missing app bundles", asy
       appPath: join(temp, "Missing.app"),
       rootDir: join(temp, "pkgroot"),
     }),
-    /build --bundles app for release, or bun run tauri -- build --debug --bundles app for debug/,
+    (error) => {
+      assert.match(
+        error.message,
+        /bun run tauri -- build --bundles app for release/,
+      );
+      assert.match(
+        error.message,
+        /bun run tauri -- build --debug --bundles app for debug/,
+      );
+      return true;
+    },
   );
 });
 

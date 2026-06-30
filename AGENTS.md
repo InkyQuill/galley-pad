@@ -67,7 +67,7 @@ Run the desktop app during development:
 bun run tauri:dev
 ```
 
-Check npm advisories:
+Check Bun audit advisories:
 
 ```bash
 bun audit --json
@@ -104,8 +104,9 @@ type(scope): short description
 ```
 
 Allowed types are `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, and `revert`. The scope is optional, and breaking-change `!` is allowed before the colon.
+Git-generated merge commit messages such as `Merge branch 'main' into feature` are also accepted.
 
-The repository uses `.githooks/` as `core.hooksPath`. The pre-commit hook runs `bun run verify`, and the commit-msg hook runs `bun run commitlint`.
+The repository uses `.githooks/` as `core.hooksPath`. The pre-commit hook runs `bun run verify:fast`, and the commit-msg hook runs `bun run commitlint`.
 
 ## Verification Notes
 
