@@ -449,6 +449,88 @@ describe("document lifecycle commands", () => {
     });
   });
 
+  it("clears acknowledged deletion when a recreated file has different content", async () => {
+    const path = "/tmp/recreated-different.md";
+    const session = createSessionFromFile({
+      path,
+      content: "Base\n",
+      lineEnding: "lf",
+      lastModifiedAt: 10,
+    });
+    const acknowledged = markExternalDeletionAcknowledged(session, path);
+    const external = {
+      path,
+      content: "External\n",
+      lineEnding: "lf" as const,
+      lastModifiedAt: 12,
+    };
+    const cleanUpdateDeps = createLifecycleDependencies({
+      pickOpenFile: vi.fn(),
+      pickSaveFile: vi.fn(),
+      readTextFile: vi.fn().mockResolvedValue(external),
+      writeTextFile: vi.fn(),
+    });
+
+    const cleanUpdate = await checkExternalFileChange(
+      acknowledged,
+      cleanUpdateDeps,
+    );
+
+    expect(cleanUpdate).toMatchObject({
+      kind: "clean-update",
+      session: {
+        acknowledgedDeletedPath: null,
+      },
+      external,
+    });
+    if (cleanUpdate.kind !== "clean-update") {
+      throw new Error(`Expected clean-update, received ${cleanUpdate.kind}`);
+    }
+
+    const deletedAgainDeps = createLifecycleDependencies({
+      pickOpenFile: vi.fn(),
+      pickSaveFile: vi.fn(),
+      readTextFile: vi.fn().mockResolvedValue({
+        path,
+        content: "",
+        lineEnding: "lf",
+        lastModifiedAt: null,
+      }),
+      writeTextFile: vi.fn(),
+    });
+
+    await expect(
+      checkExternalFileChange(cleanUpdate.session, deletedAgainDeps),
+    ).resolves.toEqual({
+      kind: "deleted",
+      session: cleanUpdate.session,
+      path,
+    });
+
+    const dirty = markExternalDeletionAcknowledged(
+      updateSessionContent(session, "Local\n"),
+      path,
+    );
+    const conflictDeps = createLifecycleDependencies({
+      pickOpenFile: vi.fn(),
+      pickSaveFile: vi.fn(),
+      readTextFile: vi.fn().mockResolvedValue(external),
+      writeTextFile: vi.fn(),
+    });
+
+    await expect(
+      checkExternalFileChange(dirty, conflictDeps),
+    ).resolves.toMatchObject({
+      kind: "conflict",
+      session: {
+        acknowledgedDeletedPath: null,
+      },
+      external,
+      base: "Base\n",
+      local: "Local\n",
+    });
+  });
+
   it("refreshes metadata when the content is unchanged", async () => {
     const session = createSessionFromFile({
       path: "/tmp/metadata.md",

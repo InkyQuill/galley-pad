@@ -151,12 +151,16 @@ export async function checkExternalFileChange(
   }
 
   if (!session.dirty) {
-    return { kind: "clean-update", session, external };
+    return {
+      kind: "clean-update",
+      session: { ...session, acknowledgedDeletedPath: null },
+      external,
+    };
   }
 
   return {
     kind: "conflict",
-    session,
+    session: { ...session, acknowledgedDeletedPath: null },
     external,
     base: session.savedContent,
     local: session.content,
