@@ -5,6 +5,7 @@ import {
   updateSessionContent,
 } from "./session";
 import {
+  checkExternalFileChange,
   ExternalFileChangedError,
   createLifecycleDependencies,
   newDocument,
@@ -185,5 +186,111 @@ describe("document lifecycle commands", () => {
       ExternalFileChangedError,
     );
     expect(deps.writeTextFile).not.toHaveBeenCalled();
+  });
+
+  it("reports same when a file-backed session has the same modified time", async () => {
+    const session = createSessionFromFile({
+      path: "/tmp/same.md",
+      content: "Base\n",
+      lineEnding: "lf",
+      lastModifiedAt: 10,
+    });
+    const deps = createLifecycleDependencies({
+      pickOpenFile: vi.fn(),
+      pickSaveFile: vi.fn(),
+      readTextFile: vi.fn().mockResolvedValue({
+        path: "/tmp/same.md",
+        content: "Base\n",
+        lineEnding: "lf",
+        lastModifiedAt: 10,
+      }),
+      writeTextFile: vi.fn(),
+    });
+
+    await expect(checkExternalFileChange(session, deps)).resolves.toEqual({
+      kind: "same",
+    });
+  });
+
+  it("reports changed with the incoming file when modified time differs", async () => {
+    const session = createSessionFromFile({
+      path: "/tmp/changed.md",
+      content: "Base\n",
+      lineEnding: "lf",
+      lastModifiedAt: 10,
+    });
+    const external = {
+      path: "/tmp/changed.md",
+      content: "External\n",
+      lineEnding: "lf" as const,
+      lastModifiedAt: 12,
+    };
+    const deps = createLifecycleDependencies({
+      pickOpenFile: vi.fn(),
+      pickSaveFile: vi.fn(),
+      readTextFile: vi.fn().mockResolvedValue(external),
+      writeTextFile: vi.fn(),
+    });
+
+    await expect(checkExternalFileChange(session, deps)).resolves.toEqual({
+      kind: "changed",
+      external,
+    });
+  });
+
+  it("reports deleted when a previously known file now has no modified time", async () => {
+    const session = createSessionFromFile({
+      path: "/tmp/deleted.md",
+      content: "Base\n",
+      lineEnding: "lf",
+      lastModifiedAt: 10,
+    });
+    const deps = createLifecycleDependencies({
+      pickOpenFile: vi.fn(),
+      pickSaveFile: vi.fn(),
+      readTextFile: vi.fn().mockResolvedValue({
+        path: "/tmp/deleted.md",
+        content: "",
+        lineEnding: "lf",
+        lastModifiedAt: null,
+      }),
+      writeTextFile: vi.fn(),
+    });
+
+    await expect(checkExternalFileChange(session, deps)).resolves.toEqual({
+      kind: "deleted",
+      path: "/tmp/deleted.md",
+    });
+  });
+
+  it("reports same without reading for untitled sessions and sessions without prior modified time", async () => {
+    const untitledDeps = createLifecycleDependencies({
+      pickOpenFile: vi.fn(),
+      pickSaveFile: vi.fn(),
+      readTextFile: vi.fn(),
+      writeTextFile: vi.fn(),
+    });
+    await expect(
+      checkExternalFileChange(createUntitledSession(), untitledDeps),
+    ).resolves.toEqual({ kind: "same" });
+    expect(untitledDeps.readTextFile).not.toHaveBeenCalled();
+
+    const noKnownMtime = createSessionFromFile({
+      path: "/tmp/no-known-mtime.md",
+      content: "Base\n",
+      lineEnding: "lf",
+      lastModifiedAt: null,
+    });
+    const noKnownMtimeDeps = createLifecycleDependencies({
+      pickOpenFile: vi.fn(),
+      pickSaveFile: vi.fn(),
+      readTextFile: vi.fn(),
+      writeTextFile: vi.fn(),
+    });
+
+    await expect(
+      checkExternalFileChange(noKnownMtime, noKnownMtimeDeps),
+    ).resolves.toEqual({ kind: "same" });
+    expect(noKnownMtimeDeps.readTextFile).not.toHaveBeenCalled();
   });
 });

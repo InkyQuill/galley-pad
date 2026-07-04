@@ -26,6 +26,11 @@ export type LifecycleDependencies = {
   ) => Promise<FileWriteResult>;
 };
 
+export type ExternalFileChangeResult =
+  | { kind: "same" }
+  | { kind: "changed"; external: FileReadResult }
+  | { kind: "deleted"; path: string };
+
 export function createLifecycleDependencies(
   dependencies: LifecycleDependencies,
 ): LifecycleDependencies {
@@ -83,6 +88,26 @@ export async function saveDocumentAs(
     session,
     await dependencies.writeTextFile(path, session.content),
   );
+}
+
+export async function checkExternalFileChange(
+  session: DocumentSession,
+  dependencies: LifecycleDependencies,
+): Promise<ExternalFileChangeResult> {
+  if (!session.path || session.lastKnownModifiedAt === null) {
+    return { kind: "same" };
+  }
+
+  const external = await dependencies.readTextFile(session.path);
+  if (external.lastModifiedAt === null) {
+    return { kind: "deleted", path: session.path };
+  }
+
+  if (external.lastModifiedAt === session.lastKnownModifiedAt) {
+    return { kind: "same" };
+  }
+
+  return { kind: "changed", external };
 }
 
 async function assertFileUnchanged(
