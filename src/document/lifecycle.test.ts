@@ -217,6 +217,49 @@ describe("document lifecycle commands", () => {
     expect(deps.writeTextFile).not.toHaveBeenCalled();
   });
 
+  it("saves to recreate a deleted file after the deletion is acknowledged", async () => {
+    const session = markExternalDeletionAcknowledged(
+      updateSessionContent(
+        createSessionFromFile({
+          path: "/tmp/acknowledged-deleted-save.md",
+          content: "# Original\n",
+          lineEnding: "lf",
+          lastModifiedAt: 10,
+        }),
+        "# Local edit\n",
+      ),
+      "/tmp/acknowledged-deleted-save.md",
+    );
+    const deps = createLifecycleDependencies({
+      pickOpenFile: vi.fn(),
+      pickSaveFile: vi.fn(),
+      readTextFile: vi.fn().mockResolvedValue({
+        path: "/tmp/acknowledged-deleted-save.md",
+        content: "",
+        lineEnding: "lf",
+        lastModifiedAt: null,
+      }),
+      writeTextFile: vi.fn().mockResolvedValue({
+        path: "/tmp/acknowledged-deleted-save.md",
+        lineEnding: "lf",
+        lastModifiedAt: 12,
+      }),
+    });
+
+    await expect(saveDocument(session, deps)).resolves.toMatchObject({
+      path: "/tmp/acknowledged-deleted-save.md",
+      savedContent: "# Local edit\n",
+      dirty: false,
+      lastKnownModifiedAt: 12,
+      acknowledgedDeletedPath: null,
+    });
+    expect(deps.pickSaveFile).not.toHaveBeenCalled();
+    expect(deps.writeTextFile).toHaveBeenCalledWith(
+      "/tmp/acknowledged-deleted-save.md",
+      "# Local edit\n",
+    );
+  });
+
   it("does not block Save when only file metadata changed on disk", async () => {
     const session = updateSessionContent(
       createSessionFromFile({

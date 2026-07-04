@@ -115,6 +115,11 @@ export async function checkExternalFileChange(
     return { kind: "deleted", session, path: session.path };
   }
 
+  const existingFileSession =
+    session.acknowledgedDeletedPath === null
+      ? session
+      : { ...session, acknowledgedDeletedPath: null };
+
   if (
     external.lastModifiedAt === session.lastKnownModifiedAt ||
     external.lastModifiedAt === session.lastNoticedExternalModifiedAt
@@ -126,11 +131,10 @@ export async function checkExternalFileChange(
     return {
       kind: "metadata-refresh",
       session: {
-        ...session,
+        ...existingFileSession,
         lineEnding: external.lineEnding,
         lastKnownModifiedAt: external.lastModifiedAt,
         lastNoticedExternalModifiedAt: null,
-        acknowledgedDeletedPath: null,
       },
     };
   }
@@ -139,13 +143,12 @@ export async function checkExternalFileChange(
     return {
       kind: "metadata-refresh",
       session: {
-        ...session,
+        ...existingFileSession,
         savedContent: external.content,
         dirty: false,
         lineEnding: external.lineEnding,
         lastKnownModifiedAt: external.lastModifiedAt,
         lastNoticedExternalModifiedAt: null,
-        acknowledgedDeletedPath: null,
       },
     };
   }
@@ -153,14 +156,14 @@ export async function checkExternalFileChange(
   if (!session.dirty) {
     return {
       kind: "clean-update",
-      session: { ...session, acknowledgedDeletedPath: null },
+      session: existingFileSession,
       external,
     };
   }
 
   return {
     kind: "conflict",
-    session: { ...session, acknowledgedDeletedPath: null },
+    session: existingFileSession,
     external,
     base: session.savedContent,
     local: session.content,
@@ -177,6 +180,10 @@ async function assertFileUnchanged(
 
   const current = await dependencies.readTextFile(session.path);
   if (current.lastModifiedAt === null) {
+    if (session.acknowledgedDeletedPath === session.path) {
+      return;
+    }
+
     throw new ExternalFileChangedError(session.path);
   }
 
