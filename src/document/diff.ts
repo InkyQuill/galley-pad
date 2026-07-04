@@ -30,6 +30,10 @@ export function createSideBySideLineDiff(
       rows.push({ kind: "changed", left: left[i], right: right[j] });
       i += 1;
       j += 1;
+    } else if (table[i + 1][j] === table[i][j + 1]) {
+      rows.push({ kind: "changed", left: left[i], right: right[j] });
+      i += 1;
+      j += 1;
     } else if (table[i + 1][j] >= table[i][j + 1]) {
       rows.push({ kind: "removed", left: left[i], right: "" });
       i += 1;

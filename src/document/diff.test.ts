@@ -10,6 +10,13 @@ describe("side-by-side line diff", () => {
     ]);
   });
 
+  it("classifies final-line substitutions as changed rows", () => {
+    expect(createSideBySideLineDiff("A\nOld\n", "A\nNew\n")).toEqual([
+      { kind: "unchanged", left: "A", right: "A" },
+      { kind: "changed", left: "Old", right: "New" },
+    ]);
+  });
+
   it("uses empty cells for pure additions", () => {
     expect(createSideBySideLineDiff("A\nB\n", "A\nC\nB\nD\n")).toEqual([
       { kind: "unchanged", left: "A", right: "A" },
