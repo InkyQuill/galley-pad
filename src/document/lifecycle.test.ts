@@ -217,6 +217,34 @@ describe("document lifecycle commands", () => {
     expect(deps.writeTextFile).not.toHaveBeenCalled();
   });
 
+  it("blocks Save when a file appears at a path with unknown modified time", async () => {
+    const session = updateSessionContent(
+      createSessionFromFile({
+        path: "/tmp/created-elsewhere.md",
+        content: "",
+        lineEnding: "lf",
+        lastModifiedAt: null,
+      }),
+      "# Local edit\n",
+    );
+    const deps = createLifecycleDependencies({
+      pickOpenFile: vi.fn(),
+      pickSaveFile: vi.fn(),
+      readTextFile: vi.fn().mockResolvedValue({
+        path: "/tmp/created-elsewhere.md",
+        content: "# External edit\n",
+        lineEnding: "lf",
+        lastModifiedAt: 12,
+      }),
+      writeTextFile: vi.fn(),
+    });
+
+    await expect(saveDocument(session, deps)).rejects.toBeInstanceOf(
+      ExternalFileChangedError,
+    );
+    expect(deps.writeTextFile).not.toHaveBeenCalled();
+  });
+
   it("saves to recreate a deleted file after the deletion is acknowledged", async () => {
     const session = markExternalDeletionAcknowledged(
       updateSessionContent(
@@ -415,6 +443,39 @@ describe("document lifecycle commands", () => {
 
     await expect(checkExternalFileChange(session, deps)).resolves.toEqual({
       kind: "unchanged",
+    });
+  });
+
+  it("clears acknowledged deletion when a recreated file has the same timestamp", async () => {
+    const path = "/tmp/recreated-same-time.md";
+    const session = markExternalDeletionAcknowledged(
+      createSessionFromFile({
+        path,
+        content: "Base\n",
+        lineEnding: "lf",
+        lastModifiedAt: 10,
+      }),
+      path,
+    );
+    const deps = createLifecycleDependencies({
+      pickOpenFile: vi.fn(),
+      pickSaveFile: vi.fn(),
+      readTextFile: vi.fn().mockResolvedValue({
+        path,
+        content: "Base\n",
+        lineEnding: "lf",
+        lastModifiedAt: 10,
+      }),
+      writeTextFile: vi.fn(),
+    });
+
+    await expect(checkExternalFileChange(session, deps)).resolves.toEqual({
+      kind: "metadata-refresh",
+      session: {
+        ...session,
+        lastNoticedExternalModifiedAt: null,
+        acknowledgedDeletedPath: null,
+      },
     });
   });
 
@@ -666,7 +727,7 @@ describe("document lifecycle commands", () => {
     });
   });
 
-  it("reports unchanged without reading for untitled sessions and sessions without prior modified time", async () => {
+  it("reports unchanged without reading for untitled sessions", async () => {
     const untitledDeps = createLifecycleDependencies({
       pickOpenFile: vi.fn(),
       pickSaveFile: vi.fn(),
@@ -677,7 +738,9 @@ describe("document lifecycle commands", () => {
       checkExternalFileChange(createUntitledSession(), untitledDeps),
     ).resolves.toEqual({ kind: "unchanged" });
     expect(untitledDeps.readTextFile).not.toHaveBeenCalled();
+  });
 
+  it("reads path-backed sessions without prior modified time", async () => {
     const noKnownMtime = createSessionFromFile({
       path: "/tmp/no-known-mtime.md",
       content: "Base\n",
@@ -687,13 +750,47 @@ describe("document lifecycle commands", () => {
     const noKnownMtimeDeps = createLifecycleDependencies({
       pickOpenFile: vi.fn(),
       pickSaveFile: vi.fn(),
-      readTextFile: vi.fn(),
+      readTextFile: vi.fn().mockResolvedValue({
+        path: "/tmp/no-known-mtime.md",
+        content: "",
+        lineEnding: "lf",
+        lastModifiedAt: null,
+      }),
       writeTextFile: vi.fn(),
     });
 
     await expect(
       checkExternalFileChange(noKnownMtime, noKnownMtimeDeps),
     ).resolves.toEqual({ kind: "unchanged" });
-    expect(noKnownMtimeDeps.readTextFile).not.toHaveBeenCalled();
+    expect(noKnownMtimeDeps.readTextFile).toHaveBeenCalledWith(
+      "/tmp/no-known-mtime.md",
+    );
+  });
+
+  it("reports external content at a path with unknown modified time", async () => {
+    const session = createSessionFromFile({
+      path: "/tmp/no-known-mtime-created.md",
+      content: "",
+      lineEnding: "lf",
+      lastModifiedAt: null,
+    });
+    const external = {
+      path: "/tmp/no-known-mtime-created.md",
+      content: "# External\n",
+      lineEnding: "lf" as const,
+      lastModifiedAt: 12,
+    };
+    const deps = createLifecycleDependencies({
+      pickOpenFile: vi.fn(),
+      pickSaveFile: vi.fn(),
+      readTextFile: vi.fn().mockResolvedValue(external),
+      writeTextFile: vi.fn(),
+    });
+
+    await expect(checkExternalFileChange(session, deps)).resolves.toEqual({
+      kind: "clean-update",
+      session,
+      external,
+    });
   });
 });

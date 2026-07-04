@@ -102,12 +102,16 @@ export async function checkExternalFileChange(
   session: DocumentSession,
   dependencies: LifecycleDependencies,
 ): Promise<ExternalFileChangeResult> {
-  if (!session.path || session.lastKnownModifiedAt === null) {
+  if (!session.path) {
     return { kind: "unchanged" };
   }
 
   const external = await dependencies.readTextFile(session.path);
   if (external.lastModifiedAt === null) {
+    if (session.lastKnownModifiedAt === null) {
+      return { kind: "unchanged" };
+    }
+
     if (session.acknowledgedDeletedPath === session.path) {
       return { kind: "unchanged" };
     }
@@ -121,8 +125,9 @@ export async function checkExternalFileChange(
       : { ...session, acknowledgedDeletedPath: null };
 
   if (
-    external.lastModifiedAt === session.lastKnownModifiedAt ||
-    external.lastModifiedAt === session.lastNoticedExternalModifiedAt
+    session.acknowledgedDeletedPath === null &&
+    (external.lastModifiedAt === session.lastKnownModifiedAt ||
+      external.lastModifiedAt === session.lastNoticedExternalModifiedAt)
   ) {
     return { kind: "unchanged" };
   }
@@ -174,7 +179,7 @@ async function assertFileUnchanged(
   session: DocumentSession,
   dependencies: LifecycleDependencies,
 ): Promise<void> {
-  if (!session.path || session.lastKnownModifiedAt === null) {
+  if (!session.path) {
     return;
   }
 
