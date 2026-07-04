@@ -1,4 +1,8 @@
 use serde::{Deserialize, Serialize};
+#[cfg(target_os = "linux")]
+use std::io::IsTerminal;
+#[cfg(target_os = "linux")]
+use std::os::unix::process::CommandExt;
 use std::{
     collections::BTreeMap,
     ffi::{OsStr, OsString},
@@ -29,6 +33,10 @@ const MENU_SAVE_AS_ID: &str = "app-menu-save-as";
 const MENU_TOGGLE_TOOLBAR_ID: &str = "app-menu-toggle-toolbar";
 const MENU_SETTINGS_ID: &str = "app-menu-settings";
 const MAIN_WINDOW_LABEL: &str = "main";
+#[cfg(target_os = "linux")]
+const LINUX_CLI_CHILD_ENV: &str = "GALLEY_PAD_CLI_CHILD";
+#[cfg(target_os = "linux")]
+const LINUX_DISPLAY_CHILD_ENV: &str = "GALLEY_PAD_DISPLAY_CHILD";
 static MARKDOWN_WINDOW_INDEX: AtomicU64 = AtomicU64::new(1);
 
 fn app_title() -> &'static str {
@@ -731,7 +739,7 @@ enum LinuxDisplayChildStatus {
 #[cfg(target_os = "linux")]
 fn run_with_linux_display_supervisor_if_needed() -> Option<i32> {
     if !should_supervise_linux_display_backend(
-        std::env::var_os("GALLEY_PAD_DISPLAY_CHILD").is_some(),
+        std::env::var_os(LINUX_DISPLAY_CHILD_ENV).is_some(),
         std::env::var_os("GDK_BACKEND").is_some(),
         std::env::var_os("WAYLAND_DISPLAY").is_some(),
         std::env::var_os("DISPLAY").is_some(),
@@ -770,7 +778,7 @@ fn run_linux_display_child(gdk_backend: &str) -> Result<LinuxDisplayChildStatus,
 
     let mut child = std::process::Command::new(executable)
         .args(std::env::args_os().skip(1))
-        .env("GALLEY_PAD_DISPLAY_CHILD", "1")
+        .env(LINUX_DISPLAY_CHILD_ENV, "1")
         .env("GDK_BACKEND", gdk_backend)
         .env("GALLEY_PAD_DISPLAY_READY_FILE", &ready_file)
         .spawn()
@@ -841,8 +849,55 @@ fn exit_code(status: std::process::ExitStatus) -> i32 {
     status.code().unwrap_or(1)
 }
 
+#[cfg(target_os = "linux")]
+fn should_spawn_linux_cli_child(
+    cli_child: bool,
+    display_child: bool,
+    stdin_terminal: bool,
+    stdout_terminal: bool,
+    stderr_terminal: bool,
+) -> bool {
+    !cli_child && !display_child && (stdin_terminal || stdout_terminal || stderr_terminal)
+}
+
+#[cfg(target_os = "linux")]
+fn run_with_linux_cli_launcher_if_needed() -> Result<bool, String> {
+    if !should_spawn_linux_cli_child(
+        std::env::var_os(LINUX_CLI_CHILD_ENV).is_some(),
+        std::env::var_os(LINUX_DISPLAY_CHILD_ENV).is_some(),
+        std::io::stdin().is_terminal(),
+        std::io::stdout().is_terminal(),
+        std::io::stderr().is_terminal(),
+    ) {
+        return Ok(false);
+    }
+
+    let executable = std::env::current_exe()
+        .map_err(|error| format!("Failed to resolve Galley Pad executable: {error}"))?;
+    let mut command = std::process::Command::new(executable);
+    command
+        .args(std::env::args_os().skip(1))
+        .env(LINUX_CLI_CHILD_ENV, "1")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .process_group(0);
+    command
+        .spawn()
+        .map_err(|error| format!("Failed to launch Galley Pad in the background: {error}"))?;
+
+    Ok(true)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    match run_with_linux_cli_launcher_if_needed() {
+        Ok(true) => return,
+        Ok(false) => {}
+        Err(error) => eprintln!("{error}"),
+    }
+
     #[cfg(target_os = "linux")]
     if let Some(code) = run_with_linux_display_supervisor_if_needed() {
         std::process::exit(code);
@@ -1022,6 +1077,29 @@ mod tests {
         ));
         assert!(!super::should_retry_x11_after_wayland_child(
             &succeeded_before_ready
+        ));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_cli_launcher_spawns_only_for_interactive_parent() {
+        assert!(super::should_spawn_linux_cli_child(
+            false, false, true, false, false
+        ));
+        assert!(super::should_spawn_linux_cli_child(
+            false, false, false, true, false
+        ));
+        assert!(super::should_spawn_linux_cli_child(
+            false, false, false, false, true
+        ));
+        assert!(!super::should_spawn_linux_cli_child(
+            true, false, true, true, true
+        ));
+        assert!(!super::should_spawn_linux_cli_child(
+            false, true, true, true, true
+        ));
+        assert!(!super::should_spawn_linux_cli_child(
+            false, false, false, false, false
         ));
     }
 
