@@ -148,12 +148,7 @@ export function normalizeExternalUpdateRuntimeState(
 ): DocumentSession {
   return {
     ...session,
-    externalUpdatePolicy:
-      session.externalUpdatePolicy === "follow" ? "follow" : "ask",
-    lastNoticedExternalModifiedAt:
-      typeof session.lastNoticedExternalModifiedAt === "number"
-        ? session.lastNoticedExternalModifiedAt
-        : null,
+    ...EXTERNAL_UPDATE_RUNTIME_DEFAULTS,
   };
 }
 

@@ -574,6 +574,53 @@ describe("App", () => {
     });
   });
 
+  it("resets external update runtime fields when restoring a swap session", async () => {
+    readSwapStateMock.mockResolvedValue({
+      version: 1,
+      savedAt: 1,
+      activeTabId: "swap-tab",
+      openMode: "tabs",
+      tabs: [
+        {
+          id: "swap-tab",
+          session: {
+            id: "swap-session",
+            path: "/tmp/swap.md",
+            displayName: "Swap.md",
+            content: "Dirty swap",
+            savedContent: "",
+            dirty: true,
+            lineEnding: "lf",
+            lastKnownModifiedAt: 10,
+            externalUpdatePolicy: "follow",
+            lastNoticedExternalModifiedAt: 12,
+          },
+        },
+      ],
+    } as unknown as Awaited<ReturnType<typeof readSwapState>>);
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
+        "Dirty swap",
+      );
+    });
+
+    fireEvent.change(screen.getByLabelText("Mock Galley Editor"), {
+      target: { value: "Still dirty" },
+    });
+
+    await waitFor(() => {
+      expect(writeSwapStateMock).toHaveBeenCalled();
+    });
+    const lastWrite =
+      writeSwapStateMock.mock.calls[writeSwapStateMock.mock.calls.length - 1];
+    const writtenSession = lastWrite?.[0].tabs[0]?.session;
+    expect(writtenSession).not.toHaveProperty("externalUpdatePolicy");
+    expect(writtenSession).not.toHaveProperty("lastNoticedExternalModifiedAt");
+  });
+
   it("lets an explicit launch file take precedence over restored swap state", async () => {
     window.history.replaceState(null, "", "/?open=/tmp/launch.md");
     readSwapStateMock.mockResolvedValue({

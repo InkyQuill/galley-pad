@@ -140,6 +140,8 @@ describe("document session model", () => {
       dirty: true,
       lineEnding: "lf" as const,
       lastKnownModifiedAt: 20,
+      externalUpdatePolicy: "follow" as const,
+      lastNoticedExternalModifiedAt: 21,
     };
 
     expect(normalizeExternalUpdateRuntimeState(legacySession)).toMatchObject({
