@@ -188,6 +188,44 @@ describe("document lifecycle commands", () => {
     expect(deps.writeTextFile).not.toHaveBeenCalled();
   });
 
+  it("does not block Save when only file metadata changed on disk", async () => {
+    const session = updateSessionContent(
+      createSessionFromFile({
+        path: "/tmp/metadata-save.md",
+        content: "# Draft\n",
+        lineEnding: "lf",
+        lastModifiedAt: 10,
+      }),
+      "# Draft\n\nUpdated.\n",
+    );
+    const deps = createLifecycleDependencies({
+      pickOpenFile: vi.fn(),
+      pickSaveFile: vi.fn(),
+      readTextFile: vi.fn().mockResolvedValue({
+        path: "/tmp/metadata-save.md",
+        content: "# Draft\n",
+        lineEnding: "crlf",
+        lastModifiedAt: 12,
+      }),
+      writeTextFile: vi.fn().mockResolvedValue({
+        path: "/tmp/metadata-save.md",
+        lineEnding: "lf",
+        lastModifiedAt: 13,
+      }),
+    });
+
+    await expect(saveDocument(session, deps)).resolves.toMatchObject({
+      path: "/tmp/metadata-save.md",
+      savedContent: "# Draft\n\nUpdated.\n",
+      dirty: false,
+      lastKnownModifiedAt: 13,
+    });
+    expect(deps.writeTextFile).toHaveBeenCalledWith(
+      "/tmp/metadata-save.md",
+      "# Draft\n\nUpdated.\n",
+    );
+  });
+
   it("reports unchanged when a file-backed session has the same modified time", async () => {
     const session = createSessionFromFile({
       path: "/tmp/same.md",
@@ -304,6 +342,41 @@ describe("document lifecycle commands", () => {
       kind: "metadata-refresh",
       session: {
         ...session,
+        lineEnding: "crlf",
+        lastKnownModifiedAt: 12,
+        lastNoticedExternalModifiedAt: null,
+      },
+    });
+  });
+
+  it("refreshes metadata when dirty local content already matches disk", async () => {
+    const session = updateSessionContent(
+      createSessionFromFile({
+        path: "/tmp/local-matches-disk.md",
+        content: "Base\n",
+        lineEnding: "lf",
+        lastModifiedAt: 10,
+      }),
+      "External\n",
+    );
+    const deps = createLifecycleDependencies({
+      pickOpenFile: vi.fn(),
+      pickSaveFile: vi.fn(),
+      readTextFile: vi.fn().mockResolvedValue({
+        path: "/tmp/local-matches-disk.md",
+        content: "External\n",
+        lineEnding: "crlf",
+        lastModifiedAt: 12,
+      }),
+      writeTextFile: vi.fn(),
+    });
+
+    await expect(checkExternalFileChange(session, deps)).resolves.toEqual({
+      kind: "metadata-refresh",
+      session: {
+        ...session,
+        savedContent: "External\n",
+        dirty: false,
         lineEnding: "crlf",
         lastKnownModifiedAt: 12,
         lastNoticedExternalModifiedAt: null,

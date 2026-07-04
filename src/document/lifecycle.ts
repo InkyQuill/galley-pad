@@ -130,6 +130,20 @@ export async function checkExternalFileChange(
     };
   }
 
+  if (external.content === session.content) {
+    return {
+      kind: "metadata-refresh",
+      session: {
+        ...session,
+        savedContent: external.content,
+        dirty: false,
+        lineEnding: external.lineEnding,
+        lastKnownModifiedAt: external.lastModifiedAt,
+        lastNoticedExternalModifiedAt: null,
+      },
+    };
+  }
+
   if (!session.dirty) {
     return { kind: "clean-update", session, external };
   }
@@ -152,6 +166,10 @@ async function assertFileUnchanged(
   }
 
   const current = await dependencies.readTextFile(session.path);
+  if (current.content === session.savedContent) {
+    return;
+  }
+
   if (
     current.lastModifiedAt !== null &&
     current.lastModifiedAt !== session.lastKnownModifiedAt
