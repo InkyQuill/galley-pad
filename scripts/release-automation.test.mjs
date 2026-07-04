@@ -115,6 +115,9 @@ test("GitHub release workflows dispatch and upload all installer families", asyn
     assert.doesNotMatch(workflow, /uses: [^\n]+@(v\d+|stable|main|master)\b/);
   }
   assert.match(buildWorkflow, /bun run tauri -- build --bundles deb,rpm,appimage/);
+  assert.match(buildWorkflow, /node scripts\/update-aur-package\.mjs "\$VERSION" --sha256 "\$DEB_SHA256"/);
+  assert.match(buildWorkflow, /archlinux:base-devel/);
+  assert.match(buildWorkflow, /makepkg --nodeps --noconfirm/);
   assert.match(buildWorkflow, /bun run tauri -- build --bundles nsis/);
   assert.match(buildWorkflow, /bun run tauri -- build --bundles app,dmg/);
   assert.match(buildWorkflow, /scripts\/build-macos-pkg\.mjs --release --skip-app-build/);
@@ -123,6 +126,7 @@ test("GitHub release workflows dispatch and upload all installer families", asyn
     "src-tauri/target/release/bundle/deb/*.deb",
     "src-tauri/target/release/bundle/rpm/*.rpm",
     "src-tauri/target/release/bundle/appimage/*.AppImage",
+    "packaging/aur/galley-pad-bin/*.pkg.tar.zst",
     "src-tauri/target/release/bundle/nsis/*.exe",
     "src-tauri/target/release/bundle/dmg/*.dmg",
     "src-tauri/target/release/bundle/pkg/*.pkg",

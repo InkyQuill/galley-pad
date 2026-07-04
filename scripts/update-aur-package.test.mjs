@@ -49,6 +49,13 @@ test("rejects invalid AUR release versions", async () => {
   );
 });
 
+test("rejects invalid AUR package checksums", async () => {
+  await assert.rejects(
+    () => updateAurPackage("1.2.3", { sha256: "not-a-checksum" }),
+    /Expected a SHA-256 checksum/,
+  );
+});
+
 test("allows AUR package updates when files are already current", async () => {
   const root = await mkdtemp(join(tmpdir(), "galley-pad-aur-current-"));
   try {

@@ -18,6 +18,9 @@ export async function updateAurPackage(
   { root = PROJECT_ROOT, sha256 } = {},
 ) {
   assertSemver(version);
+  if (sha256 !== undefined) {
+    assertSha256(sha256);
+  }
 
   const packageDir = resolve(root, "packaging", "aur", AUR_PACKAGE);
   const checksum = sha256 ?? await downloadSha256(releaseDebUrl(version));
@@ -123,8 +126,41 @@ function assertSemver(version) {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  updateAurPackage(process.argv[2]).catch((error) => {
+  main(process.argv.slice(2)).catch((error) => {
     console.error(error.message);
     process.exit(1);
   });
+}
+
+async function main(args) {
+  const { version, sha256 } = parseArgs(args);
+  await updateAurPackage(version, { sha256 });
+}
+
+function parseArgs(args) {
+  const [version, ...rest] = args;
+  const options = { version };
+
+  for (let index = 0; index < rest.length; index += 1) {
+    const arg = rest[index];
+    if (arg !== "--sha256") {
+      throw new Error(`Unknown argument: ${arg}`);
+    }
+
+    const value = rest[index + 1];
+    if (!value) {
+      throw new Error("Expected a checksum after --sha256");
+    }
+    assertSha256(value);
+    options.sha256 = value;
+    index += 1;
+  }
+
+  return options;
+}
+
+function assertSha256(value) {
+  if (!/^[0-9a-f]{64}$/.test(value)) {
+    throw new Error(`Expected a SHA-256 checksum, received: ${value}`);
+  }
 }

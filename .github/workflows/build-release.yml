@@ -73,6 +73,37 @@ jobs:
       - name: Build Linux bundles
         run: bun run tauri -- build --bundles deb,rpm,appimage
 
+      - name: Build Arch package
+        run: |
+          TAG="${{ inputs.tag }}"
+          VERSION="${TAG#v}"
+          DEB_PATH="$(find src-tauri/target/release/bundle/deb -type f -name '*.deb' -print -quit)"
+          if [ -z "$DEB_PATH" ]; then
+            echo "Could not find a built Debian bundle." >&2
+            exit 1
+          fi
+
+          DEB_SHA256="$(sha256sum "$DEB_PATH" | cut -d ' ' -f 1)"
+          node scripts/update-aur-package.mjs "$VERSION" --sha256 "$DEB_SHA256"
+          cp "$DEB_PATH" "packaging/aur/galley-pad-bin/galley-pad-bin-${VERSION}.deb"
+
+          HOST_UID="$(id -u)"
+          HOST_GID="$(id -g)"
+          docker run --rm \
+            -e HOST_UID="$HOST_UID" \
+            -e HOST_GID="$HOST_GID" \
+            -v "$PWD:/workspace" \
+            -w /workspace/packaging/aur/galley-pad-bin \
+            archlinux:base-devel \
+            bash -lc '
+              set -euo pipefail
+              if ! getent group "$HOST_GID" >/dev/null; then
+                groupadd -g "$HOST_GID" builder
+              fi
+              useradd -m -u "$HOST_UID" -g "$HOST_GID" builder
+              su builder -c "makepkg --nodeps --noconfirm"
+            '
+
       - name: Upload Linux installers
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
@@ -81,6 +112,7 @@ jobs:
             src-tauri/target/release/bundle/deb/*.deb
             src-tauri/target/release/bundle/rpm/*.rpm
             src-tauri/target/release/bundle/appimage/*.AppImage
+            packaging/aur/galley-pad-bin/*.pkg.tar.zst
 
   windows:
     name: Windows exe
