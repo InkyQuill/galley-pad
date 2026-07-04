@@ -70,6 +70,8 @@ Informational and warning states should appear inline as banners. A file changed
 
 Modal dialogs are reserved for critical decisions that block progress or risk data loss, such as closing a document with unsaved changes. Do not use a modal only to announce an external update.
 
+Diffs do not belong in banners. If an external update needs comparison, show the diff only after the user chooses to reconcile the update.
+
 ## 8. Defaults Matter More Than Settings
 
 Settings should exist only where they protect real preferences:
