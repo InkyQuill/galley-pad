@@ -27,9 +27,17 @@ export type LifecycleDependencies = {
 };
 
 export type ExternalFileChangeResult =
-  | { kind: "same" }
-  | { kind: "changed"; external: FileReadResult }
-  | { kind: "deleted"; path: string };
+  | { kind: "unchanged" }
+  | { kind: "deleted"; session: DocumentSession; path: string }
+  | { kind: "metadata-refresh"; session: DocumentSession }
+  | { kind: "clean-update"; session: DocumentSession; external: FileReadResult }
+  | {
+      kind: "conflict";
+      session: DocumentSession;
+      external: FileReadResult;
+      base: string;
+      local: string;
+    };
 
 export function createLifecycleDependencies(
   dependencies: LifecycleDependencies,
@@ -95,19 +103,44 @@ export async function checkExternalFileChange(
   dependencies: LifecycleDependencies,
 ): Promise<ExternalFileChangeResult> {
   if (!session.path || session.lastKnownModifiedAt === null) {
-    return { kind: "same" };
+    return { kind: "unchanged" };
   }
 
   const external = await dependencies.readTextFile(session.path);
   if (external.lastModifiedAt === null) {
-    return { kind: "deleted", path: session.path };
+    return { kind: "deleted", session, path: session.path };
   }
 
-  if (external.lastModifiedAt === session.lastKnownModifiedAt) {
-    return { kind: "same" };
+  if (
+    external.lastModifiedAt === session.lastKnownModifiedAt ||
+    external.lastModifiedAt === session.lastNoticedExternalModifiedAt
+  ) {
+    return { kind: "unchanged" };
   }
 
-  return { kind: "changed", external };
+  if (external.content === session.savedContent) {
+    return {
+      kind: "metadata-refresh",
+      session: {
+        ...session,
+        lineEnding: external.lineEnding,
+        lastKnownModifiedAt: external.lastModifiedAt,
+        lastNoticedExternalModifiedAt: null,
+      },
+    };
+  }
+
+  if (!session.dirty) {
+    return { kind: "clean-update", session, external };
+  }
+
+  return {
+    kind: "conflict",
+    session,
+    external,
+    base: session.savedContent,
+    local: session.content,
+  };
 }
 
 async function assertFileUnchanged(

@@ -188,7 +188,7 @@ describe("document lifecycle commands", () => {
     expect(deps.writeTextFile).not.toHaveBeenCalled();
   });
 
-  it("reports same when a file-backed session has the same modified time", async () => {
+  it("reports unchanged when a file-backed session has the same modified time", async () => {
     const session = createSessionFromFile({
       path: "/tmp/same.md",
       content: "Base\n",
@@ -208,11 +208,11 @@ describe("document lifecycle commands", () => {
     });
 
     await expect(checkExternalFileChange(session, deps)).resolves.toEqual({
-      kind: "same",
+      kind: "unchanged",
     });
   });
 
-  it("reports changed with the incoming file when modified time differs", async () => {
+  it("reports clean external updates and dirty conflicts", async () => {
     const session = createSessionFromFile({
       path: "/tmp/changed.md",
       content: "Base\n",
@@ -233,8 +233,25 @@ describe("document lifecycle commands", () => {
     });
 
     await expect(checkExternalFileChange(session, deps)).resolves.toEqual({
-      kind: "changed",
+      kind: "clean-update",
+      session,
       external,
+    });
+
+    const dirty = updateSessionContent(session, "Local\n");
+    const conflictDeps = createLifecycleDependencies({
+      pickOpenFile: vi.fn(),
+      pickSaveFile: vi.fn(),
+      readTextFile: vi.fn().mockResolvedValue(external),
+      writeTextFile: vi.fn(),
+    });
+
+    await expect(checkExternalFileChange(dirty, conflictDeps)).resolves.toEqual({
+      kind: "conflict",
+      session: dirty,
+      external,
+      base: "Base\n",
+      local: "Local\n",
     });
   });
 
@@ -259,11 +276,69 @@ describe("document lifecycle commands", () => {
 
     await expect(checkExternalFileChange(session, deps)).resolves.toEqual({
       kind: "deleted",
+      session,
       path: "/tmp/deleted.md",
     });
   });
 
-  it("reports same without reading for untitled sessions and sessions without prior modified time", async () => {
+  it("refreshes metadata when the content is unchanged", async () => {
+    const session = createSessionFromFile({
+      path: "/tmp/metadata.md",
+      content: "Base\n",
+      lineEnding: "lf",
+      lastModifiedAt: 10,
+    });
+    const deps = createLifecycleDependencies({
+      pickOpenFile: vi.fn(),
+      pickSaveFile: vi.fn(),
+      readTextFile: vi.fn().mockResolvedValue({
+        path: "/tmp/metadata.md",
+        content: "Base\n",
+        lineEnding: "crlf",
+        lastModifiedAt: 12,
+      }),
+      writeTextFile: vi.fn(),
+    });
+
+    await expect(checkExternalFileChange(session, deps)).resolves.toEqual({
+      kind: "metadata-refresh",
+      session: {
+        ...session,
+        lineEnding: "crlf",
+        lastKnownModifiedAt: 12,
+        lastNoticedExternalModifiedAt: null,
+      },
+    });
+  });
+
+  it("ignores a previously noticed external modified time", async () => {
+    const session = {
+      ...createSessionFromFile({
+        path: "/tmp/noticed.md",
+        content: "Base\n",
+        lineEnding: "lf",
+        lastModifiedAt: 10,
+      }),
+      lastNoticedExternalModifiedAt: 12,
+    };
+    const deps = createLifecycleDependencies({
+      pickOpenFile: vi.fn(),
+      pickSaveFile: vi.fn(),
+      readTextFile: vi.fn().mockResolvedValue({
+        path: "/tmp/noticed.md",
+        content: "External\n",
+        lineEnding: "lf",
+        lastModifiedAt: 12,
+      }),
+      writeTextFile: vi.fn(),
+    });
+
+    await expect(checkExternalFileChange(session, deps)).resolves.toEqual({
+      kind: "unchanged",
+    });
+  });
+
+  it("reports unchanged without reading for untitled sessions and sessions without prior modified time", async () => {
     const untitledDeps = createLifecycleDependencies({
       pickOpenFile: vi.fn(),
       pickSaveFile: vi.fn(),
@@ -272,7 +347,7 @@ describe("document lifecycle commands", () => {
     });
     await expect(
       checkExternalFileChange(createUntitledSession(), untitledDeps),
-    ).resolves.toEqual({ kind: "same" });
+    ).resolves.toEqual({ kind: "unchanged" });
     expect(untitledDeps.readTextFile).not.toHaveBeenCalled();
 
     const noKnownMtime = createSessionFromFile({
@@ -290,7 +365,7 @@ describe("document lifecycle commands", () => {
 
     await expect(
       checkExternalFileChange(noKnownMtime, noKnownMtimeDeps),
-    ).resolves.toEqual({ kind: "same" });
+    ).resolves.toEqual({ kind: "unchanged" });
     expect(noKnownMtimeDeps.readTextFile).not.toHaveBeenCalled();
   });
 });
