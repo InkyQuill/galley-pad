@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyExternalFileReload,
   createSessionFromFile,
   createUntitledSession,
+  markExternalUpdateNoticed,
   markSessionSaved,
+  resetExternalUpdateRuntimeState,
+  setExternalUpdatePolicy,
   updateSessionContent,
 } from "./session";
 
@@ -19,6 +23,8 @@ describe("document session model", () => {
       dirty: false,
       lineEnding: "lf",
       lastKnownModifiedAt: null,
+      externalUpdatePolicy: "ask",
+      lastNoticedExternalModifiedAt: null,
     });
   });
 
@@ -78,5 +84,41 @@ describe("document session model", () => {
     expect(saved.savedContent).toBe("Saved text\n");
     expect(saved.dirty).toBe(false);
     expect(saved.lastKnownModifiedAt).toBe(1_765_000_001_000);
+  });
+
+  it("manages external update runtime state", () => {
+    const session = createSessionFromFile({
+      path: "/tmp/notes.md",
+      content: "Original\n",
+      lineEnding: "lf",
+      lastModifiedAt: 10,
+    });
+
+    const following = setExternalUpdatePolicy(session, "follow");
+    expect(following.externalUpdatePolicy).toBe("follow");
+
+    const noticed = markExternalUpdateNoticed(following, 12);
+    expect(noticed.lastNoticedExternalModifiedAt).toBe(12);
+
+    const reloaded = applyExternalFileReload(noticed, {
+      path: "/tmp/notes.md",
+      content: "External\n",
+      lineEnding: "crlf",
+      lastModifiedAt: 14,
+    });
+    expect(reloaded).toMatchObject({
+      content: "External\n",
+      savedContent: "External\n",
+      dirty: false,
+      lineEnding: "crlf",
+      lastKnownModifiedAt: 14,
+      externalUpdatePolicy: "follow",
+      lastNoticedExternalModifiedAt: null,
+    });
+
+    expect(resetExternalUpdateRuntimeState(reloaded)).toMatchObject({
+      externalUpdatePolicy: "ask",
+      lastNoticedExternalModifiedAt: null,
+    });
   });
 });
