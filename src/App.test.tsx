@@ -1946,6 +1946,77 @@ describe("App", () => {
       screen.queryByRole("alert", { name: "File command error" }),
     ).not.toBeInTheDocument();
   });
+
+  it("shows a banner for a clean external update and opens reconcile on request", async () => {
+    window.history.replaceState(null, "", "/?open=/tmp/opened.md");
+    readTextFileMock
+      .mockResolvedValueOnce({
+        path: "/tmp/opened.md",
+        content: "Base\n",
+        lineEnding: "lf",
+        lastModifiedAt: 10,
+      })
+      .mockResolvedValueOnce({
+        path: "/tmp/opened.md",
+        content: "Incoming\n",
+        lineEnding: "lf",
+        lastModifiedAt: 12,
+      });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("Base\n");
+    });
+
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+
+    await screen.findByRole("status", { name: "External file update" });
+    expect(
+      screen.queryByRole("region", { name: "Disk changes" }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Reconcile" }));
+    expect(
+      await screen.findByRole("region", { name: "Incoming from disk" }),
+    ).toHaveTextContent("Incoming");
+    expect(
+      screen.getByRole("region", { name: "Current in Galley Pad" }),
+    ).toHaveTextContent("Base");
+  });
+
+  it("shows a banner when an open file was deleted on disk", async () => {
+    window.history.replaceState(null, "", "/?open=/tmp/deleted.md");
+    readTextFileMock
+      .mockResolvedValueOnce({
+        path: "/tmp/deleted.md",
+        content: "Loaded\n",
+        lineEnding: "lf",
+        lastModifiedAt: 10,
+      })
+      .mockResolvedValueOnce({
+        path: "/tmp/deleted.md",
+        content: "",
+        lineEnding: "lf",
+        lastModifiedAt: null,
+      });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("Loaded\n");
+    });
+
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+
+    expect(
+      await screen.findByRole("status", { name: "External file deletion" }),
+    ).toHaveTextContent("deleted.md was deleted on disk.");
+  });
 });
 
 function deferred<T>() {
