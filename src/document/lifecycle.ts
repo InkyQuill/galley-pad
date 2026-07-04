@@ -166,14 +166,15 @@ async function assertFileUnchanged(
   }
 
   const current = await dependencies.readTextFile(session.path);
+  if (current.lastModifiedAt === null) {
+    throw new ExternalFileChangedError(session.path);
+  }
+
   if (current.content === session.savedContent) {
     return;
   }
 
-  if (
-    current.lastModifiedAt !== null &&
-    current.lastModifiedAt !== session.lastKnownModifiedAt
-  ) {
+  if (current.lastModifiedAt !== session.lastKnownModifiedAt) {
     throw new ExternalFileChangedError(session.path);
   }
 }

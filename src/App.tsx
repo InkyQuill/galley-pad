@@ -153,6 +153,7 @@ export default function App() {
     useState<ExternalFileWarning | null>(null);
   const [reconcileOpen, setReconcileOpen] = useState(false);
   const latestWorkspace = useRef(workspace);
+  const latestExternalFileWarning = useRef(externalFileWarning);
   const latestThemeSettings = useRef(themeSettings);
   const latestEditorFontSettings = useRef(editorFontSettings);
   const swapWriteTimer = useRef<number | null>(null);
@@ -184,6 +185,7 @@ export default function App() {
   );
 
   latestWorkspace.current = workspace;
+  latestExternalFileWarning.current = externalFileWarning;
   latestThemeSettings.current = themeSettings;
   latestEditorFontSettings.current = editorFontSettings;
   const activeTab = getActiveDocumentTab(workspace);
@@ -726,6 +728,23 @@ export default function App() {
   ) {
     const tabId = latestWorkspace.current.activeTabId;
     const commandSnapshot = getActiveDocumentTab(latestWorkspace.current).session;
+    const warningSnapshot = latestExternalFileWarning.current;
+    const activeWarning =
+      warningSnapshot?.tabId === tabId ? warningSnapshot : null;
+
+    if (
+      name === "Save" &&
+      activeWarning &&
+      (activeWarning.kind === "deleted" || activeWarning.kind === "conflict")
+    ) {
+      setReconcileOpen(false);
+      setCommandError(
+        activeWarning.kind === "deleted"
+          ? "The file was deleted on disk. Use Save As to preserve your changes."
+          : "The file changed on disk. Reconcile, reload, or use Save As before saving.",
+      );
+      return;
+    }
 
     setCommandError(null);
     setPendingCommand(name);
@@ -738,6 +757,7 @@ export default function App() {
               applySaveResult(commandSnapshot, next, currentSession),
             ),
           );
+          clearExternalWarningForTab(tabId);
         }
       })
       .catch((error: unknown) => {
@@ -976,6 +996,7 @@ export default function App() {
         tabId,
         (currentSession) => applySaveResult(commandSnapshot, next, currentSession),
       );
+      clearExternalWarningForTab(tabId);
       return true;
     } catch (error: unknown) {
       setCommandError(errorMessage(error));
@@ -1010,34 +1031,53 @@ export default function App() {
     if (!tab?.session.path || closingRef.current) {
       return;
     }
+    const checkedSession = tab.session;
 
     try {
-      const result = await checkExternalFileChange(tab.session, dependencies);
+      const result = await checkExternalFileChange(checkedSession, dependencies);
       if (result.kind === "unchanged") {
         return;
       }
 
+      const currentTab = latestWorkspace.current.tabs.find(
+        (candidate) => candidate.id === tabId,
+      );
+      if (!currentTab) {
+        return;
+      }
+      const currentSession = currentTab.session;
+
       if (result.kind === "metadata-refresh") {
-        updateWorkspaceNow((current) =>
-          updateDocumentTab(current, tabId, () => result.session),
-        );
+        if (sessionStillMatches(currentSession, checkedSession)) {
+          updateWorkspaceNow((current) =>
+            updateDocumentTab(current, tabId, () => result.session),
+          );
+        }
         return;
       }
 
       if (
         result.kind === "clean-update" &&
-        result.session.externalUpdatePolicy === "follow"
+        result.session.externalUpdatePolicy === "follow" &&
+        sessionStillMatches(currentSession, checkedSession)
       ) {
-        applyExternalReloadToTab(tabId, result.external, "follow");
+        applyExternalReloadToTab(tabId, result.external, "follow", checkedSession);
+        return;
+      }
+
+      const warning = externalWarningForCurrentSession(
+        tabId,
+        checkedSession,
+        currentSession,
+        result,
+      );
+      if (!warning) {
         return;
       }
 
       if (latestWorkspace.current.activeTabId === tabId) {
-        setExternalFileWarning({
-          kind: result.kind,
-          tabId,
-          result,
-        } as ExternalFileWarning);
+        latestExternalFileWarning.current = warning;
+        setExternalFileWarning(warning);
         setReconcileOpen(false);
       }
     } catch (error: unknown) {
@@ -1052,9 +1092,16 @@ export default function App() {
       { kind: "clean-update" | "conflict" }
     >["external"],
     policy?: "follow",
+    expectedSession?: DocumentSession,
   ) {
     updateWorkspaceNow((current) =>
       updateDocumentTab(current, tabId, (session) => {
+        if (session.path !== external.path) {
+          return session;
+        }
+        if (expectedSession && !sessionStillMatches(session, expectedSession)) {
+          return session;
+        }
         const reloaded = applyExternalFileReload(session, external);
         return policy ? setExternalUpdatePolicy(reloaded, policy) : reloaded;
       }),
@@ -1072,6 +1119,9 @@ export default function App() {
   }
 
   function clearExternalWarningForTab(tabId: string) {
+    if (latestExternalFileWarning.current?.tabId === tabId) {
+      latestExternalFileWarning.current = null;
+    }
     setExternalFileWarning((current) =>
       current?.tabId === tabId ? null : current,
     );
@@ -1109,6 +1159,68 @@ export default function App() {
       .finally(() => {
         setPendingCommand(null);
       });
+  }
+
+  function externalWarningForCurrentSession(
+    tabId: string,
+    checkedSession: DocumentSession,
+    currentSession: DocumentSession,
+    result: Exclude<
+      ExternalFileChangeResult,
+      { kind: "unchanged" | "metadata-refresh" }
+    >,
+  ): ExternalFileWarning | null {
+    if (result.kind === "deleted") {
+      if (currentSession.path !== checkedSession.path || !currentSession.path) {
+        return null;
+      }
+
+      return {
+        kind: "deleted",
+        tabId,
+        result: {
+          kind: "deleted",
+          session: currentSession,
+          path: currentSession.path,
+        },
+      };
+    }
+
+    if (currentSession.path !== result.external.path) {
+      return null;
+    }
+
+    if (sessionStillMatches(currentSession, checkedSession)) {
+      if (result.kind === "clean-update") {
+        return {
+          kind: "clean-update",
+          tabId,
+          result,
+        };
+      }
+
+      return {
+        kind: "conflict",
+        tabId,
+        result,
+      };
+    }
+
+    if (!currentSession.dirty) {
+      return null;
+    }
+
+    return {
+      kind: "conflict",
+      tabId,
+      result: {
+        kind: "conflict",
+        session: currentSession,
+        external: result.external,
+        base: currentSession.savedContent,
+        local: currentSession.content,
+      },
+    };
   }
 
   function persistAppSettings(settings: Partial<PersistedAppSettings>) {
@@ -1214,6 +1326,9 @@ export default function App() {
 
   function selectDocumentTab(tabId: string) {
     setWorkspace((current) => setActiveDocumentTab(current, tabId));
+    if (latestExternalFileWarning.current?.tabId !== tabId) {
+      latestExternalFileWarning.current = null;
+    }
     setExternalFileWarning((current) =>
       current && current.tabId !== tabId ? null : current,
     );
@@ -1397,104 +1512,106 @@ export default function App() {
         ) : null}
       </div>
 
-      {activeExternalFileWarning && !reconcileOpen ? (
-        activeExternalFileWarning.kind === "deleted" ? (
-          <ExternalFileBanner
-            kind="deleted"
-            displayName={document.displayName}
-            onKeepEditing={() =>
-              clearExternalWarningForTab(activeExternalFileWarning.tabId)
+      <main className="document-area">
+        {activeExternalFileWarning && !reconcileOpen ? (
+          activeExternalFileWarning.kind === "deleted" ? (
+            <ExternalFileBanner
+              kind="deleted"
+              displayName={document.displayName}
+              onKeepEditing={() =>
+                clearExternalWarningForTab(activeExternalFileWarning.tabId)
+              }
+              onSaveAs={() => saveWarningTabAs(activeExternalFileWarning.tabId)}
+            />
+          ) : (
+            <ExternalFileBanner
+              kind={activeExternalFileWarning.kind}
+              displayName={document.displayName}
+              onReload={() =>
+                applyExternalReloadToTab(
+                  activeExternalFileWarning.tabId,
+                  activeExternalFileWarning.result.external,
+                )
+              }
+              onFollow={
+                activeExternalFileWarning.kind === "clean-update"
+                  ? () =>
+                      applyExternalReloadToTab(
+                        activeExternalFileWarning.tabId,
+                        activeExternalFileWarning.result.external,
+                        "follow",
+                      )
+                  : undefined
+              }
+              onKeepAsking={
+                activeExternalFileWarning.kind === "clean-update"
+                  ? () =>
+                      markExternalUpdateHandled(
+                        activeExternalFileWarning.tabId,
+                        activeExternalFileWarning.result.external.lastModifiedAt,
+                      )
+                  : undefined
+              }
+              onKeepEditing={() =>
+                markExternalUpdateHandled(
+                  activeExternalFileWarning.tabId,
+                  activeExternalFileWarning.result.external.lastModifiedAt,
+                )
+              }
+              onSaveAs={
+                activeExternalFileWarning.kind === "conflict"
+                  ? () => saveWarningTabAs(activeExternalFileWarning.tabId)
+                  : undefined
+              }
+              onReconcile={() => setReconcileOpen(true)}
+            />
+          )
+        ) : null}
+
+        {reconcileOpen && activeExternalFileWarning && reconcileResult ? (
+          <ExternalReconcileView
+            title={document.displayName}
+            currentLabel="Current in Galley Pad"
+            incomingLabel="Incoming from disk"
+            currentContent={document.content}
+            incomingContent={reconcileResult.external.content}
+            onClose={() => setReconcileOpen(false)}
+            onReload={() =>
+              applyExternalReloadToTab(
+                activeExternalFileWarning.tabId,
+                reconcileResult.external,
+              )
             }
             onSaveAs={() => saveWarningTabAs(activeExternalFileWarning.tabId)}
           />
         ) : (
-          <ExternalFileBanner
-            kind={activeExternalFileWarning.kind}
-            displayName={document.displayName}
-            onReload={() =>
-              applyExternalReloadToTab(
-                activeExternalFileWarning.tabId,
-                activeExternalFileWarning.result.external,
+          <DocumentView
+            content={document.content}
+            panelId={activeTabPanelId}
+            labelledBy={activeTabButtonId}
+            toolbarVisible={toolbarVisible}
+            editorScheme={editorScheme}
+            editorStyle={themeStyle}
+            fontSettings={editorFontSettings}
+            status={
+              pendingCommand
+                ? `${pendingCommand}...`
+                : document.dirty
+                  ? "Unsaved"
+                  : document.path
+                    ? "Saved"
+                    : "Draft"
+            }
+            onContentChange={(content) =>
+              setWorkspace((current) =>
+                updateActiveDocumentTab(current, (session) =>
+                  updateSessionContent(session, content),
+                ),
               )
             }
-            onFollow={
-              activeExternalFileWarning.kind === "clean-update"
-                ? () =>
-                    applyExternalReloadToTab(
-                      activeExternalFileWarning.tabId,
-                      activeExternalFileWarning.result.external,
-                      "follow",
-                    )
-                : undefined
-            }
-            onKeepAsking={
-              activeExternalFileWarning.kind === "clean-update"
-                ? () =>
-                    markExternalUpdateHandled(
-                      activeExternalFileWarning.tabId,
-                      activeExternalFileWarning.result.external.lastModifiedAt,
-                    )
-                : undefined
-            }
-            onKeepEditing={() =>
-              markExternalUpdateHandled(
-                activeExternalFileWarning.tabId,
-                activeExternalFileWarning.result.external.lastModifiedAt,
-              )
-            }
-            onSaveAs={
-              activeExternalFileWarning.kind === "conflict"
-                ? () => saveWarningTabAs(activeExternalFileWarning.tabId)
-                : undefined
-            }
-            onReconcile={() => setReconcileOpen(true)}
           />
-        )
-      ) : null}
-
-      {reconcileOpen && activeExternalFileWarning && reconcileResult ? (
-        <ExternalReconcileView
-          title={document.displayName}
-          currentLabel="Current in Galley Pad"
-          incomingLabel="Incoming from disk"
-          currentContent={document.content}
-          incomingContent={reconcileResult.external.content}
-          onClose={() => setReconcileOpen(false)}
-          onReload={() =>
-            applyExternalReloadToTab(
-              activeExternalFileWarning.tabId,
-              reconcileResult.external,
-            )
-          }
-          onSaveAs={() => saveWarningTabAs(activeExternalFileWarning.tabId)}
-        />
-      ) : (
-        <DocumentView
-          content={document.content}
-          panelId={activeTabPanelId}
-          labelledBy={activeTabButtonId}
-          toolbarVisible={toolbarVisible}
-          editorScheme={editorScheme}
-          editorStyle={themeStyle}
-          fontSettings={editorFontSettings}
-          status={
-            pendingCommand
-              ? `${pendingCommand}...`
-              : document.dirty
-                ? "Unsaved"
-                : document.path
-                  ? "Saved"
-                  : "Draft"
-          }
-          onContentChange={(content) =>
-            setWorkspace((current) =>
-              updateActiveDocumentTab(current, (session) =>
-                updateSessionContent(session, content),
-              ),
-            )
-          }
-        />
-      )}
+        )}
+      </main>
 
       {settingsOpen ? (
         <dialog
@@ -1747,6 +1864,23 @@ function applySaveResult(
     content: current.content,
     dirty: current.content !== next.savedContent,
   };
+}
+
+function sessionStillMatches(
+  current: DocumentSession,
+  snapshot: DocumentSession,
+): boolean {
+  return (
+    current.id === snapshot.id &&
+    current.path === snapshot.path &&
+    current.content === snapshot.content &&
+    current.savedContent === snapshot.savedContent &&
+    current.dirty === snapshot.dirty &&
+    current.lineEnding === snapshot.lineEnding &&
+    current.lastKnownModifiedAt === snapshot.lastKnownModifiedAt &&
+    current.lastNoticedExternalModifiedAt ===
+      snapshot.lastNoticedExternalModifiedAt
+  );
 }
 
 function errorMessage(error: unknown): string {

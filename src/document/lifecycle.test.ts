@@ -188,6 +188,34 @@ describe("document lifecycle commands", () => {
     expect(deps.writeTextFile).not.toHaveBeenCalled();
   });
 
+  it("blocks Save when the file was deleted on disk after it was opened", async () => {
+    const session = updateSessionContent(
+      createSessionFromFile({
+        path: "/tmp/deleted-save.md",
+        content: "# Original\n",
+        lineEnding: "lf",
+        lastModifiedAt: 10,
+      }),
+      "# Local edit\n",
+    );
+    const deps = createLifecycleDependencies({
+      pickOpenFile: vi.fn(),
+      pickSaveFile: vi.fn(),
+      readTextFile: vi.fn().mockResolvedValue({
+        path: "/tmp/deleted-save.md",
+        content: "",
+        lineEnding: "lf",
+        lastModifiedAt: null,
+      }),
+      writeTextFile: vi.fn(),
+    });
+
+    await expect(saveDocument(session, deps)).rejects.toBeInstanceOf(
+      ExternalFileChangedError,
+    );
+    expect(deps.writeTextFile).not.toHaveBeenCalled();
+  });
+
   it("does not block Save when only file metadata changed on disk", async () => {
     const session = updateSessionContent(
       createSessionFromFile({

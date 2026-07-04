@@ -129,6 +129,8 @@ textarea {
 .tab-menu-select:focus-visible,
 .tab-menu-close:focus-visible,
 .command-error button:focus-visible,
+.external-file-banner button:focus-visible,
+.external-reconcile button:focus-visible,
 .settings-dialog button:focus-visible,
 .settings-dialog input:focus-visible,
 .settings-dialog select:focus-visible,
@@ -298,6 +300,178 @@ textarea {
 
 .command-error button:hover {
   background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.document-area {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--app-panel);
+}
+
+.external-file-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--app-border);
+  background: color-mix(in srgb, var(--app-panel) 92%, var(--app-focus));
+  font-size: 12px;
+}
+
+.external-file-banner-warning {
+  background: color-mix(in srgb, var(--app-panel) 88%, var(--app-error-text));
+}
+
+.external-file-banner strong {
+  display: block;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.external-file-banner p {
+  margin: 3px 0 0;
+  color: var(--app-text-muted);
+  line-height: 1.4;
+}
+
+.external-file-banner-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.external-file-banner-actions button,
+.external-reconcile-toolbar button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.external-reconcile {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  background: var(--app-panel);
+}
+
+.external-reconcile-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--app-border);
+  background: var(--app-panel);
+}
+
+.external-reconcile-toolbar h2 {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.external-reconcile-toolbar > div {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.external-reconcile-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+}
+
+.external-reconcile-pane {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--app-border);
+}
+
+.external-reconcile-pane:last-child {
+  border-right: 0;
+}
+
+.external-reconcile-pane h3 {
+  margin: 0;
+  padding: 8px 12px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--app-border);
+  background: var(--app-panel-muted);
+  color: var(--app-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.external-reconcile-editor {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  background: var(--app-panel);
+  font-family:
+    "SFMono-Regular",
+    Consolas,
+    "Liberation Mono",
+    monospace;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.external-reconcile-line {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  min-height: 22px;
+  border-bottom: 1px solid color-mix(in srgb, var(--app-border) 55%, transparent);
+}
+
+.external-reconcile-line-number {
+  padding: 2px 8px;
+  border-right: 1px solid color-mix(in srgb, var(--app-border) 70%, transparent);
+  color: var(--app-text-muted);
+  text-align: right;
+  user-select: none;
+}
+
+.external-reconcile-line code {
+  min-width: 0;
+  padding: 2px 10px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.external-reconcile-line-added {
+  background: color-mix(in srgb, #2f8f5b 13%, var(--app-panel));
+}
+
+.external-reconcile-line-removed {
+  background: color-mix(in srgb, var(--app-error-text) 13%, var(--app-panel));
+}
+
+.external-reconcile-line-changed {
+  background: color-mix(in srgb, var(--app-focus) 14%, var(--app-panel));
 }
 
 .document-view {
@@ -615,4 +789,31 @@ textarea {
 .button-secondary:hover,
 .button-danger:hover {
   background: var(--app-hover);
+}
+
+@media (max-width: 720px) {
+  .external-file-banner,
+  .external-reconcile-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .external-file-banner-actions,
+  .external-reconcile-toolbar > div {
+    justify-content: flex-start;
+  }
+
+  .external-reconcile-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .external-reconcile-pane {
+    border-right: 0;
+    border-bottom: 1px solid var(--app-border);
+  }
+
+  .external-reconcile-pane:last-child {
+    border-bottom: 0;
+  }
 }

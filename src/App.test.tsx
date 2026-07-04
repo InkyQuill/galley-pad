@@ -163,7 +163,10 @@ describe("App", () => {
     const appShell = container.querySelector(".app-shell");
     expect(appShell?.children.item(0)).toHaveClass("tabstrip");
     expect(appShell?.children.item(1)).toHaveClass("command-error-slot");
-    expect(appShell?.children.item(2)).toHaveClass("document-view");
+    expect(appShell?.children.item(2)).toHaveClass("document-area");
+    expect(appShell?.children.item(2)?.children.item(0)).toHaveClass(
+      "document-view",
+    );
     expect(
       screen.queryByRole("alert", { name: "File command error" }),
     ).not.toBeInTheDocument();
@@ -2016,6 +2019,88 @@ describe("App", () => {
     expect(
       await screen.findByRole("status", { name: "External file deletion" }),
     ).toHaveTextContent("deleted.md was deleted on disk.");
+  });
+
+  it("does not reload over edits made while an external check is in flight", async () => {
+    window.history.replaceState(null, "", "/?open=/tmp/race.md");
+    const externalRead = deferred<Awaited<ReturnType<typeof readTextFile>>>();
+    readTextFileMock
+      .mockResolvedValueOnce({
+        path: "/tmp/race.md",
+        content: "Base\n",
+        lineEnding: "lf",
+        lastModifiedAt: 10,
+      })
+      .mockReturnValueOnce(externalRead.promise);
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("Base\n");
+    });
+
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    fireEvent.change(screen.getByLabelText("Mock Galley Editor"), {
+      target: { value: "Local edit\n" },
+    });
+    await act(async () => {
+      externalRead.resolve({
+        path: "/tmp/race.md",
+        content: "Incoming\n",
+        lineEnding: "lf",
+        lastModifiedAt: 12,
+      });
+      await externalRead.promise;
+    });
+
+    expect(await screen.findByRole("status", { name: "External file conflict" }))
+      .toHaveTextContent("race.md changed outside Galley Pad");
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
+      "Local edit\n",
+    );
+  });
+
+  it("blocks normal Save while a deleted-file warning is active", async () => {
+    let menuHandler: ((command: AppMenuCommand) => void) | null = null;
+    listenForAppMenuCommandMock.mockImplementation(async (handler) => {
+      menuHandler = handler;
+      return () => undefined;
+    });
+    window.history.replaceState(null, "", "/?open=/tmp/deleted-save.md");
+    readTextFileMock
+      .mockResolvedValueOnce({
+        path: "/tmp/deleted-save.md",
+        content: "Loaded\n",
+        lineEnding: "lf",
+        lastModifiedAt: 10,
+      })
+      .mockResolvedValueOnce({
+        path: "/tmp/deleted-save.md",
+        content: "",
+        lineEnding: "lf",
+        lastModifiedAt: null,
+      });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("Loaded\n");
+    });
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await screen.findByRole("status", { name: "External file deletion" });
+
+    act(() => {
+      menuHandler?.("save");
+    });
+
+    await expect(
+      screen.findByRole("alert", { name: "File command error" }),
+    ).resolves.toHaveTextContent("Use Save As to preserve your changes");
+    expect(writeTextFileMock).not.toHaveBeenCalled();
   });
 });
 
