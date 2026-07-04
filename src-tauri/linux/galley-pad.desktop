@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Galley Pad
+Comment=A simple desktop Markdown editor powered by Galley.
+Exec=/usr/bin/gpad %F
+Icon=gpad
+Terminal=false
+Categories=Utility;TextEditor;
+MimeType=text/markdown;text/x-markdown;
+StartupWMClass=gpad

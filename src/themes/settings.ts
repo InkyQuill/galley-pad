@@ -128,7 +128,11 @@ function isThemeMode(value: unknown): value is ThemeMode {
 }
 
 function getStorage(): Storage | null {
-  return typeof globalThis.localStorage === "undefined"
-    ? null
-    : globalThis.localStorage;
+  try {
+    return typeof globalThis.localStorage === "undefined"
+      ? null
+      : globalThis.localStorage;
+  } catch {
+    return null;
+  }
 }

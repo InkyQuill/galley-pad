@@ -8,6 +8,7 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import { APP_BRAND_LABEL } from "./appInfo";
 import {
   getPendingMarkdownFileOpens,
   getWindowMarkdownFileOpen,
@@ -33,7 +34,7 @@ import {
   listenForWindowCloseRequest,
 } from "./tauri/windowClose";
 
-vi.mock("@inky/galley-editor", () => import("./test/galley-editor.mock"));
+vi.mock("@inkyquill/galley-editor", () => import("./test/galley-editor.mock"));
 vi.mock("./tauri/dialogs", () => ({
   pickOpenFile: vi.fn(),
   pickSaveFile: vi.fn(),
@@ -156,7 +157,7 @@ describe("App", () => {
     expect(screen.getByLabelText("Mock Galley Footer")).toHaveTextContent(
       "0 words",
     );
-    expect(screen.getByLabelText("Galley Pad v0.1.0")).toBeInTheDocument();
+    expect(screen.getByLabelText(APP_BRAND_LABEL)).toBeInTheDocument();
     expect(document.title).toBe("Untitled.md - Galley Pad");
 
     const appShell = container.querySelector(".app-shell");

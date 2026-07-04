@@ -5,17 +5,16 @@ import semver from "semver";
 
 const PROJECT_ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
+/**
+ * Updates release version fields across the project.
+ * @param {string} version - The semantic version to apply.
+ * @param {string} [root=PROJECT_ROOT] - The project root directory.
+ */
 export async function syncReleaseVersion(version, root = PROJECT_ROOT) {
   assertSemver(version);
 
   await updateJsonFile(resolve(root, "package.json"), (json) => {
     json.version = version;
-  });
-  await updateJsonFile(resolve(root, "package-lock.json"), (json) => {
-    json.version = version;
-    if (json.packages?.[""]) {
-      json.packages[""].version = version;
-    }
   });
   await updateJsonFile(resolve(root, "src-tauri", "tauri.conf.json"), (json) => {
     json.version = version;

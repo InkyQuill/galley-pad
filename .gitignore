@@ -6,6 +6,7 @@ dist/
 dist-ssr/
 coverage/
 .vite/
+.agents/
 .worktrees/
 test-results/
 playwright-report/

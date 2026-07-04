@@ -121,6 +121,44 @@ fn tauri_config_declares_installable_markdown_file_associations() {
     );
 }
 
+#[test]
+fn linux_desktop_template_launches_packaged_gpad_with_markdown_files() {
+    let desktop_entry = include_str!("../linux/galley-pad.desktop");
+
+    assert!(
+        desktop_entry
+            .lines()
+            .any(|line| line == "Exec=/usr/bin/gpad %F"),
+        "KDE should launch the packaged gpad binary and pass selected files"
+    );
+    assert!(
+        desktop_entry
+            .lines()
+            .any(|line| line == "MimeType=text/markdown;text/x-markdown;"),
+        "desktop entry should cover common Markdown MIME types"
+    );
+}
+
+/// Verifies that the configured CLI alias is `gpad` and avoids common name collisions.
+///
+/// # Panics
+///
+/// Panics if the configured alias is missing or does not satisfy the expected rules.
+///
+/// # Examples
+///
+/// ```
+/// # use serde_json::json;
+/// # fn windows_reserved_names() -> &'static [&'static str] { &["CON", "PRN", "AUX", "NUL"] }
+/// # fn assert_cli_alias_is_safe(config: &serde_json::Value) {
+/// #     let alias = config.get("mainBinaryName").and_then(serde_json::Value::as_str).expect("main binary name should be configured");
+/// #     assert_eq!(alias, "gpad");
+/// #     assert_ne!(alias, "pad", "avoid generic command names with higher collision risk");
+/// #     assert!(!windows_reserved_names().contains(&alias.to_ascii_uppercase().as_str()), "alias should not use a Windows reserved device name");
+/// # }
+/// let config = json!({ "mainBinaryName": "gpad" });
+/// assert_cli_alias_is_safe(&config);
+/// ```
 fn assert_cli_alias_is_safe(config: &Value) {
     let alias = config
         .get("mainBinaryName")

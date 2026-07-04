@@ -1,4 +1,4 @@
 #!/usr/bin/env sh
 set -eu
 
-npm run commitlint -- "$1"
+bun run commitlint -- "$1"

@@ -15,12 +15,18 @@ const header = message
 
 const conventionalCommitHeader =
   /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([A-Za-z0-9._/-]+\))?!?: .{1,}$/;
+const mergeCommitHeader =
+  /^Merge (branch|commit|pull request|remote-tracking branch|tag) .+$/;
 
-if (!header || !conventionalCommitHeader.test(header)) {
+if (
+  !header ||
+  (!conventionalCommitHeader.test(header) && !mergeCommitHeader.test(header))
+) {
   console.error("Commit message must use Conventional Commits.");
   console.error("");
   console.error("Expected format:");
   console.error("  type(scope): short description");
+  console.error("  Merge branch 'main' into feature");
   console.error("");
   console.error("Allowed types:");
   console.error("  feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert");

@@ -1,0 +1,17 @@
+pkgbase = galley-pad-bin
+	pkgdesc = Desktop Markdown editor for plain .md files
+	pkgver = 1.0.0
+	pkgrel = 1
+	url = https://github.com/InkyQuill/galley-pad
+	arch = x86_64
+	license = MIT
+	depends = gtk3
+	depends = hicolor-icon-theme
+	depends = webkit2gtk-4.1
+	provides = galley-pad
+	conflicts = galley-pad
+	options = !strip
+	source = galley-pad-bin-1.0.0.deb::https://github.com/InkyQuill/galley-pad/releases/download/v1.0.0/Galley.Pad_1.0.0_amd64.deb
+	sha256sums = 95c152b32271776ff8f1bb53f5582e4afbc517de159d2c61387925949f275fbd
+
+pkgname = galley-pad-bin

@@ -15,6 +15,7 @@ module.exports = {
           { type: "style", release: "patch" },
           { type: "build", release: "patch" },
           { type: "ci", release: "patch" },
+          { type: "chore", scope: "release", release: false },
           { type: "chore", release: "patch" },
           { type: "docs", release: "patch" },
           { type: "test", release: "patch" },
@@ -47,7 +48,7 @@ module.exports = {
         assets: [
           "CHANGELOG.md",
           "package.json",
-          "package-lock.json",
+          "bun.lock",
           "src-tauri/Cargo.toml",
           "src-tauri/Cargo.lock",
           "src-tauri/tauri.conf.json",

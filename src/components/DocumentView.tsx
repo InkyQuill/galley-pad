@@ -2,7 +2,7 @@ import {
   GalleyEditor,
   type GalleyFooterContext,
   type ToolbarIconName,
-} from "@inky/galley-editor";
+} from "@inkyquill/galley-editor";
 import type { CSSProperties, ReactNode } from "react";
 import {
   Bold,
