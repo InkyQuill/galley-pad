@@ -130,6 +130,7 @@ export async function checkExternalFileChange(
         lineEnding: external.lineEnding,
         lastKnownModifiedAt: external.lastModifiedAt,
         lastNoticedExternalModifiedAt: null,
+        acknowledgedDeletedPath: null,
       },
     };
   }
@@ -144,6 +145,7 @@ export async function checkExternalFileChange(
         lineEnding: external.lineEnding,
         lastKnownModifiedAt: external.lastModifiedAt,
         lastNoticedExternalModifiedAt: null,
+        acknowledgedDeletedPath: null,
       },
     };
   }

@@ -42,20 +42,42 @@ describe("side-by-side line diff", () => {
     ]);
   });
 
+  it("keeps LCS alignment for ordinary-sized documents", () => {
+    const left = Array.from({ length: 350 }, (_, index) => `Line ${index}`);
+    const right = [...left.slice(0, 175), "Inserted line", ...left.slice(175)];
+
+    const rows = createSideBySideLineDiff(left.join("\n"), right.join("\n"));
+
+    expect(rows).toHaveLength(351);
+    expect(rows[174]).toEqual({
+      kind: "unchanged",
+      left: "Line 174",
+      right: "Line 174",
+    });
+    expect(rows[175]).toEqual({ kind: "added", left: "", right: "Inserted line" });
+    expect(rows[176]).toEqual({
+      kind: "unchanged",
+      left: "Line 175",
+      right: "Line 175",
+    });
+  });
+
   it("uses a bounded linear fallback for large inputs", () => {
-    const left = Array.from({ length: 350 }, (_, index) => `L${index}`).join("\n");
-    const right = Array.from({ length: 350 }, (_, index) => `R${index}`).join(
+    const left = Array.from({ length: 1_100 }, (_, index) => `L${index}`).join(
+      "\n",
+    );
+    const right = Array.from({ length: 1_100 }, (_, index) => `R${index}`).join(
       "\n",
     );
 
     const rows = createSideBySideLineDiff(left, right);
 
-    expect(rows).toHaveLength(350);
+    expect(rows).toHaveLength(1_100);
     expect(rows[0]).toEqual({ kind: "changed", left: "L0", right: "R0" });
     expect(rows[rows.length - 1]).toEqual({
       kind: "changed",
-      left: "L349",
-      right: "R349",
+      left: "L1099",
+      right: "R1099",
     });
   });
 });

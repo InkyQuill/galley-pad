@@ -6,7 +6,7 @@ export type SideBySideDiffRow = {
   right: string;
 };
 
-const MAX_LCS_CELLS = 120_000;
+const MAX_LCS_CELLS = 1_000_000;
 
 export function createSideBySideLineDiff(
   leftText: string,

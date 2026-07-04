@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createSessionFromFile,
   createUntitledSession,
+  markExternalDeletionAcknowledged,
   updateSessionContent,
 } from "./session";
 import {
@@ -371,6 +372,80 @@ describe("document lifecycle commands", () => {
 
     await expect(checkExternalFileChange(session, deps)).resolves.toEqual({
       kind: "unchanged",
+    });
+  });
+
+  it("reports a later deletion after an acknowledged deleted file is recreated", async () => {
+    const path = "/tmp/recreated.md";
+    const session = createSessionFromFile({
+      path,
+      content: "Base\n",
+      lineEnding: "lf",
+      lastModifiedAt: 10,
+    });
+    const deletedDeps = createLifecycleDependencies({
+      pickOpenFile: vi.fn(),
+      pickSaveFile: vi.fn(),
+      readTextFile: vi.fn().mockResolvedValue({
+        path,
+        content: "",
+        lineEnding: "lf",
+        lastModifiedAt: null,
+      }),
+      writeTextFile: vi.fn(),
+    });
+
+    await expect(checkExternalFileChange(session, deletedDeps)).resolves.toEqual({
+      kind: "deleted",
+      session,
+      path,
+    });
+
+    const acknowledged = markExternalDeletionAcknowledged(session, path);
+    const recreatedDeps = createLifecycleDependencies({
+      pickOpenFile: vi.fn(),
+      pickSaveFile: vi.fn(),
+      readTextFile: vi.fn().mockResolvedValue({
+        path,
+        content: "Base\n",
+        lineEnding: "lf",
+        lastModifiedAt: 12,
+      }),
+      writeTextFile: vi.fn(),
+    });
+    const recreated = await checkExternalFileChange(acknowledged, recreatedDeps);
+
+    expect(recreated).toEqual({
+      kind: "metadata-refresh",
+      session: {
+        ...acknowledged,
+        lastKnownModifiedAt: 12,
+        lastNoticedExternalModifiedAt: null,
+        acknowledgedDeletedPath: null,
+      },
+    });
+    if (recreated.kind !== "metadata-refresh") {
+      throw new Error(`Expected metadata-refresh, received ${recreated.kind}`);
+    }
+
+    const deletedAgainDeps = createLifecycleDependencies({
+      pickOpenFile: vi.fn(),
+      pickSaveFile: vi.fn(),
+      readTextFile: vi.fn().mockResolvedValue({
+        path,
+        content: "",
+        lineEnding: "lf",
+        lastModifiedAt: null,
+      }),
+      writeTextFile: vi.fn(),
+    });
+
+    await expect(
+      checkExternalFileChange(recreated.session, deletedAgainDeps),
+    ).resolves.toEqual({
+      kind: "deleted",
+      session: recreated.session,
+      path,
     });
   });
 
