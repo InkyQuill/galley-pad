@@ -1,4 +1,5 @@
 export type LineEnding = "lf" | "crlf";
+export type ExternalUpdatePolicy = "ask" | "follow";
 
 export type FileReadResult = {
   path: string;
@@ -22,9 +23,23 @@ export type DocumentSession = {
   dirty: boolean;
   lineEnding: LineEnding;
   lastKnownModifiedAt: number | null;
+  externalUpdatePolicy: ExternalUpdatePolicy;
+  lastNoticedExternalModifiedAt: number | null;
+  acknowledgedDeletedPath: string | null;
 };
 
 export const INITIAL_DOCUMENT = "";
+
+const EXTERNAL_UPDATE_RUNTIME_DEFAULTS = {
+  externalUpdatePolicy: "ask" as const,
+  lastNoticedExternalModifiedAt: null,
+  acknowledgedDeletedPath: null,
+} satisfies Pick<
+  DocumentSession,
+  | "externalUpdatePolicy"
+  | "lastNoticedExternalModifiedAt"
+  | "acknowledgedDeletedPath"
+>;
 
 export function createUntitledSession(): DocumentSession {
   return {
@@ -36,6 +51,7 @@ export function createUntitledSession(): DocumentSession {
     dirty: false,
     lineEnding: "lf",
     lastKnownModifiedAt: null,
+    ...EXTERNAL_UPDATE_RUNTIME_DEFAULTS,
   };
 }
 
@@ -49,6 +65,7 @@ export function createSessionFromFile(file: FileReadResult): DocumentSession {
     dirty: false,
     lineEnding: file.lineEnding,
     lastKnownModifiedAt: file.lastModifiedAt,
+    ...EXTERNAL_UPDATE_RUNTIME_DEFAULTS,
   };
 }
 
@@ -76,6 +93,77 @@ export function markSessionSaved(
     dirty: false,
     lineEnding: result.lineEnding,
     lastKnownModifiedAt: result.lastModifiedAt,
+    lastNoticedExternalModifiedAt: null,
+    acknowledgedDeletedPath: null,
+  };
+}
+
+export function setExternalUpdatePolicy(
+  session: DocumentSession,
+  externalUpdatePolicy: ExternalUpdatePolicy,
+): DocumentSession {
+  return { ...session, externalUpdatePolicy };
+}
+
+export function markExternalUpdateNoticed(
+  session: DocumentSession,
+  lastNoticedExternalModifiedAt: number | null,
+): DocumentSession {
+  return { ...session, lastNoticedExternalModifiedAt };
+}
+
+export function markExternalDeletionAcknowledged(
+  session: DocumentSession,
+  acknowledgedDeletedPath: string | null,
+): DocumentSession {
+  return { ...session, acknowledgedDeletedPath };
+}
+
+export function applyExternalFileReload(
+  session: DocumentSession,
+  file: FileReadResult,
+): DocumentSession {
+  return {
+    ...session,
+    id: `file:${file.path}`,
+    path: file.path,
+    displayName: displayNameFromPath(file.path),
+    content: file.content,
+    savedContent: file.content,
+    dirty: false,
+    lineEnding: file.lineEnding,
+    lastKnownModifiedAt: file.lastModifiedAt,
+    lastNoticedExternalModifiedAt: null,
+    acknowledgedDeletedPath: null,
+  };
+}
+
+export function resetExternalUpdateRuntimeState(
+  session: DocumentSession,
+): DocumentSession {
+  return {
+    ...session,
+    ...EXTERNAL_UPDATE_RUNTIME_DEFAULTS,
+  };
+}
+
+export function normalizeExternalUpdateRuntimeState(
+  session: Omit<
+    DocumentSession,
+    | "externalUpdatePolicy"
+    | "lastNoticedExternalModifiedAt"
+    | "acknowledgedDeletedPath"
+  > &
+    Partial<
+      Pick<
+        DocumentSession,
+        "externalUpdatePolicy" | "lastNoticedExternalModifiedAt" | "acknowledgedDeletedPath"
+      >
+    >,
+): DocumentSession {
+  return {
+    ...session,
+    ...EXTERNAL_UPDATE_RUNTIME_DEFAULTS,
   };
 }
 

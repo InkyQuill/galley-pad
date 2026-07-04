@@ -163,7 +163,10 @@ describe("App", () => {
     const appShell = container.querySelector(".app-shell");
     expect(appShell?.children.item(0)).toHaveClass("tabstrip");
     expect(appShell?.children.item(1)).toHaveClass("command-error-slot");
-    expect(appShell?.children.item(2)).toHaveClass("document-view");
+    expect(appShell?.children.item(2)).toHaveClass("document-area");
+    expect(appShell?.children.item(2)?.children.item(0)).toHaveClass(
+      "document-view",
+    );
     expect(
       screen.queryByRole("alert", { name: "File command error" }),
     ).not.toBeInTheDocument();
@@ -536,6 +539,12 @@ describe("App", () => {
         }),
       );
     });
+
+    const lastWrite =
+      writeSwapStateMock.mock.calls[writeSwapStateMock.mock.calls.length - 1];
+    const writtenSession = lastWrite?.[0].tabs[0]?.session;
+    expect(writtenSession).not.toHaveProperty("externalUpdatePolicy");
+    expect(writtenSession).not.toHaveProperty("lastNoticedExternalModifiedAt");
   });
 
   it("waits for swap restoration before applying pending file opens", async () => {
@@ -566,6 +575,53 @@ describe("App", () => {
       expect(getPendingMarkdownFileOpensMock).toHaveBeenCalled();
       expect(readTextFileMock).toHaveBeenCalledWith("/tmp/pending.md");
     });
+  });
+
+  it("resets external update runtime fields when restoring a swap session", async () => {
+    readSwapStateMock.mockResolvedValue({
+      version: 1,
+      savedAt: 1,
+      activeTabId: "swap-tab",
+      openMode: "tabs",
+      tabs: [
+        {
+          id: "swap-tab",
+          session: {
+            id: "swap-session",
+            path: "/tmp/swap.md",
+            displayName: "Swap.md",
+            content: "Dirty swap",
+            savedContent: "",
+            dirty: true,
+            lineEnding: "lf",
+            lastKnownModifiedAt: 10,
+            externalUpdatePolicy: "follow",
+            lastNoticedExternalModifiedAt: 12,
+          },
+        },
+      ],
+    } as unknown as Awaited<ReturnType<typeof readSwapState>>);
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
+        "Dirty swap",
+      );
+    });
+
+    fireEvent.change(screen.getByLabelText("Mock Galley Editor"), {
+      target: { value: "Still dirty" },
+    });
+
+    await waitFor(() => {
+      expect(writeSwapStateMock).toHaveBeenCalled();
+    });
+    const lastWrite =
+      writeSwapStateMock.mock.calls[writeSwapStateMock.mock.calls.length - 1];
+    const writtenSession = lastWrite?.[0].tabs[0]?.session;
+    expect(writtenSession).not.toHaveProperty("externalUpdatePolicy");
+    expect(writtenSession).not.toHaveProperty("lastNoticedExternalModifiedAt");
   });
 
   it("lets an explicit launch file take precedence over restored swap state", async () => {
@@ -1892,6 +1948,269 @@ describe("App", () => {
     expect(
       screen.queryByRole("alert", { name: "File command error" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("shows a banner for a clean external update and opens reconcile on request", async () => {
+    window.history.replaceState(null, "", "/?open=/tmp/opened.md");
+    readTextFileMock
+      .mockResolvedValueOnce({
+        path: "/tmp/opened.md",
+        content: "Base\n",
+        lineEnding: "lf",
+        lastModifiedAt: 10,
+      })
+      .mockResolvedValueOnce({
+        path: "/tmp/opened.md",
+        content: "Incoming\n",
+        lineEnding: "lf",
+        lastModifiedAt: 12,
+      });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("Base\n");
+    });
+
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+
+    await screen.findByRole("status", { name: "External file update" });
+    expect(
+      screen.queryByRole("region", { name: "Disk changes" }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Reconcile" }));
+    expect(
+      await screen.findByRole("region", { name: "Incoming from disk" }),
+    ).toHaveTextContent("Incoming");
+    expect(
+      screen.getByRole("region", { name: "Current in Galley Pad" }),
+    ).toHaveTextContent("Base");
+  });
+
+  it("shows a banner when an open file was deleted on disk", async () => {
+    window.history.replaceState(null, "", "/?open=/tmp/deleted.md");
+    readTextFileMock
+      .mockResolvedValueOnce({
+        path: "/tmp/deleted.md",
+        content: "Loaded\n",
+        lineEnding: "lf",
+        lastModifiedAt: 10,
+      })
+      .mockResolvedValueOnce({
+        path: "/tmp/deleted.md",
+        content: "",
+        lineEnding: "lf",
+        lastModifiedAt: null,
+      });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("Loaded\n");
+    });
+
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+
+    expect(
+      await screen.findByRole("status", { name: "External file deletion" }),
+    ).toHaveTextContent("deleted.md was deleted on disk.");
+  });
+
+  it("does not repeat a deleted-file banner after keep editing", async () => {
+    window.history.replaceState(null, "", "/?open=/tmp/deleted.md");
+    readTextFileMock
+      .mockResolvedValueOnce({
+        path: "/tmp/deleted.md",
+        content: "Loaded\n",
+        lineEnding: "lf",
+        lastModifiedAt: 10,
+      })
+      .mockResolvedValue({
+        path: "/tmp/deleted.md",
+        content: "",
+        lineEnding: "lf",
+        lastModifiedAt: null,
+      });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("Loaded\n");
+    });
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await screen.findByRole("status", { name: "External file deletion" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect(
+      screen.queryByRole("status", { name: "External file deletion" }),
+    ).not.toBeInTheDocument();
+
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+
+    await waitFor(() => {
+      expect(readTextFileMock).toHaveBeenCalledTimes(3);
+    });
+    expect(
+      screen.queryByRole("status", { name: "External file deletion" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not reload over edits made while an external check is in flight", async () => {
+    window.history.replaceState(null, "", "/?open=/tmp/race.md");
+    const externalRead = deferred<Awaited<ReturnType<typeof readTextFile>>>();
+    readTextFileMock
+      .mockResolvedValueOnce({
+        path: "/tmp/race.md",
+        content: "Base\n",
+        lineEnding: "lf",
+        lastModifiedAt: 10,
+      })
+      .mockReturnValueOnce(externalRead.promise);
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("Base\n");
+    });
+
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    fireEvent.change(screen.getByLabelText("Mock Galley Editor"), {
+      target: { value: "Local edit\n" },
+    });
+    await act(async () => {
+      externalRead.resolve({
+        path: "/tmp/race.md",
+        content: "Incoming\n",
+        lineEnding: "lf",
+        lastModifiedAt: 12,
+      });
+      await externalRead.promise;
+    });
+
+    expect(await screen.findByRole("status", { name: "External file conflict" }))
+      .toHaveTextContent("race.md changed outside Galley Pad");
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
+      "Local edit\n",
+    );
+  });
+
+  it("blocks normal Save while a deleted-file warning is active", async () => {
+    let menuHandler: ((command: AppMenuCommand) => void) | null = null;
+    listenForAppMenuCommandMock.mockImplementation(async (handler) => {
+      menuHandler = handler;
+      return () => undefined;
+    });
+    window.history.replaceState(null, "", "/?open=/tmp/deleted-save.md");
+    readTextFileMock
+      .mockResolvedValueOnce({
+        path: "/tmp/deleted-save.md",
+        content: "Loaded\n",
+        lineEnding: "lf",
+        lastModifiedAt: 10,
+      })
+      .mockResolvedValueOnce({
+        path: "/tmp/deleted-save.md",
+        content: "",
+        lineEnding: "lf",
+        lastModifiedAt: null,
+      });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("Loaded\n");
+    });
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await screen.findByRole("status", { name: "External file deletion" });
+
+    act(() => {
+      menuHandler?.("save");
+    });
+
+    await expect(
+      screen.findByRole("alert", { name: "File command error" }),
+    ).resolves.toHaveTextContent("Use Save As to preserve your changes");
+    expect(writeTextFileMock).not.toHaveBeenCalled();
+  });
+
+  it("does not show command errors for background external check failures", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    window.history.replaceState(null, "", "/?open=/tmp/flaky.md");
+    readTextFileMock
+      .mockResolvedValueOnce({
+        path: "/tmp/flaky.md",
+        content: "Loaded\n",
+        lineEnding: "lf",
+        lastModifiedAt: 10,
+      })
+      .mockRejectedValueOnce(new Error("temporary stat failure"));
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("Loaded\n");
+    });
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+
+    await waitFor(() => {
+      expect(readTextFileMock).toHaveBeenCalledTimes(2);
+    });
+    expect(
+      screen.queryByRole("alert", { name: "File command error" }),
+    ).not.toBeInTheDocument();
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  it("logs unexpected background external check failures without showing command errors", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    window.history.replaceState(null, "", "/?open=/tmp/unexpected.md");
+    readTextFileMock
+      .mockResolvedValueOnce({
+        path: "/tmp/unexpected.md",
+        content: "Loaded\n",
+        lineEnding: "lf",
+        lastModifiedAt: 10,
+      })
+      .mockRejectedValueOnce(new TypeError("bad parser state"));
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("Loaded\n");
+    });
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+
+    await waitFor(() => {
+      expect(consoleError).toHaveBeenCalledWith(
+        "Unexpected external file check failure",
+        expect.objectContaining({
+          path: "/tmp/unexpected.md",
+          error: expect.any(TypeError),
+        }),
+      );
+    });
+    expect(
+      screen.queryByRole("alert", { name: "File command error" }),
+    ).not.toBeInTheDocument();
+    consoleError.mockRestore();
   });
 });
 

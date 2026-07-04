@@ -64,7 +64,15 @@ The user must always know whether the document has unsaved changes. Closing a di
 
 The app should handle external changes calmly and explicitly instead of guessing.
 
-## 7. Defaults Matter More Than Settings
+## 7. Banners Warn, Modals Decide
+
+Informational and warning states should appear inline as banners. A file changed on disk, a file was deleted, a background refresh completed, or a recoverable problem needs attention: these are banner cases.
+
+Modal dialogs are reserved for critical decisions that block progress or risk data loss, such as closing a document with unsaved changes. Do not use a modal only to announce an external update.
+
+Diffs do not belong in banners. If an external update needs comparison, show the diff only after the user chooses to reconcile the update.
+
+## 8. Defaults Matter More Than Settings
 
 Settings should exist only where they protect real preferences:
 

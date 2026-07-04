@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyExternalFileReload,
   createSessionFromFile,
   createUntitledSession,
+  markExternalDeletionAcknowledged,
+  markExternalUpdateNoticed,
   markSessionSaved,
+  normalizeExternalUpdateRuntimeState,
+  resetExternalUpdateRuntimeState,
+  setExternalUpdatePolicy,
   updateSessionContent,
 } from "./session";
 
@@ -19,6 +25,9 @@ describe("document session model", () => {
       dirty: false,
       lineEnding: "lf",
       lastKnownModifiedAt: null,
+      externalUpdatePolicy: "ask",
+      lastNoticedExternalModifiedAt: null,
+      acknowledgedDeletedPath: null,
     });
   });
 
@@ -38,6 +47,9 @@ describe("document session model", () => {
     expect(session.dirty).toBe(false);
     expect(session.lineEnding).toBe("crlf");
     expect(session.lastKnownModifiedAt).toBe(1_765_000_000_000);
+    expect(session.externalUpdatePolicy).toBe("ask");
+    expect(session.lastNoticedExternalModifiedAt).toBeNull();
+    expect(session.acknowledgedDeletedPath).toBeNull();
   });
 
   it("handles Windows paths when deriving the display name", () => {
@@ -64,7 +76,16 @@ describe("document session model", () => {
   });
 
   it("marks a session clean after saving", () => {
-    const session = updateSessionContent(createUntitledSession(), "Saved text\n");
+    const session = markExternalDeletionAcknowledged(
+      setExternalUpdatePolicy(
+        markExternalUpdateNoticed(
+          updateSessionContent(createUntitledSession(), "Saved text\n"),
+          12,
+        ),
+        "follow",
+      ),
+      "/tmp/Saved.md",
+    );
 
     const saved = markSessionSaved(session, {
       path: "/tmp/Saved.md",
@@ -78,5 +99,74 @@ describe("document session model", () => {
     expect(saved.savedContent).toBe("Saved text\n");
     expect(saved.dirty).toBe(false);
     expect(saved.lastKnownModifiedAt).toBe(1_765_000_001_000);
+    expect(saved.externalUpdatePolicy).toBe("follow");
+    expect(saved.lastNoticedExternalModifiedAt).toBeNull();
+    expect(saved.acknowledgedDeletedPath).toBeNull();
+  });
+
+  it("manages external update runtime state", () => {
+    const session = createSessionFromFile({
+      path: "/tmp/notes.md",
+      content: "Original\n",
+      lineEnding: "lf",
+      lastModifiedAt: 10,
+    });
+
+    const following = setExternalUpdatePolicy(session, "follow");
+    expect(following.externalUpdatePolicy).toBe("follow");
+
+    const noticed = markExternalUpdateNoticed(following, 12);
+    expect(noticed.lastNoticedExternalModifiedAt).toBe(12);
+
+    const acknowledged = markExternalDeletionAcknowledged(noticed, "/tmp/notes.md");
+    expect(acknowledged.acknowledgedDeletedPath).toBe("/tmp/notes.md");
+
+    const reloaded = applyExternalFileReload(acknowledged, {
+      path: "/tmp/notes.md",
+      content: "External\n",
+      lineEnding: "crlf",
+      lastModifiedAt: 14,
+    });
+    expect(reloaded).toMatchObject({
+      id: "file:/tmp/notes.md",
+      path: "/tmp/notes.md",
+      displayName: "notes.md",
+      content: "External\n",
+      savedContent: "External\n",
+      dirty: false,
+      lineEnding: "crlf",
+      lastKnownModifiedAt: 14,
+      externalUpdatePolicy: "follow",
+      lastNoticedExternalModifiedAt: null,
+      acknowledgedDeletedPath: null,
+    });
+
+    expect(resetExternalUpdateRuntimeState(reloaded)).toMatchObject({
+      externalUpdatePolicy: "ask",
+      lastNoticedExternalModifiedAt: null,
+      acknowledgedDeletedPath: null,
+    });
+  });
+
+  it("normalizes missing external update runtime state", () => {
+    const legacySession = {
+      id: "file:/tmp/legacy.md",
+      path: "/tmp/legacy.md",
+      displayName: "legacy.md",
+      content: "Dirty legacy\n",
+      savedContent: "",
+      dirty: true,
+      lineEnding: "lf" as const,
+      lastKnownModifiedAt: 20,
+      externalUpdatePolicy: "follow" as const,
+      lastNoticedExternalModifiedAt: 21,
+      acknowledgedDeletedPath: "/tmp/legacy.md",
+    };
+
+    expect(normalizeExternalUpdateRuntimeState(legacySession)).toMatchObject({
+      externalUpdatePolicy: "ask",
+      lastNoticedExternalModifiedAt: null,
+      acknowledgedDeletedPath: null,
+    });
   });
 });

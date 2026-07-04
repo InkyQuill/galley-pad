@@ -26,6 +26,19 @@ export type LifecycleDependencies = {
   ) => Promise<FileWriteResult>;
 };
 
+export type ExternalFileChangeResult =
+  | { kind: "unchanged" }
+  | { kind: "deleted"; session: DocumentSession; path: string }
+  | { kind: "metadata-refresh"; session: DocumentSession }
+  | { kind: "clean-update"; session: DocumentSession; external: FileReadResult }
+  | {
+      kind: "conflict";
+      session: DocumentSession;
+      external: FileReadResult;
+      base: string;
+      local: string;
+    };
+
 export function createLifecycleDependencies(
   dependencies: LifecycleDependencies,
 ): LifecycleDependencies {
@@ -85,19 +98,105 @@ export async function saveDocumentAs(
   );
 }
 
+export async function checkExternalFileChange(
+  session: DocumentSession,
+  dependencies: LifecycleDependencies,
+): Promise<ExternalFileChangeResult> {
+  if (!session.path) {
+    return { kind: "unchanged" };
+  }
+
+  const external = await dependencies.readTextFile(session.path);
+  if (external.lastModifiedAt === null) {
+    if (session.lastKnownModifiedAt === null) {
+      return { kind: "unchanged" };
+    }
+
+    if (session.acknowledgedDeletedPath === session.path) {
+      return { kind: "unchanged" };
+    }
+
+    return { kind: "deleted", session, path: session.path };
+  }
+
+  const existingFileSession =
+    session.acknowledgedDeletedPath === null
+      ? session
+      : { ...session, acknowledgedDeletedPath: null };
+
+  if (
+    session.acknowledgedDeletedPath === null &&
+    (external.lastModifiedAt === session.lastKnownModifiedAt ||
+      external.lastModifiedAt === session.lastNoticedExternalModifiedAt)
+  ) {
+    return { kind: "unchanged" };
+  }
+
+  if (external.content === session.savedContent) {
+    return {
+      kind: "metadata-refresh",
+      session: {
+        ...existingFileSession,
+        lineEnding: external.lineEnding,
+        lastKnownModifiedAt: external.lastModifiedAt,
+        lastNoticedExternalModifiedAt: null,
+      },
+    };
+  }
+
+  if (external.content === session.content) {
+    return {
+      kind: "metadata-refresh",
+      session: {
+        ...existingFileSession,
+        savedContent: external.content,
+        dirty: false,
+        lineEnding: external.lineEnding,
+        lastKnownModifiedAt: external.lastModifiedAt,
+        lastNoticedExternalModifiedAt: null,
+      },
+    };
+  }
+
+  if (!session.dirty) {
+    return {
+      kind: "clean-update",
+      session: existingFileSession,
+      external,
+    };
+  }
+
+  return {
+    kind: "conflict",
+    session: existingFileSession,
+    external,
+    base: session.savedContent,
+    local: session.content,
+  };
+}
+
 async function assertFileUnchanged(
   session: DocumentSession,
   dependencies: LifecycleDependencies,
 ): Promise<void> {
-  if (!session.path || session.lastKnownModifiedAt === null) {
+  if (!session.path) {
     return;
   }
 
   const current = await dependencies.readTextFile(session.path);
-  if (
-    current.lastModifiedAt !== null &&
-    current.lastModifiedAt !== session.lastKnownModifiedAt
-  ) {
+  if (current.lastModifiedAt === null) {
+    if (session.acknowledgedDeletedPath === session.path) {
+      return;
+    }
+
+    throw new ExternalFileChangedError(session.path);
+  }
+
+  if (current.content === session.savedContent) {
+    return;
+  }
+
+  if (current.lastModifiedAt !== session.lastKnownModifiedAt) {
     throw new ExternalFileChangedError(session.path);
   }
 }
