@@ -2102,6 +2102,34 @@ describe("App", () => {
     ).resolves.toHaveTextContent("Use Save As to preserve your changes");
     expect(writeTextFileMock).not.toHaveBeenCalled();
   });
+
+  it("does not show command errors for background external check failures", async () => {
+    window.history.replaceState(null, "", "/?open=/tmp/flaky.md");
+    readTextFileMock
+      .mockResolvedValueOnce({
+        path: "/tmp/flaky.md",
+        content: "Loaded\n",
+        lineEnding: "lf",
+        lastModifiedAt: 10,
+      })
+      .mockRejectedValueOnce(new Error("temporary stat failure"));
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("Loaded\n");
+    });
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+
+    await waitFor(() => {
+      expect(readTextFileMock).toHaveBeenCalledTimes(2);
+    });
+    expect(
+      screen.queryByRole("alert", { name: "File command error" }),
+    ).not.toBeInTheDocument();
+  });
 });
 
 function deferred<T>() {

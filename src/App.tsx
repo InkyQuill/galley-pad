@@ -16,6 +16,7 @@ import {
 } from "./document/lifecycle";
 import {
   applyExternalFileReload,
+  createUntitledSession,
   markExternalUpdateNoticed,
   normalizeExternalUpdateRuntimeState,
   setExternalUpdatePolicy,
@@ -219,6 +220,69 @@ export default function App() {
       globalThis.document.removeEventListener(
         "visibilitychange",
         handleVisibilityChange,
+      );
+    };
+  }, []);
+
+  useEffect(() => {
+    if (import.meta.env.PROD) {
+      return;
+    }
+
+    function handleTestExternalUpdate(event: Event) {
+      const detail = (event as CustomEvent).detail;
+      if (!detail || typeof detail !== "object") {
+        return;
+      }
+
+      const current =
+        typeof detail.current === "string" ? detail.current : "Current\n";
+      const incoming =
+        typeof detail.incoming === "string" ? detail.incoming : "Incoming\n";
+      const displayName =
+        typeof detail.displayName === "string" ? detail.displayName : "notes.md";
+      const tabId = latestWorkspace.current.activeTabId;
+      const session: DocumentSession = {
+        ...createUntitledSession(),
+        id: "file:/tmp/test-external-update.md",
+        path: "/tmp/test-external-update.md",
+        displayName,
+        content: current,
+        savedContent: current,
+        dirty: false,
+        lastKnownModifiedAt: 1,
+      };
+      const warning: ExternalFileWarning = {
+        kind: "clean-update",
+        tabId,
+        result: {
+          kind: "clean-update",
+          session,
+          external: {
+            path: "/tmp/test-external-update.md",
+            content: incoming,
+            lineEnding: "lf",
+            lastModifiedAt: 2,
+          },
+        },
+      };
+
+      updateWorkspaceNow((workspace) =>
+        updateDocumentTab(workspace, tabId, () => session),
+      );
+      latestExternalFileWarning.current = warning;
+      setExternalFileWarning(warning);
+      setReconcileOpen(false);
+    }
+
+    window.addEventListener(
+      "galley-pad-test-external-update",
+      handleTestExternalUpdate,
+    );
+    return () => {
+      window.removeEventListener(
+        "galley-pad-test-external-update",
+        handleTestExternalUpdate,
       );
     };
   }, []);
@@ -752,7 +816,7 @@ export default function App() {
     void command(commandSnapshot)
       .then((next) => {
         if (next) {
-          setWorkspace((current) =>
+          updateWorkspaceNow((current) =>
             updateDocumentTab(current, tabId, (currentSession) =>
               applySaveResult(commandSnapshot, next, currentSession),
             ),
@@ -1080,8 +1144,8 @@ export default function App() {
         setExternalFileWarning(warning);
         setReconcileOpen(false);
       }
-    } catch (error: unknown) {
-      setCommandError(errorMessage(error));
+    } catch {
+      return;
     }
   }
 

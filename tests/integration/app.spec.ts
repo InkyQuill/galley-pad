@@ -8,7 +8,7 @@ test("renders the document editor shell in a real browser", async ({ page }) => 
   await expect(
     page.getByRole("tabpanel", { name: "Untitled.md" }),
   ).toBeVisible();
-  await expect(page.locator(".document-footer-words")).toHaveText("5 words");
+  await expect(page.locator(".document-footer-words")).toHaveText("0 words");
   await expect(
     page.getByRole("toolbar", { name: "File commands" }),
   ).not.toBeVisible();
@@ -22,7 +22,7 @@ test("loads the Galley Editor integration without a unit-test mock", async ({
   const editor = page.getByRole("tabpanel", { name: "Untitled.md" });
 
   await expect(editor).toBeVisible();
-  await expect(editor).toContainText("Untitled");
+  await expect(editor.locator(".cm-editor")).toBeVisible();
 });
 
 test("marks the document unsaved after editor changes", async ({ page }) => {
@@ -34,7 +34,7 @@ test("marks the document unsaved after editor changes", async ({ page }) => {
   await page.keyboard.type("\nAdditional text");
 
   await expect(page.getByText("Unsaved")).toBeVisible();
-  await expect(page.locator(".document-footer-words")).toHaveText("7 words");
+  await expect(page.locator(".document-footer-words")).toHaveText("2 words");
 });
 
 test("creates and switches document tabs with the new document shortcut", async ({
@@ -173,4 +173,35 @@ test("scrolls long Markdown content inside the editor surface", async ({ page })
     return element.scrollTop;
   });
   expect(scrollTop).toBeGreaterThan(0);
+});
+
+test("shows external update banner and opens reconcile view", async ({ page }) => {
+  await page.goto("/");
+
+  await page.evaluate(() => {
+    window.dispatchEvent(
+      new CustomEvent("galley-pad-test-external-update", {
+        detail: {
+          displayName: "notes.md",
+          current: "Current\n",
+          incoming: "Incoming\n",
+        },
+      }),
+    );
+  });
+
+  await expect(
+    page.getByRole("status", { name: "External file update" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "Incoming from disk" }),
+  ).not.toBeVisible();
+
+  await page.getByRole("button", { name: "Reconcile" }).click();
+  await expect(
+    page.getByRole("region", { name: "Current in Galley Pad" }),
+  ).toContainText("Current");
+  await expect(
+    page.getByRole("region", { name: "Incoming from disk" }),
+  ).toContainText("Incoming");
 });

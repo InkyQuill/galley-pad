@@ -311,6 +311,15 @@ textarea {
   background: var(--app-panel);
 }
 
+.document-area > .document-view,
+.document-area > .external-reconcile {
+  grid-row: 1 / -1;
+}
+
+.document-area > .external-file-banner + .document-view {
+  grid-row: auto;
+}
+
 .external-file-banner {
   display: flex;
   align-items: flex-start;
