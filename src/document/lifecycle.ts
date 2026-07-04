@@ -108,6 +108,10 @@ export async function checkExternalFileChange(
 
   const external = await dependencies.readTextFile(session.path);
   if (external.lastModifiedAt === null) {
+    if (session.acknowledgedDeletedPath === session.path) {
+      return { kind: "unchanged" };
+    }
+
     return { kind: "deleted", session, path: session.path };
   }
 

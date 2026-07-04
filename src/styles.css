@@ -441,7 +441,7 @@ textarea {
   overflow: auto;
   background: var(--app-panel);
   font-family:
-    "SFMono-Regular",
+    SFMono-Regular,
     Consolas,
     "Liberation Mono",
     monospace;

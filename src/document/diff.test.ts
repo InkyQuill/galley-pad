@@ -41,4 +41,21 @@ describe("side-by-side line diff", () => {
       { kind: "unchanged", left: "B", right: "B" },
     ]);
   });
+
+  it("uses a bounded linear fallback for large inputs", () => {
+    const left = Array.from({ length: 350 }, (_, index) => `L${index}`).join("\n");
+    const right = Array.from({ length: 350 }, (_, index) => `R${index}`).join(
+      "\n",
+    );
+
+    const rows = createSideBySideLineDiff(left, right);
+
+    expect(rows).toHaveLength(350);
+    expect(rows[0]).toEqual({ kind: "changed", left: "L0", right: "R0" });
+    expect(rows[rows.length - 1]).toEqual({
+      kind: "changed",
+      left: "L349",
+      right: "R349",
+    });
+  });
 });

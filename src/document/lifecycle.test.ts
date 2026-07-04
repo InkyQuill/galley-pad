@@ -347,6 +347,33 @@ describe("document lifecycle commands", () => {
     });
   });
 
+  it("does not repeat a deleted warning after the deletion is acknowledged", async () => {
+    const session = {
+      ...createSessionFromFile({
+        path: "/tmp/deleted.md",
+        content: "Base\n",
+        lineEnding: "lf",
+        lastModifiedAt: 10,
+      }),
+      acknowledgedDeletedPath: "/tmp/deleted.md",
+    };
+    const deps = createLifecycleDependencies({
+      pickOpenFile: vi.fn(),
+      pickSaveFile: vi.fn(),
+      readTextFile: vi.fn().mockResolvedValue({
+        path: "/tmp/deleted.md",
+        content: "",
+        lineEnding: "lf",
+        lastModifiedAt: null,
+      }),
+      writeTextFile: vi.fn(),
+    });
+
+    await expect(checkExternalFileChange(session, deps)).resolves.toEqual({
+      kind: "unchanged",
+    });
+  });
+
   it("refreshes metadata when the content is unchanged", async () => {
     const session = createSessionFromFile({
       path: "/tmp/metadata.md",

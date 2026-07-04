@@ -17,6 +17,7 @@ import {
 import {
   applyExternalFileReload,
   createUntitledSession,
+  markExternalDeletionAcknowledged,
   markExternalUpdateNoticed,
   normalizeExternalUpdateRuntimeState,
   setExternalUpdatePolicy,
@@ -1144,8 +1145,10 @@ export default function App() {
         setExternalFileWarning(warning);
         setReconcileOpen(false);
       }
-    } catch {
-      return;
+    } catch (error: unknown) {
+      if (!isExpectedExternalFileCheckError(error)) {
+        logUnexpectedExternalFileCheckError(checkedSession.path, error);
+      }
     }
   }
 
@@ -1177,6 +1180,15 @@ export default function App() {
     updateWorkspaceNow((current) =>
       updateDocumentTab(current, tabId, (session) =>
         markExternalUpdateNoticed(session, modifiedAt),
+      ),
+    );
+    clearExternalWarningForTab(tabId);
+  }
+
+  function acknowledgeExternalDeletion(tabId: string, path: string) {
+    updateWorkspaceNow((current) =>
+      updateDocumentTab(current, tabId, (session) =>
+        markExternalDeletionAcknowledged(session, path),
       ),
     );
     clearExternalWarningForTab(tabId);
@@ -1583,7 +1595,10 @@ export default function App() {
               kind="deleted"
               displayName={document.displayName}
               onKeepEditing={() =>
-                clearExternalWarningForTab(activeExternalFileWarning.tabId)
+                acknowledgeExternalDeletion(
+                  activeExternalFileWarning.tabId,
+                  activeExternalFileWarning.result.path,
+                )
               }
               onSaveAs={() => saveWarningTabAs(activeExternalFileWarning.tabId)}
             />
@@ -1945,6 +1960,33 @@ function sessionStillMatches(
     current.lastNoticedExternalModifiedAt ===
       snapshot.lastNoticedExternalModifiedAt
   );
+}
+
+function isExpectedExternalFileCheckError(error: unknown): boolean {
+  const message = errorMessage(error).toLowerCase();
+  return [
+    "enoent",
+    "eacces",
+    "eperm",
+    "ebusy",
+    "not found",
+    "no such file",
+    "does not exist",
+    "permission denied",
+    "access denied",
+    "resource busy",
+    "temporary",
+  ].some((pattern) => message.includes(pattern));
+}
+
+function logUnexpectedExternalFileCheckError(
+  path: string | null,
+  error: unknown,
+) {
+  console.error("Unexpected external file check failure", {
+    path,
+    error,
+  });
 }
 
 function errorMessage(error: unknown): string {

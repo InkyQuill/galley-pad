@@ -6,12 +6,18 @@ export type SideBySideDiffRow = {
   right: string;
 };
 
+const MAX_LCS_CELLS = 120_000;
+
 export function createSideBySideLineDiff(
   leftText: string,
   rightText: string,
 ): SideBySideDiffRow[] {
   const left = splitLines(leftText);
   const right = splitLines(rightText);
+  if (left.length * right.length > MAX_LCS_CELLS) {
+    return createLinearReplacementDiff(left, right);
+  }
+
   const table = lcsTable(left, right);
   const rows: SideBySideDiffRow[] = [];
   let i = 0;
@@ -51,6 +57,30 @@ export function createSideBySideLineDiff(
   while (j < right.length) {
     rows.push({ kind: "added", left: "", right: right[j] });
     j += 1;
+  }
+
+  return rows;
+}
+
+function createLinearReplacementDiff(
+  left: string[],
+  right: string[],
+): SideBySideDiffRow[] {
+  const rows: SideBySideDiffRow[] = [];
+  const length = Math.max(left.length, right.length);
+
+  for (let index = 0; index < length; index += 1) {
+    const leftLine = left[index] ?? "";
+    const rightLine = right[index] ?? "";
+    if (leftLine === rightLine) {
+      rows.push({ kind: "unchanged", left: leftLine, right: rightLine });
+    } else if (leftLine === "") {
+      rows.push({ kind: "added", left: "", right: rightLine });
+    } else if (rightLine === "") {
+      rows.push({ kind: "removed", left: leftLine, right: "" });
+    } else {
+      rows.push({ kind: "changed", left: leftLine, right: rightLine });
+    }
   }
 
   return rows;

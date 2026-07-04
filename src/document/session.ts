@@ -25,6 +25,7 @@ export type DocumentSession = {
   lastKnownModifiedAt: number | null;
   externalUpdatePolicy: ExternalUpdatePolicy;
   lastNoticedExternalModifiedAt: number | null;
+  acknowledgedDeletedPath: string | null;
 };
 
 export const INITIAL_DOCUMENT = "";
@@ -32,9 +33,12 @@ export const INITIAL_DOCUMENT = "";
 const EXTERNAL_UPDATE_RUNTIME_DEFAULTS = {
   externalUpdatePolicy: "ask" as const,
   lastNoticedExternalModifiedAt: null,
+  acknowledgedDeletedPath: null,
 } satisfies Pick<
   DocumentSession,
-  "externalUpdatePolicy" | "lastNoticedExternalModifiedAt"
+  | "externalUpdatePolicy"
+  | "lastNoticedExternalModifiedAt"
+  | "acknowledgedDeletedPath"
 >;
 
 export function createUntitledSession(): DocumentSession {
@@ -89,7 +93,8 @@ export function markSessionSaved(
     dirty: false,
     lineEnding: result.lineEnding,
     lastKnownModifiedAt: result.lastModifiedAt,
-    ...EXTERNAL_UPDATE_RUNTIME_DEFAULTS,
+    lastNoticedExternalModifiedAt: null,
+    acknowledgedDeletedPath: null,
   };
 }
 
@@ -107,6 +112,13 @@ export function markExternalUpdateNoticed(
   return { ...session, lastNoticedExternalModifiedAt };
 }
 
+export function markExternalDeletionAcknowledged(
+  session: DocumentSession,
+  acknowledgedDeletedPath: string | null,
+): DocumentSession {
+  return { ...session, acknowledgedDeletedPath };
+}
+
 export function applyExternalFileReload(
   session: DocumentSession,
   file: FileReadResult,
@@ -122,6 +134,7 @@ export function applyExternalFileReload(
     lineEnding: file.lineEnding,
     lastKnownModifiedAt: file.lastModifiedAt,
     lastNoticedExternalModifiedAt: null,
+    acknowledgedDeletedPath: null,
   };
 }
 
@@ -137,12 +150,14 @@ export function resetExternalUpdateRuntimeState(
 export function normalizeExternalUpdateRuntimeState(
   session: Omit<
     DocumentSession,
-    "externalUpdatePolicy" | "lastNoticedExternalModifiedAt"
+    | "externalUpdatePolicy"
+    | "lastNoticedExternalModifiedAt"
+    | "acknowledgedDeletedPath"
   > &
     Partial<
       Pick<
         DocumentSession,
-        "externalUpdatePolicy" | "lastNoticedExternalModifiedAt"
+        "externalUpdatePolicy" | "lastNoticedExternalModifiedAt" | "acknowledgedDeletedPath"
       >
     >,
 ): DocumentSession {

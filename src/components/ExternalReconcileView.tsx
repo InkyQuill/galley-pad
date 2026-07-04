@@ -1,4 +1,4 @@
-import { useMemo, useRef, type RefObject } from "react";
+import { useEffect, useMemo, useRef, type RefObject } from "react";
 import { createSideBySideLineDiff, type SideBySideDiffRow } from "../document/diff";
 
 export type ExternalReconcileViewProps = {
@@ -29,6 +29,15 @@ export function ExternalReconcileView({
   const leftRef = useRef<HTMLDivElement>(null);
   const rightRef = useRef<HTMLDivElement>(null);
   const syncing = useRef(false);
+  const syncFrame = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (syncFrame.current !== null) {
+        window.cancelAnimationFrame(syncFrame.current);
+      }
+    };
+  }, []);
 
   function syncScroll(source: "left" | "right") {
     if (syncing.current) {
@@ -40,11 +49,20 @@ export function ExternalReconcileView({
     if (!from || !to) {
       return;
     }
+    if (to.scrollTop === from.scrollTop && to.scrollLeft === from.scrollLeft) {
+      return;
+    }
 
     syncing.current = true;
     to.scrollTop = from.scrollTop;
     to.scrollLeft = from.scrollLeft;
-    syncing.current = false;
+    if (syncFrame.current !== null) {
+      window.cancelAnimationFrame(syncFrame.current);
+    }
+    syncFrame.current = window.requestAnimationFrame(() => {
+      syncing.current = false;
+      syncFrame.current = null;
+    });
   }
 
   return (
@@ -97,7 +115,7 @@ function DiffPane({
   onScroll: () => void;
 }) {
   return (
-    <section className="external-reconcile-pane" role="region" aria-label={label}>
+    <section className="external-reconcile-pane" aria-label={label}>
       <h3>{label}</h3>
       <div
         className="external-reconcile-editor"
