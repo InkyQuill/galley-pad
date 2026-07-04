@@ -5,6 +5,7 @@ import {
   createUntitledSession,
   markExternalUpdateNoticed,
   markSessionSaved,
+  normalizeExternalUpdateRuntimeState,
   resetExternalUpdateRuntimeState,
   setExternalUpdatePolicy,
   updateSessionContent,
@@ -44,6 +45,8 @@ describe("document session model", () => {
     expect(session.dirty).toBe(false);
     expect(session.lineEnding).toBe("crlf");
     expect(session.lastKnownModifiedAt).toBe(1_765_000_000_000);
+    expect(session.externalUpdatePolicy).toBe("ask");
+    expect(session.lastNoticedExternalModifiedAt).toBeNull();
   });
 
   it("handles Windows paths when deriving the display name", () => {
@@ -84,6 +87,8 @@ describe("document session model", () => {
     expect(saved.savedContent).toBe("Saved text\n");
     expect(saved.dirty).toBe(false);
     expect(saved.lastKnownModifiedAt).toBe(1_765_000_001_000);
+    expect(saved.externalUpdatePolicy).toBe("ask");
+    expect(saved.lastNoticedExternalModifiedAt).toBeNull();
   });
 
   it("manages external update runtime state", () => {
@@ -107,6 +112,9 @@ describe("document session model", () => {
       lastModifiedAt: 14,
     });
     expect(reloaded).toMatchObject({
+      id: "file:/tmp/notes.md",
+      path: "/tmp/notes.md",
+      displayName: "notes.md",
       content: "External\n",
       savedContent: "External\n",
       dirty: false,
@@ -117,6 +125,24 @@ describe("document session model", () => {
     });
 
     expect(resetExternalUpdateRuntimeState(reloaded)).toMatchObject({
+      externalUpdatePolicy: "ask",
+      lastNoticedExternalModifiedAt: null,
+    });
+  });
+
+  it("normalizes missing external update runtime state", () => {
+    const legacySession = {
+      id: "file:/tmp/legacy.md",
+      path: "/tmp/legacy.md",
+      displayName: "legacy.md",
+      content: "Dirty legacy\n",
+      savedContent: "",
+      dirty: true,
+      lineEnding: "lf" as const,
+      lastKnownModifiedAt: 20,
+    };
+
+    expect(normalizeExternalUpdateRuntimeState(legacySession)).toMatchObject({
       externalUpdatePolicy: "ask",
       lastNoticedExternalModifiedAt: null,
     });

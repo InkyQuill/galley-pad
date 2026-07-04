@@ -11,6 +11,7 @@ import {
   type LifecycleDependencies,
 } from "./document/lifecycle";
 import {
+  normalizeExternalUpdateRuntimeState,
   updateSessionContent,
   type DocumentSession,
 } from "./document/session";
@@ -1531,7 +1532,7 @@ function createSwapState(workspace: DocumentWorkspace): PersistedSwapState | nul
     openMode: workspace.openMode,
     tabs: workspace.tabs.map((tab) => ({
       id: tab.id,
-      session: tab.session,
+      session: serializeSessionForSwap(tab.session),
     })),
   };
 }
@@ -1544,7 +1545,10 @@ function restoreWorkspaceFromSwap(
   }
 
   const tabs = Array.isArray(swap.tabs)
-    ? swap.tabs.filter((tab) => isPersistedTab(tab))
+    ? swap.tabs.filter((tab) => isPersistedTab(tab)).map((tab) => ({
+        ...tab,
+        session: normalizeExternalUpdateRuntimeState(tab.session),
+      }))
     : [];
   if (tabs.length === 0 || !tabs.some((tab) => tab.session.dirty)) {
     return null;
@@ -1558,6 +1562,32 @@ function restoreWorkspaceFromSwap(
     tabs,
     activeTabId,
     openMode: swap.openMode,
+  };
+}
+
+function serializeSessionForSwap(
+  session: DocumentSession,
+): PersistedSwapState["tabs"][number]["session"] {
+  const {
+    id,
+    path,
+    displayName,
+    content,
+    savedContent,
+    dirty,
+    lineEnding,
+    lastKnownModifiedAt,
+  } = session;
+
+  return {
+    id,
+    path,
+    displayName,
+    content,
+    savedContent,
+    dirty,
+    lineEnding,
+    lastKnownModifiedAt,
   };
 }
 

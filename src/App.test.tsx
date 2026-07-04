@@ -536,6 +536,12 @@ describe("App", () => {
         }),
       );
     });
+
+    const lastWrite =
+      writeSwapStateMock.mock.calls[writeSwapStateMock.mock.calls.length - 1];
+    const writtenSession = lastWrite?.[0].tabs[0]?.session;
+    expect(writtenSession).not.toHaveProperty("externalUpdatePolicy");
+    expect(writtenSession).not.toHaveProperty("lastNoticedExternalModifiedAt");
   });
 
   it("waits for swap restoration before applying pending file opens", async () => {

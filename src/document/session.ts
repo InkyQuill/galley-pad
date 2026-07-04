@@ -32,7 +32,10 @@ export const INITIAL_DOCUMENT = "";
 const EXTERNAL_UPDATE_RUNTIME_DEFAULTS = {
   externalUpdatePolicy: "ask" as const,
   lastNoticedExternalModifiedAt: null,
-};
+} satisfies Pick<
+  DocumentSession,
+  "externalUpdatePolicy" | "lastNoticedExternalModifiedAt"
+>;
 
 export function createUntitledSession(): DocumentSession {
   return {
@@ -128,6 +131,29 @@ export function resetExternalUpdateRuntimeState(
   return {
     ...session,
     ...EXTERNAL_UPDATE_RUNTIME_DEFAULTS,
+  };
+}
+
+export function normalizeExternalUpdateRuntimeState(
+  session: Omit<
+    DocumentSession,
+    "externalUpdatePolicy" | "lastNoticedExternalModifiedAt"
+  > &
+    Partial<
+      Pick<
+        DocumentSession,
+        "externalUpdatePolicy" | "lastNoticedExternalModifiedAt"
+      >
+    >,
+): DocumentSession {
+  return {
+    ...session,
+    externalUpdatePolicy:
+      session.externalUpdatePolicy === "follow" ? "follow" : "ask",
+    lastNoticedExternalModifiedAt:
+      typeof session.lastNoticedExternalModifiedAt === "number"
+        ? session.lastNoticedExternalModifiedAt
+        : null,
   };
 }
 
