@@ -114,6 +114,7 @@ describe("themeToCssVariables", () => {
       "--ge-color-token-operator": "#555555",
       "--ge-color-token-punctuation": "#555555",
       "--ge-shadow-editor": "none",
+      "--ge-content-padding": "42px 28px",
     });
   });
 });

@@ -1,4 +1,4 @@
-import { Search } from "lucide-react";
+import { TbSearch } from "react-icons/tb";
 import {
   type CSSProperties,
   useEffect,
@@ -190,7 +190,7 @@ export function FontPicker({
               style={popoverStyle}
             >
               <label className="font-picker__search" htmlFor={searchId}>
-                <Search aria-hidden="true" size={14} />
+                <TbSearch aria-hidden="true" size={14} />
                 <input
                   id={searchId}
                   type="search"

@@ -8,10 +8,12 @@ export function GalleyEditor({
   layout = "autosize",
   theme = "auto",
   surface,
+  tableControlIcons,
 }: {
   value: string;
   onChange: (content: string) => void;
   toolbar?: boolean | { icons?: Record<string, unknown> };
+  tableControlIcons?: Record<string, unknown>;
   footer?:
     | boolean
     | {
@@ -33,6 +35,7 @@ export function GalleyEditor({
 }) {
   const iconCount =
     typeof toolbar === "object" ? Object.keys(toolbar.icons ?? {}).length : 0;
+  const tableControlIconCount = Object.keys(tableControlIcons ?? {}).length;
   const footerOptions = typeof footer === "object" ? footer : {};
   const words = value.trim().match(/\S+/g)?.length ?? 0;
 
@@ -47,6 +50,9 @@ export function GalleyEditor({
       {toolbar ? (
         <div role="toolbar" aria-label="Mock Galley Toolbar">
           <span aria-label="Mock toolbar icon count">{iconCount}</span>
+          <span aria-label="Mock table control icon count">
+            {tableControlIconCount}
+          </span>
         </div>
       ) : null}
       <textarea

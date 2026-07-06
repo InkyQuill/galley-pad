@@ -1,3 +1,11 @@
+## Unreleased
+
+### Fixed
+
+- Updated Galley Editor to 0.10.2 for corrected table block widths.
+- Replaced Galley toolbar and table block controls with Tabler icons.
+- Reduced Galley Pad editor content left and right padding.
+
 ## [1.2.2](https://github.com/InkyQuill/galley-pad/compare/v1.2.1...v1.2.2) (2026-07-04)
 
 ## [1.2.1](https://github.com/InkyQuill/galley-pad/compare/v1.2.0...v1.2.1) (2026-07-04)

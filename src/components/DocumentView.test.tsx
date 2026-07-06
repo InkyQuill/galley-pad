@@ -63,6 +63,9 @@ describe("DocumentView", () => {
     expect(screen.getByLabelText("Mock toolbar icon count")).toHaveTextContent(
       "15",
     );
+    expect(
+      screen.getByLabelText("Mock table control icon count"),
+    ).toHaveTextContent("11");
   });
 
   it("passes theme and status into Galley chrome", () => {
