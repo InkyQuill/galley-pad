@@ -160,20 +160,35 @@ function toolbarIcon(Icon: IconType) {
 }
 
 function tableControlIcon(Icon: IconType) {
-  return ({ label }: { label: string }) => {
+  let cachedSvg: HTMLElement | null | undefined;
+
+  function getCachedSvg() {
+    if (cachedSvg !== undefined) {
+      return cachedSvg;
+    }
+
     const template = document.createElement("template");
     template.innerHTML = renderToStaticMarkup(
       <Icon size={16} strokeWidth={2} />,
     );
-    const svg = template.content.firstElementChild as HTMLElement | null;
+    cachedSvg = template.content.firstElementChild as HTMLElement | null;
+
+    if (cachedSvg) {
+      cachedSvg.classList.add("galley-table-control-icon");
+      cachedSvg.setAttribute("aria-hidden", "true");
+      cachedSvg.setAttribute("focusable", "false");
+    }
+
+    return cachedSvg;
+  }
+
+  return ({ label }: { label: string }) => {
+    const svg = getCachedSvg()?.cloneNode(true) as HTMLElement | undefined;
 
     if (!svg) {
       return null;
     }
 
-    svg.classList.add("galley-table-control-icon");
-    svg.setAttribute("aria-hidden", "true");
-    svg.setAttribute("focusable", "false");
     svg.setAttribute("title", label);
 
     return svg;

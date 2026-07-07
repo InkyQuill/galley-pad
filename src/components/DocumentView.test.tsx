@@ -1,8 +1,17 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { DocumentView } from "./DocumentView";
 
 vi.mock("@inkyquill/galley-editor", () => import("../test/galley-editor.mock"));
+vi.mock("react-dom/server", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react-dom/server")>();
+
+  return {
+    ...actual,
+    renderToStaticMarkup: vi.fn(actual.renderToStaticMarkup),
+  };
+});
 
 describe("DocumentView", () => {
   it("renders the markdown editor region", () => {
@@ -66,6 +75,23 @@ describe("DocumentView", () => {
     expect(
       screen.getByLabelText("Mock table control icon count"),
     ).toHaveTextContent("11");
+    expect(vi.mocked(renderToStaticMarkup)).toHaveBeenCalledTimes(11);
+    expect(screen.getByLabelText("Mock table control icon 0")).toHaveAttribute(
+      "data-title",
+      "insertRowBefore first",
+    );
+    expect(screen.getByLabelText("Mock table control icon 1")).toHaveAttribute(
+      "data-title",
+      "insertRowBefore second",
+    );
+    expect(screen.getByLabelText("Mock table control icon 0")).toHaveAttribute(
+      "data-class-name",
+      expect.stringContaining("galley-table-control-icon"),
+    );
+    expect(screen.getByLabelText("Mock table control icon 0")).toHaveAttribute(
+      "data-distinct",
+      "true",
+    );
   });
 
   it("passes theme and status into Galley chrome", () => {
