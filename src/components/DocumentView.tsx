@@ -1,27 +1,40 @@
 import {
   GalleyEditor,
   type GalleyFooterContext,
+  type GalleyTableControlIconName,
   type ToolbarIconName,
 } from "@inkyquill/galley-editor";
 import type { CSSProperties, ReactNode } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import {
-  Bold,
-  Code,
-  CodeXml,
-  Image,
-  Italic,
-  Link,
-  List,
-  ListChecks,
-  ListOrdered,
-  PanelsTopLeft,
-  Redo2,
-  SeparatorHorizontal,
-  Strikethrough,
-  Table2,
-  Undo2,
-  type LucideIcon,
-} from "lucide-react";
+  TbAlignCenter,
+  TbAlignLeft,
+  TbAlignRight,
+  TbBold,
+  TbClearFormatting,
+  TbCode,
+  TbCodeblock,
+  TbColumnInsertLeft,
+  TbColumnInsertRight,
+  TbColumnRemove,
+  TbLayoutSidebarRight,
+  TbLink,
+  TbList,
+  TbListCheck,
+  TbListNumbers,
+  TbMarkdown,
+  TbPhoto,
+  TbRowInsertBottom,
+  TbRowInsertTop,
+  TbRowRemove,
+  TbSeparatorHorizontal,
+  TbStrikethrough,
+  TbTable,
+  TbArrowBackUp,
+  TbArrowForwardUp,
+  TbItalic,
+} from "react-icons/tb";
+import type { IconType } from "react-icons";
 import { GalleyPadFooterMark } from "./GalleyPadFooterMark";
 import {
   editorFontStyle,
@@ -83,6 +96,7 @@ export function DocumentView({
               }
             : false
         }
+        tableControlIcons={GALLEY_TABLE_CONTROL_ICONS}
         footer={{
           before: <span className="document-footer-status">{status}</span>,
           after: ({ wordCount }: GalleyFooterContext) => (
@@ -103,27 +117,80 @@ export function DocumentView({
 }
 
 const GALLEY_TOOLBAR_ICONS: Record<ToolbarIconName, ReactNode> = {
-  bold: icon(Bold),
-  italic: icon(Italic),
-  strikethrough: icon(Strikethrough),
-  inlineCode: icon(Code),
-  bulletList: icon(List),
-  orderedList: icon(ListOrdered),
-  taskList: icon(ListChecks),
-  link: icon(Link),
-  image: icon(Image),
-  codeBlock: icon(CodeXml),
-  table: icon(Table2),
-  divider: icon(SeparatorHorizontal),
-  undo: icon(Undo2),
-  redo: icon(Redo2),
-  mode: icon(PanelsTopLeft),
+  bold: toolbarIcon(TbBold),
+  italic: toolbarIcon(TbItalic),
+  strikethrough: toolbarIcon(TbStrikethrough),
+  inlineCode: toolbarIcon(TbCode),
+  bulletList: toolbarIcon(TbList),
+  orderedList: toolbarIcon(TbListNumbers),
+  taskList: toolbarIcon(TbListCheck),
+  link: toolbarIcon(TbLink),
+  image: toolbarIcon(TbPhoto),
+  codeBlock: toolbarIcon(TbCodeblock),
+  table: toolbarIcon(TbTable),
+  divider: toolbarIcon(TbSeparatorHorizontal),
+  undo: toolbarIcon(TbArrowBackUp),
+  redo: toolbarIcon(TbArrowForwardUp),
+  mode: toolbarIcon(TbLayoutSidebarRight),
 };
 
-function icon(Icon: LucideIcon) {
+const GALLEY_TABLE_CONTROL_ICONS: Record<
+  GalleyTableControlIconName,
+  ({ label }: { label: string }) => HTMLElement | null
+> = {
+  insertRowBefore: tableControlIcon(TbRowInsertTop),
+  insertRowAfter: tableControlIcon(TbRowInsertBottom),
+  insertColumnBefore: tableControlIcon(TbColumnInsertLeft),
+  insertColumnAfter: tableControlIcon(TbColumnInsertRight),
+  deleteRow: tableControlIcon(TbRowRemove),
+  deleteColumn: tableControlIcon(TbColumnRemove),
+  alignLeft: tableControlIcon(TbAlignLeft),
+  alignCenter: tableControlIcon(TbAlignCenter),
+  alignRight: tableControlIcon(TbAlignRight),
+  clearAlignment: tableControlIcon(TbClearFormatting),
+  editSource: tableControlIcon(TbMarkdown),
+};
+
+function toolbarIcon(Icon: IconType) {
   return (
     <span className="galley-toolbar-icon" aria-hidden="true">
       <Icon size={16} strokeWidth={2} />
     </span>
   );
+}
+
+function tableControlIcon(Icon: IconType) {
+  let cachedSvg: HTMLElement | null | undefined;
+
+  function getCachedSvg() {
+    if (cachedSvg !== undefined) {
+      return cachedSvg;
+    }
+
+    const template = document.createElement("template");
+    template.innerHTML = renderToStaticMarkup(
+      <Icon size={16} strokeWidth={2} />,
+    );
+    cachedSvg = template.content.firstElementChild as HTMLElement | null;
+
+    if (cachedSvg) {
+      cachedSvg.classList.add("galley-table-control-icon");
+      cachedSvg.setAttribute("aria-hidden", "true");
+      cachedSvg.setAttribute("focusable", "false");
+    }
+
+    return cachedSvg;
+  }
+
+  return ({ label }: { label: string }) => {
+    const svg = getCachedSvg()?.cloneNode(true) as HTMLElement | undefined;
+
+    if (!svg) {
+      return null;
+    }
+
+    svg.setAttribute("title", label);
+
+    return svg;
+  };
 }

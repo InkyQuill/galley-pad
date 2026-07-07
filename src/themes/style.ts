@@ -51,5 +51,6 @@ export function themeToCssVariables(theme: ThemeDefinition): ThemeCssVariables {
     "--ge-color-token-operator": syntax.operator,
     "--ge-color-token-punctuation": syntax.punctuation,
     "--ge-shadow-editor": "none",
+    "--ge-content-padding": "42px 28px",
   };
 }

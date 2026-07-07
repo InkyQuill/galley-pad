@@ -139,6 +139,16 @@ fn linux_desktop_template_launches_packaged_gpad_with_markdown_files() {
     );
 }
 
+#[test]
+fn windows_release_binary_uses_gui_subsystem() {
+    let main_rs = include_str!("../src/main.rs");
+
+    assert!(
+        main_rs.contains(r#"#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]"#),
+        "Windows release builds should not allocate a console window on app launch"
+    );
+}
+
 /// Verifies that the configured CLI alias is `gpad` and avoids common name collisions.
 ///
 /// # Panics

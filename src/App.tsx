@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, List, Plus, X } from "lucide-react";
+import {
+  TbChevronLeft,
+  TbChevronRight,
+  TbList,
+  TbPlus,
+  TbX,
+} from "react-icons/tb";
 import { DocumentView } from "./components/DocumentView";
 import { ExternalFileBanner } from "./components/ExternalFileBanner";
 import { ExternalReconcileView } from "./components/ExternalReconcileView";
@@ -1466,7 +1472,7 @@ export default function App() {
             aria-expanded={tabMenuOpen}
             onClick={() => setTabMenuOpen((open) => !open)}
           >
-            <List size={15} strokeWidth={2} aria-hidden="true" />
+            <TbList size={15} strokeWidth={2} aria-hidden="true" />
           </button>
           {tabMenuOpen ? (
             <div className="tab-menu" role="menu" aria-label="Open tabs">
@@ -1495,7 +1501,7 @@ export default function App() {
                       aria-label={`Close ${tab.session.displayName}`}
                       onClick={() => void requestCloseTab(tab.id)}
                     >
-                      <X size={14} strokeWidth={2} aria-hidden="true" />
+                      <TbX size={14} strokeWidth={2} aria-hidden="true" />
                     </button>
                   </li>
                 ))}
@@ -1535,7 +1541,7 @@ export default function App() {
                   aria-label={`Close ${tab.session.displayName}`}
                   onClick={() => void requestCloseTab(tab.id)}
                 >
-                  <X size={14} strokeWidth={2} aria-hidden="true" />
+                  <TbX size={14} strokeWidth={2} aria-hidden="true" />
                 </button>
               ) : null}
             </div>
@@ -1548,7 +1554,7 @@ export default function App() {
           disabled={!tabScrollState.canScrollLeft}
           onClick={() => scrollTabs("left")}
         >
-          <ChevronLeft size={15} strokeWidth={2} aria-hidden="true" />
+          <TbChevronLeft size={15} strokeWidth={2} aria-hidden="true" />
         </button>
         <button
           type="button"
@@ -1557,7 +1563,7 @@ export default function App() {
           disabled={!tabScrollState.canScrollRight}
           onClick={() => scrollTabs("right")}
         >
-          <ChevronRight size={15} strokeWidth={2} aria-hidden="true" />
+          <TbChevronRight size={15} strokeWidth={2} aria-hidden="true" />
         </button>
         <button
           type="button"
@@ -1565,7 +1571,7 @@ export default function App() {
           aria-label="New tab"
           onClick={addNewTab}
         >
-          <Plus size={15} strokeWidth={2} aria-hidden="true" />
+          <TbPlus size={15} strokeWidth={2} aria-hidden="true" />
         </button>
       </nav>
 
@@ -1582,7 +1588,7 @@ export default function App() {
               aria-label="Dismiss file command error"
               onClick={() => setCommandError(null)}
             >
-              <X size={14} strokeWidth={2} aria-hidden="true" />
+              <TbX size={14} strokeWidth={2} aria-hidden="true" />
             </button>
           </div>
         ) : null}
@@ -1716,7 +1722,7 @@ export default function App() {
               aria-label="Close settings"
               onClick={closeSettings}
             >
-              <X size={16} strokeWidth={2} aria-hidden="true" />
+              <TbX size={16} strokeWidth={2} aria-hidden="true" />
             </button>
           </header>
           <fieldset>
