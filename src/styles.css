@@ -155,6 +155,18 @@ textarea {
   color: var(--app-text-muted);
   font-size: 13px;
   line-height: 1;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 100ms ease,
+    visibility 100ms ease;
+}
+
+.tab:hover .tab-close,
+.tab:focus-within .tab-close,
+.tab-active .tab-close {
+  opacity: 1;
+  visibility: visible;
 }
 
 .tab-close svg {

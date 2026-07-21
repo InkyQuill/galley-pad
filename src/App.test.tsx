@@ -204,6 +204,125 @@ describe("App", () => {
     expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("");
   });
 
+  it("renders a close control for every tab", () => {
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: "n", ctrlKey: true });
+
+    expect(
+      screen.getAllByRole("button", { name: "Close Untitled.md" }),
+    ).toHaveLength(2);
+  });
+
+  it("keeps an inactive close control in the DOM when its tab is focused", () => {
+    render(<App />);
+    fireEvent.keyDown(window, { key: "n", ctrlKey: true });
+
+    const inactiveTab = screen.getAllByRole("tab", { name: "Untitled.md" })[0];
+    const inactiveTabWrapper = inactiveTab.closest(".tab");
+    const closeButton = within(inactiveTabWrapper as HTMLElement).getByRole(
+      "button",
+      { name: "Close Untitled.md" },
+    );
+
+    inactiveTab.focus();
+
+    expect(inactiveTab).toHaveFocus();
+    expect(closeButton).toBeInTheDocument();
+    expect(inactiveTabWrapper).not.toHaveClass("tab-active");
+  });
+
+  it("middle-clicks an inactive clean tab without selecting it first", async () => {
+    render(<App />);
+    fireEvent.keyDown(window, { key: "n", ctrlKey: true });
+
+    const tabs = screen.getAllByRole("tab", { name: "Untitled.md" });
+    const inactiveTab = tabs[0];
+    const activeTab = tabs[1];
+    expect(inactiveTab).toHaveAttribute("aria-selected", "false");
+    expect(activeTab).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.mouseDown(inactiveTab.closest(".tab")!, { button: 1 });
+
+    expect(inactiveTab).toHaveAttribute("aria-selected", "false");
+    expect(activeTab).toHaveAttribute("aria-selected", "true");
+    await waitFor(() => {
+      expect(screen.getAllByRole("tab", { name: "Untitled.md" })).toHaveLength(1);
+    });
+    expect(activeTab).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("cancels middle-click close for a dirty inactive tab without losing content", async () => {
+    render(<App />);
+    fireEvent.change(screen.getByLabelText("Mock Galley Editor"), {
+      target: { value: "Dirty inactive draft" },
+    });
+    fireEvent.keyDown(window, { key: "n", ctrlKey: true });
+
+    const tabs = screen.getAllByRole("tab", { name: /Untitled\.md/ });
+    const inactiveTab = tabs[0];
+    const activeTab = tabs[1];
+    fireEvent.mouseDown(inactiveTab.closest(".tab")!, { button: 1 });
+
+    await screen.findByRole("dialog", { name: "Save changes?" });
+    expect(activeTab).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("dialog", { name: "Save changes?" }),
+      ).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(inactiveTab);
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
+      "Dirty inactive draft",
+    );
+  });
+
+  it("middle-clicks a tab menu row to close its tab and menu", async () => {
+    render(<App />);
+    fireEvent.keyDown(window, { key: "n", ctrlKey: true });
+    fireEvent.click(screen.getByRole("button", { name: "Show tabs" }));
+
+    const menuItem = screen.getAllByRole("menuitem", { name: "Untitled.md" })[0];
+    fireEvent.mouseDown(menuItem.closest(".tab-menu-item")!, { button: 1 });
+
+    expect(
+      screen.queryByRole("menu", { name: "Open tabs" }),
+    ).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getAllByRole("tab", { name: "Untitled.md" })).toHaveLength(1);
+    });
+  });
+
+  it("does not close a tab from a left-button mousedown", () => {
+    render(<App />);
+    fireEvent.keyDown(window, { key: "n", ctrlKey: true });
+
+    const inactiveTab = screen.getAllByRole("tab", { name: "Untitled.md" })[0];
+    fireEvent.mouseDown(inactiveTab.closest(".tab")!, { button: 0 });
+
+    expect(screen.getAllByRole("tab", { name: "Untitled.md" })).toHaveLength(2);
+    expect(
+      screen.queryByRole("dialog", { name: "Save changes?" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("makes one dirty-tab close attempt per middle-button press", async () => {
+    render(<App />);
+    fireEvent.change(screen.getByLabelText("Mock Galley Editor"), {
+      target: { value: "Dirty inactive draft" },
+    });
+    fireEvent.keyDown(window, { key: "n", ctrlKey: true });
+
+    const inactiveTab = screen.getAllByRole("tab", { name: /Untitled\.md/ })[0];
+    fireEvent.mouseDown(inactiveTab.closest(".tab")!, { button: 1 });
+
+    expect(
+      await screen.findAllByRole("dialog", { name: "Save changes?" }),
+    ).toHaveLength(1);
+  });
+
   it("shows a tab menu with select and close actions", async () => {
     render(<App />);
     fireEvent.change(screen.getByLabelText("Mock Galley Editor"), {
@@ -698,7 +817,15 @@ describe("App", () => {
       menuHandler?.("new");
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Close Untitled.md" }));
+    const activeTab = screen.getByRole("tab", {
+      name: "Untitled.md",
+      selected: true,
+    });
+    fireEvent.click(
+      within(activeTab.closest(".tab") as HTMLElement).getByRole("button", {
+        name: "Close Untitled.md",
+      }),
+    );
 
     await waitFor(() => {
       expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
