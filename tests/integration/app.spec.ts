@@ -1,4 +1,94 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
+
+type SelectionMutation = {
+  attribute: "aria-selected" | "class";
+  currentValue: string | null;
+  oldValue: string | null;
+};
+
+async function observeSelectionMutations(
+  target: Locator,
+): Promise<() => Promise<SelectionMutation[]>> {
+  const handle = await target.elementHandle();
+  if (!handle) {
+    throw new Error("Expected selection target to be attached");
+  }
+
+  await handle.evaluate((element) => {
+    type TrackedElement = Element & {
+      __selectionTracker?: {
+        changes: SelectionMutation[];
+        observer: MutationObserver;
+      };
+    };
+    const trackedElement = element as TrackedElement;
+    const changes: SelectionMutation[] = [];
+    const record = (mutations: MutationRecord[]) => {
+      for (const mutation of mutations) {
+        const attribute = mutation.attributeName;
+        if (attribute !== "aria-selected" && attribute !== "class") {
+          continue;
+        }
+        changes.push({
+          attribute,
+          currentValue: (mutation.target as Element).getAttribute(attribute),
+          oldValue: mutation.oldValue,
+        });
+      }
+    };
+    const observer = new MutationObserver(record);
+    observer.observe(element, {
+      attributeFilter: ["aria-selected", "class"],
+      attributeOldValue: true,
+      attributes: true,
+      subtree: true,
+    });
+    trackedElement.__selectionTracker = { changes, observer };
+  });
+
+  return () =>
+    handle.evaluate((element) => {
+      type TrackedElement = Element & {
+        __selectionTracker?: {
+          changes: SelectionMutation[];
+          observer: MutationObserver;
+        };
+      };
+      const tracker = (element as TrackedElement).__selectionTracker;
+      if (!tracker) {
+        throw new Error("Expected selection mutation tracker");
+      }
+      for (const mutation of tracker.observer.takeRecords()) {
+        const attribute = mutation.attributeName;
+        if (attribute !== "aria-selected" && attribute !== "class") {
+          continue;
+        }
+        tracker.changes.push({
+          attribute,
+          currentValue: (mutation.target as Element).getAttribute(attribute),
+          oldValue: mutation.oldValue,
+        });
+      }
+      tracker.observer.disconnect();
+      return tracker.changes;
+    });
+}
+
+function expectNeverSelected(
+  mutations: SelectionMutation[],
+  activeClass: string,
+): void {
+  const values = mutations.flatMap(({ attribute, currentValue, oldValue }) =>
+    [currentValue, oldValue].map((value) => ({ attribute, value })),
+  );
+  expect(
+    values.some(
+      ({ attribute, value }) =>
+        (attribute === "aria-selected" && value === "true") ||
+        (attribute === "class" && value?.split(/\s+/).includes(activeClass)),
+    ),
+  ).toBe(false);
+}
 
 test("renders the document editor shell in a real browser", async ({ page }) => {
   await page.goto("/");
@@ -194,43 +284,54 @@ test("shows close controls by active and hover state and middle-clicks tabs clos
 }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "New tab" }).click();
+  await page.getByRole("button", { name: "New tab" }).click();
 
   const tabs = page.getByRole("tab", { name: "Untitled.md" });
   const inactiveTab = page.locator(".tab").nth(0);
-  const activeTab = page.locator(".tab").nth(1);
+  const otherInactiveTab = page.locator(".tab").nth(1);
+  const activeTab = page.locator(".tab").nth(2);
   const inactiveClose = inactiveTab.locator(".tab-close");
+  const otherInactiveClose = otherInactiveTab.locator(".tab-close");
   const activeClose = activeTab.locator(".tab-close");
-  const activeTabId = await tabs.nth(1).getAttribute("id");
+  const activeTabId = await tabs.nth(2).getAttribute("id");
 
   expect(activeTabId).not.toBeNull();
   await expect(activeClose).toHaveCSS("visibility", "visible");
   await expect(inactiveClose).toHaveCSS("visibility", "hidden");
+  await expect(otherInactiveClose).toHaveCSS("visibility", "hidden");
 
   await inactiveTab.hover();
   await expect(inactiveClose).toHaveCSS("visibility", "visible");
+  await expect(otherInactiveClose).toHaveCSS("visibility", "hidden");
   await expect(activeClose).toHaveCSS("visibility", "visible");
 
   await expect(tabs.nth(0)).toHaveAttribute("aria-selected", "false");
-  await expect(tabs.nth(1)).toHaveAttribute("aria-selected", "true");
+  await expect(inactiveTab).not.toHaveClass(/\btab-active\b/);
+  await expect(tabs.nth(2)).toHaveAttribute("aria-selected", "true");
+  const readTabMutations = await observeSelectionMutations(inactiveTab);
   await tabs.nth(0).click({ button: "middle" });
-  await expect(tabs).toHaveCount(1);
+  expectNeverSelected(await readTabMutations(), "tab-active");
+  await expect(tabs).toHaveCount(2);
   await expect(page.getByRole("tab", { selected: true })).toHaveAttribute(
     "id",
     activeTabId!,
   );
 
   await page.getByRole("button", { name: "New tab" }).click();
-  const menuActiveTabId = await tabs.nth(1).getAttribute("id");
+  const menuActiveTabId = await tabs.nth(2).getAttribute("id");
   expect(menuActiveTabId).not.toBeNull();
 
   await page.getByRole("button", { name: "Show tabs" }).click();
   const tabMenu = page.getByRole("menu", { name: "Open tabs" });
   const inactiveMenuRow = tabMenu.locator(".tab-menu-item").nth(0);
   await expect(inactiveMenuRow).toBeVisible();
+  await expect(inactiveMenuRow).not.toHaveClass(/\btab-menu-item-active\b/);
+  const readMenuMutations = await observeSelectionMutations(inactiveMenuRow);
   await inactiveMenuRow.click({ button: "middle" });
 
+  expectNeverSelected(await readMenuMutations(), "tab-menu-item-active");
   await expect(tabMenu).toBeHidden();
-  await expect(tabs).toHaveCount(1);
+  await expect(tabs).toHaveCount(2);
   await expect(page.getByRole("tab", { selected: true })).toHaveAttribute(
     "id",
     menuActiveTabId!,
