@@ -13,6 +13,16 @@ vi.mock("react-dom/server", async (importOriginal) => {
   };
 });
 
+function dispatchMiddleButton(target: Element, type: "mousedown" | "auxclick") {
+  const event = new MouseEvent(type, {
+    bubbles: true,
+    button: 1,
+    cancelable: true,
+  });
+  target.dispatchEvent(event);
+  return event;
+}
+
 describe("DocumentView", () => {
   it("renders the markdown editor region", () => {
     render(<DocumentView content="# Hello" onContentChange={() => undefined} />);
@@ -141,5 +151,39 @@ describe("DocumentView", () => {
 
     expect(onContentChange).toHaveBeenCalledTimes(1);
     expect(onContentChange).toHaveBeenCalledWith("Changed");
+  });
+
+  it.each(["mousedown", "auxclick"] as const)(
+    "cancels middle-button %s events at the editor boundary",
+    (eventType) => {
+      const parent = document.createElement("div");
+      const onBubble = vi.fn();
+      parent.addEventListener(eventType, onBubble);
+      const view = render(
+        <DocumentView content="Initial" onContentChange={() => undefined} />,
+        { container: parent },
+      );
+
+      const event = dispatchMiddleButton(
+        view.getByLabelText("Mock Galley Editor"),
+        eventType,
+      );
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(onBubble).not.toHaveBeenCalled();
+    },
+  );
+
+  it("allows left-button events through the editor boundary", () => {
+    render(<DocumentView content="Initial" onContentChange={() => undefined} />);
+    const event = new MouseEvent("mousedown", {
+      bubbles: true,
+      button: 0,
+      cancelable: true,
+    });
+
+    screen.getByLabelText("Mock Galley Editor").dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
   });
 });

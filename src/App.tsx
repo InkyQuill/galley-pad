@@ -1678,6 +1678,7 @@ export default function App() {
             editorScheme={editorScheme}
             editorStyle={themeStyle}
             fontSettings={editorFontSettings}
+            onMenuCommand={runMenuCommand}
             status={
               pendingCommand
                 ? `${pendingCommand}...`
