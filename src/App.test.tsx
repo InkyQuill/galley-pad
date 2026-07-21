@@ -309,7 +309,8 @@ describe("App", () => {
   });
 
   it("makes one dirty-tab close attempt per middle-button press", async () => {
-    render(<App />);
+    const promptUnsavedChanges = vi.fn();
+    render(<App onUnsavedPrompt={promptUnsavedChanges} />);
     fireEvent.change(screen.getByLabelText("Mock Galley Editor"), {
       target: { value: "Dirty inactive draft" },
     });
@@ -318,9 +319,9 @@ describe("App", () => {
     const inactiveTab = screen.getAllByRole("tab", { name: /Untitled\.md/ })[0];
     fireEvent.mouseDown(inactiveTab.closest(".tab")!, { button: 1 });
 
-    expect(
-      await screen.findAllByRole("dialog", { name: "Save changes?" }),
-    ).toHaveLength(1);
+    await screen.findByRole("dialog", { name: "Save changes?" });
+    expect(promptUnsavedChanges).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
   });
 
   it("shows a tab menu with select and close actions", async () => {

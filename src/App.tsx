@@ -115,6 +115,9 @@ type UnsavedPromptState = {
   session: DocumentSession;
   resolve: (choice: UnsavedChoice) => void;
 };
+type AppProps = {
+  onUnsavedPrompt?: () => void;
+};
 type ExternalFileWarning =
   | {
       kind: "clean-update";
@@ -132,7 +135,7 @@ type ExternalFileWarning =
       result: Extract<ExternalFileChangeResult, { kind: "deleted" }>;
     };
 
-export default function App() {
+export default function App({ onUnsavedPrompt }: AppProps = {}) {
   const [workspace, setWorkspace] = useState(() =>
     createDocumentWorkspace(loadOpenMode()),
   );
@@ -1011,6 +1014,7 @@ export default function App() {
   }
 
   function promptUnsavedChanges(session: DocumentSession): Promise<UnsavedChoice> {
+    onUnsavedPrompt?.();
     return new Promise((resolve) => {
       setUnsavedPrompt({ session, resolve });
     });
