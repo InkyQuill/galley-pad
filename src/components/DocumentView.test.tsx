@@ -1,9 +1,21 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DocumentView } from "./DocumentView";
 
+const runtimePlatform = vi.hoisted(() => ({ isLinuxDesktop: false }));
+
 vi.mock("@inkyquill/galley-editor", () => import("../test/galley-editor.mock"));
+vi.mock("../appInfo", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../appInfo")>();
+
+  return {
+    ...actual,
+    get IS_LINUX_DESKTOP() {
+      return runtimePlatform.isLinuxDesktop;
+    },
+  };
+});
 vi.mock("react-dom/server", async (importOriginal) => {
   const actual = await importOriginal<typeof import("react-dom/server")>();
 
@@ -24,6 +36,10 @@ function dispatchMiddleButton(target: Element, type: "mousedown" | "auxclick") {
 }
 
 describe("DocumentView", () => {
+  beforeEach(() => {
+    runtimePlatform.isLinuxDesktop = false;
+  });
+
   it("renders the markdown editor region", () => {
     render(<DocumentView content="# Hello" onContentChange={() => undefined} />);
 
@@ -174,16 +190,68 @@ describe("DocumentView", () => {
     },
   );
 
-  it("allows left-button events through the editor boundary", () => {
+  it.each(["mousedown", "auxclick"] as const)(
+    "allows left-button %s events through the editor boundary",
+    (eventType) => {
+      const parent = document.createElement("div");
+      const onBubble = vi.fn();
+      parent.addEventListener(eventType, onBubble);
+      const view = render(
+        <DocumentView content="Initial" onContentChange={() => undefined} />,
+        { container: parent },
+      );
+      const event = new MouseEvent(eventType, {
+        bubbles: true,
+        button: 0,
+        cancelable: true,
+      });
+
+      view.getByLabelText("Mock Galley Editor").dispatchEvent(event);
+
+      expect(event.defaultPrevented).toBe(false);
+      expect(onBubble).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("renders and dispatches footer menu commands on Linux", () => {
+    runtimePlatform.isLinuxDesktop = true;
+    const onMenuCommand = vi.fn();
+    render(
+      <DocumentView
+        content="Initial"
+        onContentChange={() => undefined}
+        onMenuCommand={onMenuCommand}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Galley Pad menu" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "New" }));
+
+    expect(onMenuCommand).toHaveBeenCalledTimes(1);
+    expect(onMenuCommand).toHaveBeenCalledWith("new");
+  });
+
+  it("hides the footer menu on Linux when its callback is missing", () => {
+    runtimePlatform.isLinuxDesktop = true;
     render(<DocumentView content="Initial" onContentChange={() => undefined} />);
-    const event = new MouseEvent("mousedown", {
-      bubbles: true,
-      button: 0,
-      cancelable: true,
-    });
 
-    screen.getByLabelText("Mock Galley Editor").dispatchEvent(event);
+    expect(
+      screen.queryByRole("button", { name: "Galley Pad menu" }),
+    ).not.toBeInTheDocument();
+  });
 
-    expect(event.defaultPrevented).toBe(false);
+  it("hides the footer menu off Linux when its callback is present", () => {
+    runtimePlatform.isLinuxDesktop = false;
+    render(
+      <DocumentView
+        content="Initial"
+        onContentChange={() => undefined}
+        onMenuCommand={() => undefined}
+      />,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Galley Pad menu" }),
+    ).not.toBeInTheDocument();
   });
 });
