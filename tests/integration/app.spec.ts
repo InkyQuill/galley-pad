@@ -10,7 +10,7 @@ test("renders the document editor shell in a real browser", async ({ page }) => 
   ).toBeVisible();
   await expect(page.locator(".document-footer-words")).toHaveText("0 words");
   await expect(
-    page.getByRole("toolbar", { name: "File commands" }),
+    page.locator('.ge-toolbar[aria-label="Editor toolbar"]'),
   ).not.toBeVisible();
 });
 
@@ -146,6 +146,139 @@ test("hides the Galley toolbar by default and shows it with the toolbar shortcut
 
   await expect(page.locator(".ge-toolbar")).toBeVisible();
   await expect(page.locator(".ge-toolbar svg").first()).toBeVisible();
+});
+
+test.describe("Linux Chromium footer menu", () => {
+  test.use({
+    userAgent:
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+  });
+
+  test(
+    "runs commands and restores trigger focus on Escape",
+    async ({ page }, testInfo) => {
+      expect(testInfo.project.name).toBe("chromium");
+      await page.goto("/");
+
+      const menuTrigger = page.getByRole("button", {
+        name: "Galley Pad menu",
+      });
+      const tabs = page.getByRole("tab", { name: "Untitled.md" });
+
+      await expect(menuTrigger).toBeVisible();
+      await expect(tabs).toHaveCount(1);
+
+      await menuTrigger.click();
+      await page.getByRole("menuitem", { name: "New", exact: true }).click();
+      await expect(tabs).toHaveCount(2);
+
+      await menuTrigger.click();
+      await page
+        .getByRole("menuitem", { name: "Toggle Editor Toolbar" })
+        .click();
+      await expect(
+        page.locator('.ge-toolbar[aria-label="Editor toolbar"]'),
+      ).toBeVisible();
+
+      await menuTrigger.click();
+      await expect(page.getByRole("menu")).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("menu")).toBeHidden();
+      await expect(menuTrigger).toBeFocused();
+    },
+  );
+});
+
+test("shows close controls by active and hover state and middle-clicks tabs closed", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "New tab" }).click();
+
+  const tabs = page.getByRole("tab", { name: "Untitled.md" });
+  const inactiveTab = page.locator(".tab").nth(0);
+  const activeTab = page.locator(".tab").nth(1);
+  const inactiveClose = inactiveTab.locator(".tab-close");
+  const activeClose = activeTab.locator(".tab-close");
+  const activeTabId = await tabs.nth(1).getAttribute("id");
+
+  expect(activeTabId).not.toBeNull();
+  await expect(activeClose).toHaveCSS("visibility", "visible");
+  await expect(inactiveClose).toHaveCSS("visibility", "hidden");
+
+  await inactiveTab.hover();
+  await expect(inactiveClose).toHaveCSS("visibility", "visible");
+  await expect(activeClose).toHaveCSS("visibility", "visible");
+
+  await expect(tabs.nth(0)).toHaveAttribute("aria-selected", "false");
+  await expect(tabs.nth(1)).toHaveAttribute("aria-selected", "true");
+  await tabs.nth(0).click({ button: "middle" });
+  await expect(tabs).toHaveCount(1);
+  await expect(page.getByRole("tab", { selected: true })).toHaveAttribute(
+    "id",
+    activeTabId!,
+  );
+
+  await page.getByRole("button", { name: "New tab" }).click();
+  const menuActiveTabId = await tabs.nth(1).getAttribute("id");
+  expect(menuActiveTabId).not.toBeNull();
+
+  await page.getByRole("button", { name: "Show tabs" }).click();
+  const tabMenu = page.getByRole("menu", { name: "Open tabs" });
+  const inactiveMenuRow = tabMenu.locator(".tab-menu-item").nth(0);
+  await expect(inactiveMenuRow).toBeVisible();
+  await inactiveMenuRow.click({ button: "middle" });
+
+  await expect(tabMenu).toBeHidden();
+  await expect(tabs).toHaveCount(1);
+  await expect(page.getByRole("tab", { selected: true })).toHaveAttribute(
+    "id",
+    menuActiveTabId!,
+  );
+});
+
+test("cancels middle-button editor events without cancelling tabstrip events", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  for (const type of ["mousedown", "auxclick"] as const) {
+    const editorResult = await page.locator(".cm-content").evaluate(
+      (target, eventType) => {
+        const event = new MouseEvent(eventType, {
+          bubbles: true,
+          button: 1,
+          cancelable: true,
+        });
+        const dispatchResult = target.dispatchEvent(event);
+        return { defaultPrevented: event.defaultPrevented, dispatchResult };
+      },
+      type,
+    );
+
+    expect(editorResult).toEqual({
+      defaultPrevented: true,
+      dispatchResult: false,
+    });
+
+    const tabstripResult = await page.locator(".tabstrip").evaluate(
+      (target, eventType) => {
+        const event = new MouseEvent(eventType, {
+          bubbles: true,
+          button: 1,
+          cancelable: true,
+        });
+        const dispatchResult = target.dispatchEvent(event);
+        return { defaultPrevented: event.defaultPrevented, dispatchResult };
+      },
+      type,
+    );
+
+    expect(tabstripResult).toEqual({
+      defaultPrevented: false,
+      dispatchResult: true,
+    });
+  }
 });
 
 test("scrolls long Markdown content inside the editor surface", async ({ page }) => {
