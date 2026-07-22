@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  type MouseEvent as ReactMouseEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   TbChevronLeft,
   TbChevronRight,
@@ -109,6 +115,9 @@ type UnsavedPromptState = {
   session: DocumentSession;
   resolve: (choice: UnsavedChoice) => void;
 };
+type AppProps = {
+  onUnsavedPrompt?: () => void;
+};
 type ExternalFileWarning =
   | {
       kind: "clean-update";
@@ -126,7 +135,7 @@ type ExternalFileWarning =
       result: Extract<ExternalFileChangeResult, { kind: "deleted" }>;
     };
 
-export default function App() {
+export default function App({ onUnsavedPrompt }: AppProps = {}) {
   const [workspace, setWorkspace] = useState(() =>
     createDocumentWorkspace(loadOpenMode()),
   );
@@ -906,6 +915,23 @@ export default function App() {
     }
   }
 
+  function handleTabMouseDown(
+    event: ReactMouseEvent<HTMLElement>,
+    tabId: string,
+    closeMenu = false,
+  ) {
+    if (event.button !== 1) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    if (closeMenu) {
+      setTabMenuOpen(false);
+    }
+    void requestCloseTab(tabId);
+  }
+
   function updateOpenMode(openMode: OpenMode) {
     touchedPreferences.current.openMode = true;
     saveOpenMode(openMode);
@@ -988,6 +1014,7 @@ export default function App() {
   }
 
   function promptUnsavedChanges(session: DocumentSession): Promise<UnsavedChoice> {
+    onUnsavedPrompt?.();
     return new Promise((resolve) => {
       setUnsavedPrompt({ session, resolve });
     });
@@ -1485,6 +1512,9 @@ export default function App() {
                         : "tab-menu-item"
                     }
                     key={tab.id}
+                    onMouseDown={(event) =>
+                      handleTabMouseDown(event, tab.id, true)
+                    }
                   >
                     <button
                       type="button"
@@ -1521,6 +1551,7 @@ export default function App() {
                 tab.id === workspace.activeTabId ? "tab tab-active" : "tab"
               }
               key={tab.id}
+              onMouseDown={(event) => handleTabMouseDown(event, tab.id)}
             >
               <button
                 type="button"
@@ -1534,16 +1565,14 @@ export default function App() {
                 <span aria-hidden="true">{tab.session.displayName}</span>
                 {tab.session.dirty ? <span aria-hidden="true"> *</span> : null}
               </button>
-              {tab.id === workspace.activeTabId ? (
-                <button
-                  type="button"
-                  className="tab-close"
-                  aria-label={`Close ${tab.session.displayName}`}
-                  onClick={() => void requestCloseTab(tab.id)}
-                >
-                  <TbX size={14} strokeWidth={2} aria-hidden="true" />
-                </button>
-              ) : null}
+              <button
+                type="button"
+                className="tab-close"
+                aria-label={`Close ${tab.session.displayName}`}
+                onClick={() => void requestCloseTab(tab.id)}
+              >
+                <TbX size={14} strokeWidth={2} aria-hidden="true" />
+              </button>
             </div>
           ))}
         </div>
@@ -1678,6 +1707,7 @@ export default function App() {
             editorScheme={editorScheme}
             editorStyle={themeStyle}
             fontSettings={editorFontSettings}
+            onMenuCommand={runMenuCommand}
             status={
               pendingCommand
                 ? `${pendingCommand}...`

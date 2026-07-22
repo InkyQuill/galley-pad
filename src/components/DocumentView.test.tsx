@@ -1,9 +1,21 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DocumentView } from "./DocumentView";
 
+const runtimePlatform = vi.hoisted(() => ({ isLinuxDesktop: false }));
+
 vi.mock("@inkyquill/galley-editor", () => import("../test/galley-editor.mock"));
+vi.mock("../appInfo", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../appInfo")>();
+
+  return {
+    ...actual,
+    get IS_LINUX_DESKTOP() {
+      return runtimePlatform.isLinuxDesktop;
+    },
+  };
+});
 vi.mock("react-dom/server", async (importOriginal) => {
   const actual = await importOriginal<typeof import("react-dom/server")>();
 
@@ -13,7 +25,21 @@ vi.mock("react-dom/server", async (importOriginal) => {
   };
 });
 
+function dispatchMiddleButton(target: Element, type: "mousedown" | "auxclick") {
+  const event = new MouseEvent(type, {
+    bubbles: true,
+    button: 1,
+    cancelable: true,
+  });
+  target.dispatchEvent(event);
+  return event;
+}
+
 describe("DocumentView", () => {
+  beforeEach(() => {
+    runtimePlatform.isLinuxDesktop = false;
+  });
+
   it("renders the markdown editor region", () => {
     render(<DocumentView content="# Hello" onContentChange={() => undefined} />);
 
@@ -141,5 +167,91 @@ describe("DocumentView", () => {
 
     expect(onContentChange).toHaveBeenCalledTimes(1);
     expect(onContentChange).toHaveBeenCalledWith("Changed");
+  });
+
+  it.each(["mousedown", "auxclick"] as const)(
+    "cancels middle-button %s events at the editor boundary",
+    (eventType) => {
+      const parent = document.createElement("div");
+      const onBubble = vi.fn();
+      parent.addEventListener(eventType, onBubble);
+      const view = render(
+        <DocumentView content="Initial" onContentChange={() => undefined} />,
+        { container: parent },
+      );
+
+      const event = dispatchMiddleButton(
+        view.getByLabelText("Mock Galley Editor"),
+        eventType,
+      );
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(onBubble).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["mousedown", "auxclick"] as const)(
+    "allows left-button %s events through the editor boundary",
+    (eventType) => {
+      const parent = document.createElement("div");
+      const onBubble = vi.fn();
+      parent.addEventListener(eventType, onBubble);
+      const view = render(
+        <DocumentView content="Initial" onContentChange={() => undefined} />,
+        { container: parent },
+      );
+      const event = new MouseEvent(eventType, {
+        bubbles: true,
+        button: 0,
+        cancelable: true,
+      });
+
+      view.getByLabelText("Mock Galley Editor").dispatchEvent(event);
+
+      expect(event.defaultPrevented).toBe(false);
+      expect(onBubble).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("renders and dispatches footer menu commands on Linux", () => {
+    runtimePlatform.isLinuxDesktop = true;
+    const onMenuCommand = vi.fn();
+    render(
+      <DocumentView
+        content="Initial"
+        onContentChange={() => undefined}
+        onMenuCommand={onMenuCommand}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Galley Pad menu" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "New" }));
+
+    expect(onMenuCommand).toHaveBeenCalledTimes(1);
+    expect(onMenuCommand).toHaveBeenCalledWith("new");
+  });
+
+  it("hides the footer menu on Linux when its callback is missing", () => {
+    runtimePlatform.isLinuxDesktop = true;
+    render(<DocumentView content="Initial" onContentChange={() => undefined} />);
+
+    expect(
+      screen.queryByRole("button", { name: "Galley Pad menu" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("hides the footer menu off Linux when its callback is present", () => {
+    runtimePlatform.isLinuxDesktop = false;
+    render(
+      <DocumentView
+        content="Initial"
+        onContentChange={() => undefined}
+        onMenuCommand={() => undefined}
+      />,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Galley Pad menu" }),
+    ).not.toBeInTheDocument();
   });
 });

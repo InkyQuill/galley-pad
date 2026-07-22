@@ -4,7 +4,11 @@ import {
   type GalleyTableControlIconName,
   type ToolbarIconName,
 } from "@inkyquill/galley-editor";
-import type { CSSProperties, ReactNode } from "react";
+import type {
+  CSSProperties,
+  MouseEvent as ReactMouseEvent,
+  ReactNode,
+} from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   TbAlignCenter,
@@ -36,10 +40,13 @@ import {
 } from "react-icons/tb";
 import type { IconType } from "react-icons";
 import { GalleyPadFooterMark } from "./GalleyPadFooterMark";
+import { FooterMenuButton } from "./FooterMenuButton";
+import { IS_LINUX_DESKTOP } from "../appInfo";
 import {
   editorFontStyle,
   type EditorFontSettings,
 } from "../settings/appearance";
+import type { AppMenuCommand } from "../tauri/menuEvents";
 
 type EditorSurfaceStyle = CSSProperties & Record<`--${string}`, string>;
 
@@ -53,6 +60,7 @@ export type DocumentViewProps = {
   editorStyle?: EditorSurfaceStyle;
   fontSettings?: EditorFontSettings;
   status?: string;
+  onMenuCommand?: (command: AppMenuCommand) => void;
 };
 
 export function DocumentView({
@@ -65,6 +73,7 @@ export function DocumentView({
   editorStyle,
   fontSettings = { family: "system", size: "medium" },
   status = "Draft",
+  onMenuCommand,
 }: DocumentViewProps) {
   const fontStyle = editorFontStyle(fontSettings);
 
@@ -75,6 +84,8 @@ export function DocumentView({
       role="tabpanel"
       aria-label={labelledBy ? undefined : "Markdown document editor"}
       aria-labelledby={labelledBy}
+      onMouseDownCapture={suppressMiddleButton}
+      onAuxClickCapture={suppressMiddleButton}
     >
       <GalleyEditor
         value={content}
@@ -101,6 +112,9 @@ export function DocumentView({
           before: <span className="document-footer-status">{status}</span>,
           after: ({ wordCount }: GalleyFooterContext) => (
             <>
+              {IS_LINUX_DESKTOP && onMenuCommand ? (
+                <FooterMenuButton onCommand={onMenuCommand} />
+              ) : null}
               <span className="document-footer-words">
                 {wordCount} {wordCount === 1 ? "word" : "words"}
               </span>
@@ -114,6 +128,15 @@ export function DocumentView({
       />
     </main>
   );
+}
+
+function suppressMiddleButton(event: ReactMouseEvent<HTMLElement>): void {
+  if (event.button !== 1) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
 }
 
 const GALLEY_TOOLBAR_ICONS: Record<ToolbarIconName, ReactNode> = {
