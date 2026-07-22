@@ -125,7 +125,7 @@ export function FooterMenuButton({ onCommand }: FooterMenuButtonProps) {
           {MENU_ITEMS.map((item, index) => (
             <div key={item.command}>
               {index === 4 ? (
-                <div className="footer-menu-separator" role="separator" />
+                <hr className="footer-menu-separator" role="separator" />
               ) : null}
               <button
                 ref={(button) => {

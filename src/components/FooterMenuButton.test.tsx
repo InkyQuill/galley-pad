@@ -52,6 +52,15 @@ describe("FooterMenuButton", () => {
     expect(trigger).toHaveAttribute("aria-expanded", "true");
   });
 
+  it("renders the command-group separator with native semantics", () => {
+    const { trigger } = renderMenu();
+    fireEvent.click(trigger);
+
+    const separator = within(screen.getByRole("menu")).getByRole("separator");
+    expect(separator.tagName).toBe("HR");
+    expect(separator).toHaveClass("footer-menu-separator");
+  });
+
   it("wraps focus with ArrowDown and ArrowUp", () => {
     const { trigger } = renderMenu();
     fireEvent.click(trigger);
