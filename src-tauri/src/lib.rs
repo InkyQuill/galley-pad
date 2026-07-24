@@ -91,6 +91,7 @@ pub struct RawPersistedAppSettings {
     pub editor_font_family: Option<String>,
     pub editor_font_size: Option<String>,
     pub open_mode: Option<String>,
+    pub word_wrap: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -118,6 +119,7 @@ pub struct PersistedAppSettings {
     pub editor_font_family: Option<String>,
     pub editor_font_size: Option<String>,
     pub open_mode: Option<String>,
+    pub word_wrap: Option<bool>,
 }
 
 struct PendingMarkdownFileOpen(Mutex<Vec<String>>);
@@ -1230,6 +1232,7 @@ mod tests {
         .expect("deserialize old persisted app settings");
 
         assert!(settings.theme_settings.is_none());
+        assert!(settings.word_wrap.is_none());
     }
 
     #[test]
@@ -1271,6 +1274,24 @@ mod tests {
                 .get("constantThemeId"),
             Some(&serde_json::json!(42))
         );
+    }
+
+    #[test]
+    fn raw_persisted_app_settings_preserves_malformed_word_wrap() {
+        let settings =
+            serde_json::from_str::<super::RawPersistedAppSettings>(r#"{ "wordWrap": "broken" }"#)
+                .expect("deserialize malformed word wrap as raw value");
+
+        assert_eq!(settings.word_wrap, Some(serde_json::json!("broken")));
+    }
+
+    #[test]
+    fn persisted_app_settings_write_accepts_boolean_word_wrap() {
+        let settings =
+            serde_json::from_str::<super::PersistedAppSettings>(r#"{ "wordWrap": false }"#)
+                .expect("deserialize valid word wrap write");
+
+        assert_eq!(settings.word_wrap, Some(false));
     }
 
     #[test]
