@@ -19,7 +19,7 @@ use std::{
 #[cfg(target_os = "macos")]
 use tauri::menu::AboutMetadata;
 #[cfg(desktop)]
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter, Manager};
 #[cfg(desktop)]
 use tauri::{WebviewUrl, WebviewWindowBuilder};
@@ -30,7 +30,10 @@ const MENU_NEW_ID: &str = "app-menu-new";
 const MENU_OPEN_ID: &str = "app-menu-open";
 const MENU_SAVE_ID: &str = "app-menu-save";
 const MENU_SAVE_AS_ID: &str = "app-menu-save-as";
+const MENU_FIND_ID: &str = "app-menu-find";
 const MENU_TOGGLE_TOOLBAR_ID: &str = "app-menu-toggle-toolbar";
+const MENU_VIEW_ID: &str = "app-menu-view";
+const MENU_WORD_WRAP_ID: &str = "app-menu-word-wrap";
 const MENU_SETTINGS_ID: &str = "app-menu-settings";
 const MAIN_WINDOW_LABEL: &str = "main";
 #[cfg(target_os = "linux")]
@@ -38,6 +41,38 @@ const LINUX_CLI_CHILD_ENV: &str = "GALLEY_PAD_CLI_CHILD";
 #[cfg(target_os = "linux")]
 const LINUX_DISPLAY_CHILD_ENV: &str = "GALLEY_PAD_DISPLAY_CHILD";
 static MARKDOWN_WINDOW_INDEX: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Debug, PartialEq, Eq)]
+struct MenuItemSpec {
+    id: &'static str,
+    label: &'static str,
+    accelerator: &'static str,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct CheckMenuItemSpec {
+    id: &'static str,
+    label: &'static str,
+    accelerator: &'static str,
+    checked: bool,
+}
+
+fn find_menu_item_spec() -> MenuItemSpec {
+    MenuItemSpec {
+        id: MENU_FIND_ID,
+        label: "Find...",
+        accelerator: "CmdOrCtrl+F",
+    }
+}
+
+fn word_wrap_menu_item_spec() -> CheckMenuItemSpec {
+    CheckMenuItemSpec {
+        id: MENU_WORD_WRAP_ID,
+        label: "Word Wrap",
+        accelerator: "Alt+Z",
+        checked: true,
+    }
+}
 
 fn app_title() -> &'static str {
     "Galley Pad"
@@ -91,6 +126,7 @@ pub struct RawPersistedAppSettings {
     pub editor_font_family: Option<String>,
     pub editor_font_size: Option<String>,
     pub open_mode: Option<String>,
+    pub word_wrap: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -118,6 +154,7 @@ pub struct PersistedAppSettings {
     pub editor_font_family: Option<String>,
     pub editor_font_size: Option<String>,
     pub open_mode: Option<String>,
+    pub word_wrap: Option<bool>,
 }
 
 struct PendingMarkdownFileOpen(Mutex<Vec<String>>);
@@ -526,7 +563,9 @@ fn menu_command_payload(menu_id: &str) -> Option<&'static str> {
         MENU_OPEN_ID => Some("open"),
         MENU_SAVE_ID => Some("save"),
         MENU_SAVE_AS_ID => Some("save-as"),
+        MENU_FIND_ID => Some("find"),
         MENU_TOGGLE_TOOLBAR_ID => Some("toggle-toolbar"),
+        MENU_WORD_WRAP_ID => Some("toggle-word-wrap"),
         MENU_SETTINGS_ID => Some("settings"),
         _ => None,
     }
@@ -585,6 +624,37 @@ fn emit_app_menu_command<R: tauri::Runtime>(
     target
         .emit(APP_MENU_COMMAND_EVENT, command)
         .map_err(|error| format!("Failed to emit app menu command event: {error}"))
+}
+
+#[tauri::command]
+fn set_word_wrap_menu_checked(app: AppHandle, checked: bool) -> Result<(), String> {
+    set_word_wrap_menu_checked_for_app(&app, checked)
+}
+
+pub fn set_word_wrap_menu_checked_for_app<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    checked: bool,
+) -> Result<(), String> {
+    let menu = app
+        .menu()
+        .ok_or_else(|| "Application menu is unavailable".to_string())?;
+    let view_menu = menu
+        .get(MENU_VIEW_ID)
+        .ok_or_else(|| "View menu is unavailable".to_string())?;
+    let view_menu = match view_menu {
+        MenuItemKind::Submenu(menu) => menu,
+        _ => return Err("View menu has an unexpected type".to_string()),
+    };
+    let item = view_menu
+        .get(MENU_WORD_WRAP_ID)
+        .ok_or_else(|| "Word Wrap menu item is unavailable".to_string())?;
+
+    match item {
+        MenuItemKind::Check(item) => item
+            .set_checked(checked)
+            .map_err(|error| format!("Failed to update Word Wrap menu item: {error}")),
+        _ => Err("Word Wrap menu item has an unexpected type".to_string()),
+    }
 }
 
 #[cfg(desktop)]
@@ -655,11 +725,17 @@ fn build_native_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Res
                     &PredefinedMenuItem::cut(app, None)?,
                     &PredefinedMenuItem::copy(app, None)?,
                     &PredefinedMenuItem::paste(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &{
+                        let spec = find_menu_item_spec();
+                        MenuItem::with_id(app, spec.id, spec.label, true, Some(spec.accelerator))?
+                    },
                     &PredefinedMenuItem::select_all(app, None)?,
                 ],
             )?,
-            &Submenu::with_items(
+            &Submenu::with_id_and_items(
                 app,
+                MENU_VIEW_ID,
                 "View",
                 true,
                 &[
@@ -670,6 +746,17 @@ fn build_native_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Res
                         true,
                         Some("CmdOrCtrl+Shift+T"),
                     )?,
+                    &{
+                        let spec = word_wrap_menu_item_spec();
+                        CheckMenuItem::with_id(
+                            app,
+                            spec.id,
+                            spec.label,
+                            true,
+                            spec.checked,
+                            Some(spec.accelerator),
+                        )?
+                    },
                     &PredefinedMenuItem::separator(app)?,
                     &MenuItem::with_id(
                         app,
@@ -939,7 +1026,8 @@ pub fn run() {
             write_app_settings,
             read_swap_state,
             write_swap_state,
-            clear_swap_state
+            clear_swap_state,
+            set_word_wrap_menu_checked
         ])
         .build(tauri::generate_context!())
         .unwrap_or_else(|error| panic!("error while building {}: {error}", app_title()));
@@ -1154,7 +1242,32 @@ mod tests {
             super::menu_command_payload(super::MENU_SETTINGS_ID),
             Some("settings")
         );
+        assert_eq!(
+            super::menu_command_payload(super::MENU_FIND_ID),
+            Some("find")
+        );
+        assert_eq!(
+            super::menu_command_payload(super::MENU_WORD_WRAP_ID),
+            Some("toggle-word-wrap")
+        );
         assert_eq!(super::menu_command_payload("unknown"), None);
+    }
+
+    #[test]
+    fn find_menu_item_has_expected_label_and_accelerator() {
+        let item = super::find_menu_item_spec();
+        assert_eq!(item.id, super::MENU_FIND_ID);
+        assert_eq!(item.label, "Find...");
+        assert_eq!(item.accelerator, "CmdOrCtrl+F");
+    }
+
+    #[test]
+    fn word_wrap_menu_item_is_checked_and_uses_alt_z() {
+        let item = super::word_wrap_menu_item_spec();
+        assert_eq!(item.id, super::MENU_WORD_WRAP_ID);
+        assert_eq!(item.label, "Word Wrap");
+        assert_eq!(item.accelerator, "Alt+Z");
+        assert!(item.checked);
     }
 
     #[test]
@@ -1230,6 +1343,7 @@ mod tests {
         .expect("deserialize old persisted app settings");
 
         assert!(settings.theme_settings.is_none());
+        assert!(settings.word_wrap.is_none());
     }
 
     #[test]
@@ -1271,6 +1385,24 @@ mod tests {
                 .get("constantThemeId"),
             Some(&serde_json::json!(42))
         );
+    }
+
+    #[test]
+    fn raw_persisted_app_settings_preserves_malformed_word_wrap() {
+        let settings =
+            serde_json::from_str::<super::RawPersistedAppSettings>(r#"{ "wordWrap": "broken" }"#)
+                .expect("deserialize malformed word wrap as raw value");
+
+        assert_eq!(settings.word_wrap, Some(serde_json::json!("broken")));
+    }
+
+    #[test]
+    fn persisted_app_settings_write_accepts_boolean_word_wrap() {
+        let settings =
+            serde_json::from_str::<super::PersistedAppSettings>(r#"{ "wordWrap": false }"#)
+                .expect("deserialize valid word wrap write");
+
+        assert_eq!(settings.word_wrap, Some(false));
     }
 
     #[test]

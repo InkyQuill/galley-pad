@@ -17,14 +17,16 @@ export type PersistedAppSettings = {
   editorFontFamily?: string | null;
   editorFontSize?: EditorFontSettings["size"] | null;
   openMode?: OpenMode | null;
+  wordWrap?: boolean | null;
 };
 
 export type RawPersistedAppSettings = Omit<
   PersistedAppSettings,
-  "appearanceTheme" | "themeSettings"
+  "appearanceTheme" | "themeSettings" | "wordWrap"
 > & {
   appearanceTheme?: string | null;
   themeSettings?: ThemeSettings | JsonValue | null;
+  wordWrap?: JsonValue;
 };
 
 export type PersistedSwapState = {

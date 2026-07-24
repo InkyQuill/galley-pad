@@ -1,7 +1,12 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { createRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { DocumentView } from "./DocumentView";
+import {
+  mockGalleyHandleState,
+  mockGalleyOpenSearch,
+} from "../test/galley-editor.mock";
+import { DocumentView, type DocumentViewHandle } from "./DocumentView";
 
 const runtimePlatform = vi.hoisted(() => ({ isLinuxDesktop: false }));
 
@@ -38,6 +43,8 @@ function dispatchMiddleButton(target: Element, type: "mousedown" | "auxclick") {
 describe("DocumentView", () => {
   beforeEach(() => {
     runtimePlatform.isLinuxDesktop = false;
+    mockGalleyHandleState.ready = true;
+    mockGalleyOpenSearch.mockClear();
   });
 
   it("renders the markdown editor region", () => {
@@ -169,6 +176,59 @@ describe("DocumentView", () => {
     expect(onContentChange).toHaveBeenCalledWith("Changed");
   });
 
+  it("wraps lines by default and enables horizontal scrolling on request", () => {
+    const { rerender } = render(
+      <DocumentView content="Long line" onContentChange={() => undefined} />,
+    );
+
+    expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+      "data-horizontal-scroll",
+      "false",
+    );
+
+    rerender(
+      <DocumentView
+        content="Long line"
+        onContentChange={() => undefined}
+        wordWrap={false}
+      />,
+    );
+
+    expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+      "data-horizontal-scroll",
+      "true",
+    );
+  });
+
+  it("opens Galley search through the DocumentView handle", () => {
+    const ref = createRef<DocumentViewHandle>();
+    render(
+      <DocumentView
+        ref={ref}
+        content="Find me"
+        onContentChange={() => undefined}
+      />,
+    );
+
+    expect(ref.current?.openSearch()).toBe(true);
+    expect(mockGalleyOpenSearch).toHaveBeenCalledOnce();
+  });
+
+  it("returns false when search is requested before the editor handle is ready", () => {
+    mockGalleyHandleState.ready = false;
+    const ref = createRef<DocumentViewHandle>();
+    render(
+      <DocumentView
+        ref={ref}
+        content="Find me later"
+        onContentChange={() => undefined}
+      />,
+    );
+
+    expect(ref.current?.openSearch()).toBe(false);
+    expect(mockGalleyOpenSearch).not.toHaveBeenCalled();
+  });
+
   it.each(["mousedown", "auxclick"] as const)(
     "cancels middle-button %s events at the editor boundary",
     (eventType) => {
@@ -229,6 +289,30 @@ describe("DocumentView", () => {
 
     expect(onMenuCommand).toHaveBeenCalledTimes(1);
     expect(onMenuCommand).toHaveBeenCalledWith("new");
+  });
+
+  it("routes the Linux footer Word Wrap checkbox through the app toggle pipeline", () => {
+    runtimePlatform.isLinuxDesktop = true;
+    const onMenuCommand = vi.fn();
+    render(
+      <DocumentView
+        content="Initial"
+        onContentChange={() => undefined}
+        onMenuCommand={onMenuCommand}
+        wordWrap={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Galley Pad menu" }));
+    const wordWrapItem = screen.getByRole("menuitemcheckbox", {
+      name: /Word Wrap.*Alt\+Z/,
+    });
+    expect(wordWrapItem).toHaveAttribute("aria-checked", "false");
+
+    fireEvent.click(wordWrapItem);
+
+    expect(onMenuCommand).toHaveBeenCalledOnce();
+    expect(onMenuCommand).toHaveBeenCalledWith("toggle-word-wrap");
   });
 
   it("hides the footer menu on Linux when its callback is missing", () => {

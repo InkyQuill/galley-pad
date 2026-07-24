@@ -9,6 +9,7 @@ import {
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { APP_BRAND_LABEL } from "./appInfo";
+import { mockGalleyOpenSearch } from "./test/galley-editor.mock";
 import {
   getPendingMarkdownFileOpens,
   getWindowMarkdownFileOpen,
@@ -28,7 +29,9 @@ import {
   readSwapState,
   writeAppSettings,
   writeSwapState,
+  type RawPersistedAppSettings,
 } from "./tauri/appPersistence";
+import { syncWordWrapMenuChecked } from "./tauri/nativeMenu";
 import {
   closeCurrentWindow,
   listenForWindowCloseRequest,
@@ -66,6 +69,9 @@ vi.mock("./tauri/appPersistence", () => ({
   writeAppSettings: vi.fn(),
   writeSwapState: vi.fn(),
 }));
+vi.mock("./tauri/nativeMenu", () => ({
+  syncWordWrapMenuChecked: vi.fn(),
+}));
 vi.mock("./tauri/windowClose", () => ({
   closeCurrentWindow: vi.fn(),
   listenForWindowCloseRequest: vi.fn(),
@@ -86,12 +92,15 @@ const readAppSettingsMock = vi.mocked(readAppSettings);
 const readSwapStateMock = vi.mocked(readSwapState);
 const writeAppSettingsMock = vi.mocked(writeAppSettings);
 const writeSwapStateMock = vi.mocked(writeSwapState);
+const syncWordWrapMenuCheckedMock = vi.mocked(syncWordWrapMenuChecked);
 const closeCurrentWindowMock = vi.mocked(closeCurrentWindow);
 const listenForWindowCloseRequestMock = vi.mocked(listenForWindowCloseRequest);
 
 describe("App", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGalleyOpenSearch.mockReset();
+    mockGalleyOpenSearch.mockReturnValue(true);
     vi.spyOn(window, "confirm").mockReturnValue(true);
     document.title = "";
     getPendingMarkdownFileOpensMock.mockResolvedValue([]);
@@ -107,6 +116,7 @@ describe("App", () => {
     readSwapStateMock.mockResolvedValue(null);
     writeAppSettingsMock.mockResolvedValue();
     writeSwapStateMock.mockResolvedValue();
+    syncWordWrapMenuCheckedMock.mockResolvedValue();
     listSystemFontsMock.mockResolvedValue({
       locale: "ru-RU",
       previewText: "Aa Bb Cc Аа Бб Вв 0123456789 Съешь ещё этих мягких булок",
@@ -373,6 +383,246 @@ describe("App", () => {
     expect(shell.style.getPropertyValue("--ge-color-token-string")).toBeTruthy();
   });
 
+  it.each([
+    ["missing", {}],
+    ["null", { wordWrap: null }],
+    ["malformed", { wordWrap: "broken" } as RawPersistedAppSettings],
+  ])("defaults %s persisted word wrap to enabled", async (_label, settings) => {
+    readAppSettingsMock.mockResolvedValue(settings);
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+        "data-horizontal-scroll",
+        "false",
+      );
+      expect(syncWordWrapMenuCheckedMock).toHaveBeenLastCalledWith(true);
+    });
+  });
+
+  it("restores disabled word wrap from app settings", async () => {
+    readAppSettingsMock.mockResolvedValue({ wordWrap: false });
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+        "data-horizontal-scroll",
+        "true",
+      );
+      expect(syncWordWrapMenuCheckedMock).toHaveBeenLastCalledWith(false);
+    });
+  });
+
+  it("opens editor search from the native menu", async () => {
+    let menuHandler: ((command: AppMenuCommand) => void) | null = null;
+    listenForAppMenuCommandMock.mockImplementation(async (handler) => {
+      menuHandler = handler;
+      return () => undefined;
+    });
+    render(<App />);
+    await waitFor(() => expect(menuHandler).not.toBeNull());
+
+    act(() => menuHandler?.("find"));
+
+    expect(mockGalleyOpenSearch).toHaveBeenCalledOnce();
+  });
+
+  it("toggles, persists, and synchronizes word wrap from the native menu", async () => {
+    let menuHandler: ((command: AppMenuCommand) => void) | null = null;
+    listenForAppMenuCommandMock.mockImplementation(async (handler) => {
+      menuHandler = handler;
+      return () => undefined;
+    });
+    render(<App />);
+    await waitFor(() => expect(menuHandler).not.toBeNull());
+    await waitFor(() => {
+      expect(syncWordWrapMenuCheckedMock).toHaveBeenCalledWith(true);
+    });
+    syncWordWrapMenuCheckedMock.mockClear();
+
+    act(() => menuHandler?.("toggle-word-wrap"));
+
+    expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+      "data-horizontal-scroll",
+      "true",
+    );
+    expect(syncWordWrapMenuCheckedMock).toHaveBeenCalledWith(false);
+    await waitFor(() => {
+      expect(writeAppSettingsMock).toHaveBeenCalledWith({
+        appearanceTheme: "system",
+        themeSettings: {
+          mode: "system",
+          constantThemeId: "galley-light",
+          lightThemeId: "galley-light",
+          darkThemeId: "galley-dark",
+        },
+        editorFontFamily: "system",
+        editorFontSize: "medium",
+        openMode: "tabs",
+        wordWrap: false,
+      });
+    });
+  });
+
+  it("does not let late startup settings overwrite a toggled word wrap preference", async () => {
+    const pendingSettings = deferred<Awaited<ReturnType<typeof readAppSettings>>>();
+    let menuHandler: ((command: AppMenuCommand) => void) | null = null;
+    readAppSettingsMock.mockReturnValue(pendingSettings.promise);
+    listenForAppMenuCommandMock.mockImplementation(async (handler) => {
+      menuHandler = handler;
+      return () => undefined;
+    });
+    render(<App />);
+    await waitFor(() => expect(menuHandler).not.toBeNull());
+
+    act(() => menuHandler?.("toggle-word-wrap"));
+    expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+      "data-horizontal-scroll",
+      "true",
+    );
+
+    await act(async () => {
+      pendingSettings.resolve({ wordWrap: true });
+      await pendingSettings.promise;
+    });
+
+    expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+      "data-horizontal-scroll",
+      "true",
+    );
+  });
+
+  it("waits for startup settings before persisting an unrelated preference", async () => {
+    const pendingSettings = deferred<Awaited<ReturnType<typeof readAppSettings>>>();
+    readAppSettingsMock.mockReturnValue(pendingSettings.promise);
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: ",", ctrlKey: true });
+    await screen.findByRole("dialog", { name: "Settings" });
+    fireEvent.click(screen.getByRole("radio", { name: "Separate windows" }));
+
+    expect(writeAppSettingsMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      pendingSettings.resolve({ wordWrap: false });
+      await pendingSettings.promise;
+    });
+
+    await waitFor(() => {
+      expect(writeAppSettingsMock).toHaveBeenCalledTimes(1);
+      expect(writeAppSettingsMock).toHaveBeenCalledWith({
+        appearanceTheme: "system",
+        themeSettings: {
+          mode: "system",
+          constantThemeId: "galley-light",
+          lightThemeId: "galley-light",
+          darkThemeId: "galley-dark",
+        },
+        editorFontFamily: "system",
+        editorFontSize: "medium",
+        openMode: "windows",
+        wordWrap: false,
+      });
+    });
+  });
+
+  it("merges queued preference changes after a same-batch startup repair", async () => {
+    const pendingSettings = deferred<Awaited<ReturnType<typeof readAppSettings>>>();
+    readAppSettingsMock.mockReturnValue(pendingSettings.promise);
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: ",", ctrlKey: true });
+    await screen.findByRole("dialog", { name: "Settings" });
+
+    await act(async () => {
+      screen.getByRole("radio", { name: "Separate windows" }).click();
+      expect(writeAppSettingsMock).not.toHaveBeenCalled();
+      pendingSettings.resolve({
+        themeSettings: {
+          mode: "system",
+          constantThemeId: "catppuccin-mocha",
+          lightThemeId: "tokyo-night",
+          darkThemeId: "solarized-light",
+        },
+        editorFontFamily: "Inter",
+        editorFontSize: "large",
+        openMode: "tabs",
+        wordWrap: false,
+      });
+      await pendingSettings.promise;
+    });
+
+    await waitFor(() => {
+      expect(writeAppSettingsMock).toHaveBeenCalledTimes(1);
+      expect(writeAppSettingsMock).toHaveBeenCalledWith({
+        appearanceTheme: "system",
+        themeSettings: {
+          mode: "system",
+          constantThemeId: "catppuccin-mocha",
+          lightThemeId: "galley-light",
+          darkThemeId: "galley-dark",
+        },
+        editorFontFamily: "Inter",
+        editorFontSize: "large",
+        openMode: "windows",
+        wordWrap: false,
+      });
+    });
+  });
+
+  it("keeps the new word wrap layout when native menu synchronization fails", async () => {
+    let menuHandler: ((command: AppMenuCommand) => void) | null = null;
+    listenForAppMenuCommandMock.mockImplementation(async (handler) => {
+      menuHandler = handler;
+      return () => undefined;
+    });
+    render(<App />);
+    await waitFor(() => expect(menuHandler).not.toBeNull());
+    await waitFor(() => {
+      expect(syncWordWrapMenuCheckedMock).toHaveBeenCalledWith(true);
+    });
+    syncWordWrapMenuCheckedMock.mockClear();
+    syncWordWrapMenuCheckedMock.mockRejectedValueOnce(
+      new Error("Menu synchronization unavailable"),
+    );
+
+    act(() => menuHandler?.("toggle-word-wrap"));
+
+    expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+      "data-horizontal-scroll",
+      "true",
+    );
+    await expect(
+      screen.findByRole("alert", { name: "File command error" }),
+    ).resolves.toHaveTextContent("Menu synchronization unavailable");
+  });
+
+  it("keeps the new word wrap layout when the settings write fails", async () => {
+    let menuHandler: ((command: AppMenuCommand) => void) | null = null;
+    listenForAppMenuCommandMock.mockImplementation(async (handler) => {
+      menuHandler = handler;
+      return () => undefined;
+    });
+    render(<App />);
+    await waitFor(() => expect(menuHandler).not.toBeNull());
+    await waitFor(() => {
+      expect(syncWordWrapMenuCheckedMock).toHaveBeenCalledWith(true);
+    });
+    writeAppSettingsMock.mockRejectedValueOnce(
+      new Error("Settings write unavailable"),
+    );
+
+    act(() => menuHandler?.("toggle-word-wrap"));
+
+    expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+      "data-horizontal-scroll",
+      "true",
+    );
+    await expect(
+      screen.findByRole("alert", { name: "File command error" }),
+    ).resolves.toHaveTextContent("Settings write unavailable");
+  });
+
   it("applies persisted theme settings to the app shell and editor", async () => {
     readAppSettingsMock.mockResolvedValue({
       themeSettings: {
@@ -528,15 +778,7 @@ describe("App", () => {
       target: { value: "large" },
     });
 
-    await waitFor(() => {
-      expect(writeAppSettingsMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          editorFontSize: "large",
-          openMode: "windows",
-        }),
-      );
-    });
-    writeAppSettingsMock.mockClear();
+    expect(writeAppSettingsMock).not.toHaveBeenCalled();
 
     await act(async () => {
       pendingSettings.resolve({
@@ -554,18 +796,20 @@ describe("App", () => {
     });
 
     await waitFor(() => {
-      expect(writeAppSettingsMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          themeSettings: expect.objectContaining({
-            mode: "system",
-            constantThemeId: "catppuccin-mocha",
-            lightThemeId: "galley-light",
-            darkThemeId: "galley-dark",
-          }),
-          editorFontSize: "large",
-          openMode: "windows",
-        }),
-      );
+      expect(writeAppSettingsMock).toHaveBeenCalledTimes(1);
+      expect(writeAppSettingsMock).toHaveBeenCalledWith({
+        appearanceTheme: "system",
+        themeSettings: {
+          mode: "system",
+          constantThemeId: "catppuccin-mocha",
+          lightThemeId: "galley-light",
+          darkThemeId: "galley-dark",
+        },
+        editorFontFamily: "system",
+        editorFontSize: "large",
+        openMode: "windows",
+        wordWrap: true,
+      });
     });
   });
 

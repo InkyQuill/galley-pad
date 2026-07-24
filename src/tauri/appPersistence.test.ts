@@ -66,6 +66,7 @@ describe("app persistence", () => {
       editorFontFamily: "Fira Code",
       editorFontSize: "large",
       openMode: "tabs",
+      wordWrap: false,
     };
 
     invokeMock.mockResolvedValue(undefined);
@@ -83,6 +84,7 @@ describe("app persistence", () => {
         editorFontFamily: "Fira Code",
         editorFontSize: "large",
         openMode: "tabs",
+        wordWrap: false,
       },
     });
   });
@@ -121,6 +123,7 @@ describe("app persistence", () => {
       editorFontFamily: null,
       editorFontSize: "large",
       openMode: "tabs",
+      wordWrap: "broken",
     } satisfies RawPersistedAppSettings;
 
     invokeMock.mockResolvedValueOnce(malformedSettings).mockResolvedValueOnce({
@@ -131,6 +134,7 @@ describe("app persistence", () => {
     await expect(readAppSettings()).resolves.toEqual(malformedSettings);
     await expect(readAppSettings()).resolves.toMatchObject({
       themeSettings: null,
+      wordWrap: "broken",
     });
   });
 });

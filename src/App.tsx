@@ -12,7 +12,10 @@ import {
   TbPlus,
   TbX,
 } from "react-icons/tb";
-import { DocumentView } from "./components/DocumentView";
+import {
+  DocumentView,
+  type DocumentViewHandle,
+} from "./components/DocumentView";
 import { ExternalFileBanner } from "./components/ExternalFileBanner";
 import { ExternalReconcileView } from "./components/ExternalReconcileView";
 import { FontPicker } from "./components/FontPicker";
@@ -61,6 +64,7 @@ import {
   type EditorFontSize,
 } from "./settings/appearance";
 import { loadOpenMode, saveOpenMode } from "./settings/openMode";
+import { normalizeWordWrap } from "./settings/wordWrap";
 import {
   clearSwapState,
   readAppSettings,
@@ -81,6 +85,7 @@ import {
   listenForAppMenuCommand,
   type AppMenuCommand,
 } from "./tauri/menuEvents";
+import { syncWordWrapMenuChecked } from "./tauri/nativeMenu";
 import { openMarkdownFileWindow } from "./tauri/windows";
 import {
   closeCurrentWindow,
@@ -142,6 +147,7 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
   const [pendingCommand, setPendingCommand] = useState<CommandName | null>(null);
   const [commandError, setCommandError] = useState<string | null>(null);
   const [toolbarVisible, setToolbarVisible] = useState(false);
+  const [wordWrap, setWordWrap] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [themeSettings, setThemeSettings] = useState<ThemeSettings>(() =>
     loadNormalizedThemeSettings(),
@@ -173,15 +179,21 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
   const latestExternalFileWarning = useRef(externalFileWarning);
   const latestThemeSettings = useRef(themeSettings);
   const latestEditorFontSettings = useRef(editorFontSettings);
+  const latestWordWrap = useRef(wordWrap);
+  const documentViewRef = useRef<DocumentViewHandle>(null);
   const swapWriteTimer = useRef<number | null>(null);
   const swapWriteChain = useRef<Promise<void>>(Promise.resolve());
   const closingRef = useRef(false);
-  const pendingAppSettingsWrite = useRef<PersistedAppSettings | null>(null);
+  const appSettingsReadComplete = useRef(false);
+  const pendingAppSettingsWrite = useRef<Partial<PersistedAppSettings> | null>(
+    null,
+  );
   const appSettingsWriteInFlight = useRef<Promise<void> | null>(null);
   const touchedPreferences = useRef({
     appearanceTheme: false,
     editorFont: false,
     openMode: false,
+    wordWrap: false,
   });
   const settingsDialogRef = useRef<HTMLDialogElement>(null);
   const unsavedDialogRef = useRef<HTMLDialogElement>(null);
@@ -304,6 +316,27 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
   }, []);
 
   useEffect(() => {
+    if (import.meta.env.PROD) {
+      return;
+    }
+
+    const handleTestMenuCommand = (event: Event) => {
+      const command = (event as CustomEvent<AppMenuCommand>).detail;
+      if (command === "find" || command === "toggle-word-wrap") {
+        runMenuCommand(command);
+      }
+    };
+
+    window.addEventListener("galley-pad-test-menu-command", handleTestMenuCommand);
+    return () => {
+      window.removeEventListener(
+        "galley-pad-test-menu-command",
+        handleTestMenuCommand,
+      );
+    };
+  }, []);
+
+  useEffect(() => {
     if (!tabMenuOpen) {
       return;
     }
@@ -371,7 +404,23 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
 
     void readAppSettings()
       .then((settings) => {
-        if (disposed || !settings) {
+        if (disposed) {
+          return;
+        }
+
+        if (!touchedPreferences.current.wordWrap) {
+          const nextWordWrap = normalizeWordWrap(settings?.wordWrap);
+          latestWordWrap.current = nextWordWrap;
+          setWordWrap(nextWordWrap);
+          void syncWordWrapMenuChecked(nextWordWrap).catch((error: unknown) => {
+            if (!disposed) {
+              setCommandError(errorMessage(error));
+            }
+          });
+        }
+
+        if (!settings) {
+          releaseAppSettingsReadBarrier();
           return;
         }
 
@@ -381,6 +430,7 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
           if (parsedThemeSettings) {
             const normalizedThemeSettings =
               normalizeThemeSettings(parsedThemeSettings);
+            latestThemeSettings.current = normalizedThemeSettings;
             setThemeSettings(normalizedThemeSettings);
             saveThemeSettings(normalizedThemeSettings);
             if (!themeSettingsEqual(parsedThemeSettings, normalizedThemeSettings)) {
@@ -395,6 +445,7 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
                 latestThemeSettings.current,
               ),
             );
+            latestThemeSettings.current = migratedThemeSettings;
             setThemeSettings(migratedThemeSettings);
             saveThemeSettings(migratedThemeSettings);
             saveAppearanceThemeId(settings.appearanceTheme);
@@ -407,23 +458,24 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
         if (!touchedPreferences.current.editorFont) {
           const editorFontSize = settings.editorFontSize;
           if (isEditorFontSize(editorFontSize)) {
-            setEditorFontSettings((current) => {
-              const next = {
-                family:
-                  settings.editorFontFamily && settings.editorFontFamily.trim()
-                    ? settings.editorFontFamily
-                    : current.family,
-                size: editorFontSize,
-              };
-              saveEditorFontSettings(next);
-              return next;
-            });
+            const next = {
+              family:
+                settings.editorFontFamily && settings.editorFontFamily.trim()
+                  ? settings.editorFontFamily
+                  : latestEditorFontSettings.current.family,
+              size: editorFontSize,
+            };
+            latestEditorFontSettings.current = next;
+            saveEditorFontSettings(next);
+            setEditorFontSettings(next);
           } else if (settings.editorFontFamily?.trim()) {
-            setEditorFontSettings((current) => {
-              const next = { ...current, family: settings.editorFontFamily! };
-              saveEditorFontSettings(next);
-              return next;
-            });
+            const next = {
+              ...latestEditorFontSettings.current,
+              family: settings.editorFontFamily,
+            };
+            latestEditorFontSettings.current = next;
+            saveEditorFontSettings(next);
+            setEditorFontSettings(next);
           }
         }
 
@@ -432,12 +484,20 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
           isOpenMode(settings.openMode)
         ) {
           saveOpenMode(settings.openMode);
-          setWorkspace((current) => setOpenMode(current, settings.openMode!));
+          const nextWorkspace = setOpenMode(
+            latestWorkspace.current,
+            settings.openMode,
+          );
+          latestWorkspace.current = nextWorkspace;
+          setWorkspace(nextWorkspace);
         }
+
+        releaseAppSettingsReadBarrier();
       })
       .catch((error: unknown) => {
         if (!disposed) {
           setCommandError(errorMessage(error));
+          releaseAppSettingsReadBarrier();
         }
       });
 
@@ -887,11 +947,17 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
           saveDocumentAs(session, dependencies),
         );
         break;
+      case "find":
+        documentViewRef.current?.openSearch();
+        break;
       case "settings":
         setSettingsOpen(true);
         break;
       case "toggle-toolbar":
         setToolbarVisible((visible) => !visible);
+        break;
+      case "toggle-word-wrap":
+        toggleWordWrap();
         break;
     }
   }
@@ -937,6 +1003,17 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
     saveOpenMode(openMode);
     persistAppSettings({ openMode });
     setWorkspace((current) => setOpenMode(current, openMode));
+  }
+
+  function toggleWordWrap() {
+    touchedPreferences.current.wordWrap = true;
+    const nextWordWrap = !latestWordWrap.current;
+    latestWordWrap.current = nextWordWrap;
+    setWordWrap(nextWordWrap);
+    persistAppSettings({ wordWrap: nextWordWrap });
+    void syncWordWrapMenuChecked(nextWordWrap).catch((error: unknown) => {
+      setCommandError(errorMessage(error));
+    });
   }
 
   function updateThemeSettings(next: ThemeSettings) {
@@ -1334,17 +1411,49 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
 
   function persistAppSettings(settings: Partial<PersistedAppSettings>) {
     pendingAppSettingsWrite.current = {
-      ...(pendingAppSettingsWrite.current ?? currentAppSettingsSnapshot()),
+      ...(pendingAppSettingsWrite.current ?? {}),
       ...settings,
     };
 
+    if (!appSettingsReadComplete.current) {
+      return;
+    }
+
+    pendingAppSettingsWrite.current = {
+      ...currentAppSettingsSnapshot(),
+      ...pendingAppSettingsWrite.current,
+    };
+    return startAppSettingsWriteLoop();
+  }
+
+  function releaseAppSettingsReadBarrier() {
+    if (appSettingsReadComplete.current) {
+      return;
+    }
+
+    appSettingsReadComplete.current = true;
+    if (!pendingAppSettingsWrite.current) {
+      return;
+    }
+
+    pendingAppSettingsWrite.current = {
+      ...currentAppSettingsSnapshot(),
+      ...pendingAppSettingsWrite.current,
+    };
+    void startAppSettingsWriteLoop();
+  }
+
+  function startAppSettingsWriteLoop() {
     if (appSettingsWriteInFlight.current) {
       return appSettingsWriteInFlight.current;
     }
 
     const writeLoop = (async () => {
       while (pendingAppSettingsWrite.current) {
-        const next = pendingAppSettingsWrite.current;
+        const next = {
+          ...currentAppSettingsSnapshot(),
+          ...pendingAppSettingsWrite.current,
+        };
         pendingAppSettingsWrite.current = null;
         try {
           await writeAppSettings(next);
@@ -1370,6 +1479,7 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
       editorFontFamily: latestEditorFontSettings.current.family,
       editorFontSize: latestEditorFontSettings.current.size,
       openMode: latestWorkspace.current.openMode,
+      wordWrap: latestWordWrap.current,
     };
   }
 
@@ -1397,6 +1507,11 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
         !touchedPreferences.current.openMode && isOpenMode(settings.openMode)
           ? settings.openMode
           : snapshot.openMode,
+      wordWrap:
+        !touchedPreferences.current.wordWrap &&
+        typeof settings.wordWrap === "boolean"
+          ? settings.wordWrap
+          : snapshot.wordWrap,
     };
   }
 
@@ -1700,6 +1815,8 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
           />
         ) : (
           <DocumentView
+            ref={documentViewRef}
+            wordWrap={wordWrap}
             content={document.content}
             panelId={activeTabPanelId}
             labelledBy={activeTabButtonId}

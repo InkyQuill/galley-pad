@@ -115,6 +115,55 @@ test("loads the Galley Editor integration without a unit-test mock", async ({
   await expect(editor.locator(".cm-editor")).toBeVisible();
 });
 
+test("switches the real editor between wrapped and horizontal layouts", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  const editor = page.locator(".cm-editor");
+  await expect(editor).toHaveClass(/ge-width-constrained/);
+
+  await page.evaluate(() => {
+    window.dispatchEvent(
+      new CustomEvent("galley-pad-test-menu-command", {
+        detail: "toggle-word-wrap",
+      }),
+    );
+  });
+
+  await expect(editor).toHaveClass(/ge-horizontal-scroll/);
+});
+
+test("opens Galley Editor search with the platform find shortcut", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.locator(".cm-content").click();
+  await page.keyboard.press(
+    process.platform === "darwin" ? "Meta+F" : "Control+F",
+  );
+
+  await expect(page.locator(".cm-search")).toBeVisible();
+  await expect(page.locator('input[name="search"]')).toBeFocused();
+});
+
+test("opens the real editor search panel through the development menu-command hook", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  const editor = page.getByRole("tabpanel", { name: "Untitled.md" });
+  await expect(editor.locator(".cm-search")).not.toBeVisible();
+
+  await page.evaluate(() => {
+    window.dispatchEvent(
+      new CustomEvent("galley-pad-test-menu-command", { detail: "find" }),
+    );
+  });
+
+  await expect(editor.locator(".cm-search")).toBeVisible();
+});
+
 test("marks the document unsaved after editor changes", async ({ page }) => {
   await page.goto("/");
 
@@ -238,10 +287,10 @@ test("hides the Galley toolbar by default and shows it with the toolbar shortcut
   await expect(page.locator(".ge-toolbar svg").first()).toBeVisible();
 });
 
-test.describe("Linux Chromium footer menu", () => {
+test.describe("Linux Wayland footer menu", () => {
   test.use({
     userAgent:
-      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+      "Mozilla/5.0 (Wayland; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
   });
 
   test(
@@ -270,7 +319,24 @@ test.describe("Linux Chromium footer menu", () => {
         page.locator('.ge-toolbar[aria-label="Editor toolbar"]'),
       ).toBeVisible();
 
+      const editor = page.locator(".cm-editor");
+      await expect(editor).toHaveClass(/ge-width-constrained/);
       await menuTrigger.click();
+      await expect(page.getByText("View", { exact: true })).toBeVisible();
+      const wordWrapItem = page.getByRole("menuitemcheckbox", {
+        name: /Word Wrap.*Alt\+Z/,
+      });
+      await expect(wordWrapItem).toHaveAttribute("aria-checked", "true");
+      await wordWrapItem.click();
+      await expect(editor).toHaveClass(/ge-horizontal-scroll/);
+
+      await menuTrigger.click();
+      await expect(
+        page.getByRole("menuitemcheckbox", {
+          name: /Word Wrap.*Alt\+Z/,
+        }),
+      ).toHaveAttribute("aria-checked", "false");
+
       await expect(page.getByRole("menu")).toBeVisible();
       await page.keyboard.press("Escape");
       await expect(page.getByRole("menu")).toBeHidden();

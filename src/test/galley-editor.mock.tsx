@@ -1,4 +1,10 @@
-import type { CSSProperties, ReactNode } from "react";
+import {
+  forwardRef,
+  useImperativeHandle,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
+import { vi } from "vitest";
 
 type TableControlIconRenderer = ({
   label,
@@ -6,39 +12,54 @@ type TableControlIconRenderer = ({
   label: string;
 }) => HTMLElement | null;
 
-export function GalleyEditor({
-  value,
-  onChange,
-  toolbar = true,
-  footer = true,
-  layout = "autosize",
-  theme = "auto",
-  surface,
-  tableControlIcons,
-}: {
-  value: string;
-  onChange: (content: string) => void;
-  toolbar?: boolean | { icons?: Record<string, unknown> };
-  tableControlIcons?: Record<string, TableControlIconRenderer>;
-  footer?:
-    | boolean
-    | {
-        before?: ReactNode;
-        after?: (context: {
-          wordCount: number;
-          characterCount: number;
-        }) => ReactNode;
-        wordCount?: boolean;
-        characterCount?: boolean;
-        logo?: boolean;
-      };
-  layout?: string;
-  theme?: string;
-  surface?: {
-    className?: string;
-    style?: CSSProperties;
-  };
-}) {
+export const mockGalleyOpenSearch = vi.fn(() => true);
+export const mockGalleyHandleState = { ready: true };
+
+export const GalleyEditor = forwardRef(function MockGalleyEditor(
+  {
+    value,
+    onChange,
+    toolbar = true,
+    footer = true,
+    layout = "autosize",
+    theme = "auto",
+    surface,
+    tableControlIcons,
+    horizontalScroll = false,
+  }: {
+    value: string;
+    onChange: (content: string) => void;
+    toolbar?: boolean | { icons?: Record<string, unknown> };
+    tableControlIcons?: Record<string, TableControlIconRenderer>;
+    footer?:
+      | boolean
+      | {
+          before?: ReactNode;
+          after?: (context: {
+            wordCount: number;
+            characterCount: number;
+          }) => ReactNode;
+          wordCount?: boolean;
+          characterCount?: boolean;
+          logo?: boolean;
+        };
+    layout?: string;
+    theme?: string;
+    surface?: {
+      className?: string;
+      style?: CSSProperties;
+    };
+    horizontalScroll?: boolean;
+  },
+  ref,
+) {
+  useImperativeHandle(ref, () =>
+    mockGalleyHandleState.ready
+      ? {
+          openSearch: mockGalleyOpenSearch,
+        }
+      : null,
+  );
   const iconCount =
     typeof toolbar === "object" ? Object.keys(toolbar.icons ?? {}).length : 0;
   const tableControlIconEntries = Object.entries(tableControlIcons ?? {});
@@ -73,6 +94,7 @@ export function GalleyEditor({
       data-testid="mock-galley-editor-shell"
       data-layout={layout}
       data-theme={theme}
+      data-horizontal-scroll={String(horizontalScroll)}
       className={surface?.className}
       style={surface?.style}
     >
@@ -137,4 +159,4 @@ export function GalleyEditor({
       ) : null}
     </div>
   );
-}
+});

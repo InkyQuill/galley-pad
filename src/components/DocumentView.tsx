@@ -1,13 +1,17 @@
 import {
   GalleyEditor,
   type GalleyFooterContext,
+  type GalleyHandle,
   type GalleyTableControlIconName,
   type ToolbarIconName,
 } from "@inkyquill/galley-editor";
-import type {
-  CSSProperties,
-  MouseEvent as ReactMouseEvent,
-  ReactNode,
+import {
+  forwardRef,
+  useImperativeHandle,
+  useRef,
+  type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
 } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
@@ -50,6 +54,10 @@ import type { AppMenuCommand } from "../tauri/menuEvents";
 
 type EditorSurfaceStyle = CSSProperties & Record<`--${string}`, string>;
 
+export type DocumentViewHandle = {
+  openSearch(): boolean;
+};
+
 export type DocumentViewProps = {
   content: string;
   onContentChange: (content: string) => void;
@@ -60,75 +68,97 @@ export type DocumentViewProps = {
   editorStyle?: EditorSurfaceStyle;
   fontSettings?: EditorFontSettings;
   status?: string;
+  wordWrap?: boolean;
   onMenuCommand?: (command: AppMenuCommand) => void;
 };
 
-export function DocumentView({
-  content,
-  onContentChange,
-  panelId,
-  labelledBy,
-  toolbarVisible = false,
-  editorScheme,
-  editorStyle,
-  fontSettings = { family: "system", size: "medium" },
-  status = "Draft",
-  onMenuCommand,
-}: DocumentViewProps) {
-  const fontStyle = editorFontStyle(fontSettings);
+export const DocumentView = forwardRef<DocumentViewHandle, DocumentViewProps>(
+  function DocumentView(
+    {
+      content,
+      onContentChange,
+      panelId,
+      labelledBy,
+      toolbarVisible = false,
+      editorScheme,
+      editorStyle,
+      fontSettings = { family: "system", size: "medium" },
+      status = "Draft",
+      wordWrap = true,
+      onMenuCommand,
+    },
+    ref,
+  ) {
+    const editorRef = useRef<GalleyHandle>(null);
 
-  return (
-    <main
-      className="document-view"
-      id={panelId}
-      role="tabpanel"
-      aria-label={labelledBy ? undefined : "Markdown document editor"}
-      aria-labelledby={labelledBy}
-      onMouseDownCapture={suppressMiddleButton}
-      onAuxClickCapture={suppressMiddleButton}
-    >
-      <GalleyEditor
-        value={content}
-        onChange={onContentChange}
-        layout="fill"
-        theme={editorScheme ?? "auto"}
-        surface={{
-          className: "galley-pad-editor-surface",
-          style: {
-            ...editorStyle,
-            "--ge-font-body": fontStyle.fontFamily,
-            "--ge-font-size": fontStyle.fontSize,
-          } as CSSProperties,
-        }}
-        toolbar={
-          toolbarVisible
-            ? {
-                icons: GALLEY_TOOLBAR_ICONS,
-              }
-            : false
-        }
-        tableControlIcons={GALLEY_TABLE_CONTROL_ICONS}
-        footer={{
-          before: <span className="document-footer-status">{status}</span>,
-          after: ({ wordCount }: GalleyFooterContext) => (
-            <>
-              {IS_LINUX_DESKTOP && onMenuCommand ? (
-                <FooterMenuButton onCommand={onMenuCommand} />
-              ) : null}
-              <span className="document-footer-words">
-                {wordCount} {wordCount === 1 ? "word" : "words"}
-              </span>
-              <GalleyPadFooterMark />
-            </>
-          ),
-          logo: false,
-          wordCount: false,
-          characterCount: true,
-        }}
-      />
-    </main>
-  );
-}
+    useImperativeHandle(
+      ref,
+      () => ({
+        openSearch: () => editorRef.current?.openSearch() ?? false,
+      }),
+      [],
+    );
+
+    const fontStyle = editorFontStyle(fontSettings);
+
+    return (
+      <main
+        className="document-view"
+        id={panelId}
+        role="tabpanel"
+        aria-label={labelledBy ? undefined : "Markdown document editor"}
+        aria-labelledby={labelledBy}
+        onMouseDownCapture={suppressMiddleButton}
+        onAuxClickCapture={suppressMiddleButton}
+      >
+        <GalleyEditor
+          ref={editorRef}
+          value={content}
+          onChange={onContentChange}
+          layout="fill"
+          horizontalScroll={!wordWrap}
+          theme={editorScheme ?? "auto"}
+          surface={{
+            className: "galley-pad-editor-surface",
+            style: {
+              ...editorStyle,
+              "--ge-font-body": fontStyle.fontFamily,
+              "--ge-font-size": fontStyle.fontSize,
+            } as CSSProperties,
+          }}
+          toolbar={
+            toolbarVisible
+              ? {
+                  icons: GALLEY_TOOLBAR_ICONS,
+                }
+              : false
+          }
+          tableControlIcons={GALLEY_TABLE_CONTROL_ICONS}
+          footer={{
+            before: <span className="document-footer-status">{status}</span>,
+            after: ({ wordCount }: GalleyFooterContext) => (
+              <>
+                {IS_LINUX_DESKTOP && onMenuCommand ? (
+                  <FooterMenuButton
+                    wordWrap={wordWrap}
+                    onCommand={onMenuCommand}
+                  />
+                ) : null}
+                <span className="document-footer-words">
+                  {wordCount} {wordCount === 1 ? "word" : "words"}
+                </span>
+                <GalleyPadFooterMark />
+              </>
+            ),
+            logo: false,
+            wordCount: false,
+            characterCount: true,
+          }}
+        />
+      </main>
+    );
+  },
+);
 
 function suppressMiddleButton(event: ReactMouseEvent<HTMLElement>): void {
   if (event.button !== 1) {
