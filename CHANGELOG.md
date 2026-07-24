@@ -1,3 +1,5 @@
+## [1.4.0](https://github.com/InkyQuill/galley-pad/compare/v1.3.0...v1.4.0) (2026-07-24)
+
 ## [1.3.0](https://github.com/InkyQuill/galley-pad/compare/v1.2.3...v1.3.0) (2026-07-22)
 
 ## [1.2.3](https://github.com/InkyQuill/galley-pad/compare/v1.2.2...v1.2.3) (2026-07-07)
