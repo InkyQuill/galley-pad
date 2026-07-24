@@ -1,7 +1,7 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 
 export function syncWordWrapMenuChecked(checked: boolean): Promise<void> {
-  if (!("__TAURI_INTERNALS__" in globalThis)) {
+  if (!isTauri()) {
     return Promise.resolve();
   }
 

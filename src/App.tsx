@@ -217,7 +217,6 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
   latestExternalFileWarning.current = externalFileWarning;
   latestThemeSettings.current = themeSettings;
   latestEditorFontSettings.current = editorFontSettings;
-  latestWordWrap.current = wordWrap;
   const activeTab = getActiveDocumentTab(workspace);
   const document = activeTab.session;
 
