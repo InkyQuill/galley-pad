@@ -628,6 +628,13 @@ fn emit_app_menu_command<R: tauri::Runtime>(
 
 #[tauri::command]
 fn set_word_wrap_menu_checked(app: AppHandle, checked: bool) -> Result<(), String> {
+    set_word_wrap_menu_checked_for_app(&app, checked)
+}
+
+pub fn set_word_wrap_menu_checked_for_app<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    checked: bool,
+) -> Result<(), String> {
     let menu = app
         .menu()
         .ok_or_else(|| "Application menu is unavailable".to_string())?;
