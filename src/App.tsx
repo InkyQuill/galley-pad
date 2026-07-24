@@ -184,7 +184,10 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
   const swapWriteTimer = useRef<number | null>(null);
   const swapWriteChain = useRef<Promise<void>>(Promise.resolve());
   const closingRef = useRef(false);
-  const pendingAppSettingsWrite = useRef<PersistedAppSettings | null>(null);
+  const appSettingsReadComplete = useRef(false);
+  const pendingAppSettingsWrite = useRef<Partial<PersistedAppSettings> | null>(
+    null,
+  );
   const appSettingsWriteInFlight = useRef<Promise<void> | null>(null);
   const touchedPreferences = useRef({
     appearanceTheme: false,
@@ -418,6 +421,7 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
         }
 
         if (!settings) {
+          releaseAppSettingsReadBarrier();
           return;
         }
 
@@ -427,6 +431,7 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
           if (parsedThemeSettings) {
             const normalizedThemeSettings =
               normalizeThemeSettings(parsedThemeSettings);
+            latestThemeSettings.current = normalizedThemeSettings;
             setThemeSettings(normalizedThemeSettings);
             saveThemeSettings(normalizedThemeSettings);
             if (!themeSettingsEqual(parsedThemeSettings, normalizedThemeSettings)) {
@@ -441,6 +446,7 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
                 latestThemeSettings.current,
               ),
             );
+            latestThemeSettings.current = migratedThemeSettings;
             setThemeSettings(migratedThemeSettings);
             saveThemeSettings(migratedThemeSettings);
             saveAppearanceThemeId(settings.appearanceTheme);
@@ -453,23 +459,24 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
         if (!touchedPreferences.current.editorFont) {
           const editorFontSize = settings.editorFontSize;
           if (isEditorFontSize(editorFontSize)) {
-            setEditorFontSettings((current) => {
-              const next = {
-                family:
-                  settings.editorFontFamily && settings.editorFontFamily.trim()
-                    ? settings.editorFontFamily
-                    : current.family,
-                size: editorFontSize,
-              };
-              saveEditorFontSettings(next);
-              return next;
-            });
+            const next = {
+              family:
+                settings.editorFontFamily && settings.editorFontFamily.trim()
+                  ? settings.editorFontFamily
+                  : latestEditorFontSettings.current.family,
+              size: editorFontSize,
+            };
+            latestEditorFontSettings.current = next;
+            saveEditorFontSettings(next);
+            setEditorFontSettings(next);
           } else if (settings.editorFontFamily?.trim()) {
-            setEditorFontSettings((current) => {
-              const next = { ...current, family: settings.editorFontFamily! };
-              saveEditorFontSettings(next);
-              return next;
-            });
+            const next = {
+              ...latestEditorFontSettings.current,
+              family: settings.editorFontFamily,
+            };
+            latestEditorFontSettings.current = next;
+            saveEditorFontSettings(next);
+            setEditorFontSettings(next);
           }
         }
 
@@ -478,12 +485,20 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
           isOpenMode(settings.openMode)
         ) {
           saveOpenMode(settings.openMode);
-          setWorkspace((current) => setOpenMode(current, settings.openMode!));
+          const nextWorkspace = setOpenMode(
+            latestWorkspace.current,
+            settings.openMode,
+          );
+          latestWorkspace.current = nextWorkspace;
+          setWorkspace(nextWorkspace);
         }
+
+        releaseAppSettingsReadBarrier();
       })
       .catch((error: unknown) => {
         if (!disposed) {
           setCommandError(errorMessage(error));
+          releaseAppSettingsReadBarrier();
         }
       });
 
@@ -1397,17 +1412,49 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
 
   function persistAppSettings(settings: Partial<PersistedAppSettings>) {
     pendingAppSettingsWrite.current = {
-      ...(pendingAppSettingsWrite.current ?? currentAppSettingsSnapshot()),
+      ...(pendingAppSettingsWrite.current ?? {}),
       ...settings,
     };
 
+    if (!appSettingsReadComplete.current) {
+      return;
+    }
+
+    pendingAppSettingsWrite.current = {
+      ...currentAppSettingsSnapshot(),
+      ...pendingAppSettingsWrite.current,
+    };
+    return startAppSettingsWriteLoop();
+  }
+
+  function releaseAppSettingsReadBarrier() {
+    if (appSettingsReadComplete.current) {
+      return;
+    }
+
+    appSettingsReadComplete.current = true;
+    if (!pendingAppSettingsWrite.current) {
+      return;
+    }
+
+    pendingAppSettingsWrite.current = {
+      ...currentAppSettingsSnapshot(),
+      ...pendingAppSettingsWrite.current,
+    };
+    void startAppSettingsWriteLoop();
+  }
+
+  function startAppSettingsWriteLoop() {
     if (appSettingsWriteInFlight.current) {
       return appSettingsWriteInFlight.current;
     }
 
     const writeLoop = (async () => {
       while (pendingAppSettingsWrite.current) {
-        const next = pendingAppSettingsWrite.current;
+        const next = {
+          ...currentAppSettingsSnapshot(),
+          ...pendingAppSettingsWrite.current,
+        };
         pendingAppSettingsWrite.current = null;
         try {
           await writeAppSettings(next);

@@ -448,9 +448,19 @@ describe("App", () => {
     );
     expect(syncWordWrapMenuCheckedMock).toHaveBeenCalledWith(false);
     await waitFor(() => {
-      expect(writeAppSettingsMock).toHaveBeenCalledWith(
-        expect.objectContaining({ wordWrap: false }),
-      );
+      expect(writeAppSettingsMock).toHaveBeenCalledWith({
+        appearanceTheme: "system",
+        themeSettings: {
+          mode: "system",
+          constantThemeId: "galley-light",
+          lightThemeId: "galley-light",
+          darkThemeId: "galley-dark",
+        },
+        editorFontFamily: "system",
+        editorFontSize: "medium",
+        openMode: "tabs",
+        wordWrap: false,
+      });
     });
   });
 
@@ -482,6 +492,40 @@ describe("App", () => {
     );
   });
 
+  it("waits for startup settings before persisting an unrelated preference", async () => {
+    const pendingSettings = deferred<Awaited<ReturnType<typeof readAppSettings>>>();
+    readAppSettingsMock.mockReturnValue(pendingSettings.promise);
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: ",", ctrlKey: true });
+    await screen.findByRole("dialog", { name: "Settings" });
+    fireEvent.click(screen.getByRole("radio", { name: "Separate windows" }));
+
+    expect(writeAppSettingsMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      pendingSettings.resolve({ wordWrap: false });
+      await pendingSettings.promise;
+    });
+
+    await waitFor(() => {
+      expect(writeAppSettingsMock).toHaveBeenCalledTimes(1);
+      expect(writeAppSettingsMock).toHaveBeenCalledWith({
+        appearanceTheme: "system",
+        themeSettings: {
+          mode: "system",
+          constantThemeId: "galley-light",
+          lightThemeId: "galley-light",
+          darkThemeId: "galley-dark",
+        },
+        editorFontFamily: "system",
+        editorFontSize: "medium",
+        openMode: "windows",
+        wordWrap: false,
+      });
+    });
+  });
+
   it("keeps the new word wrap layout when native menu synchronization fails", async () => {
     let menuHandler: ((command: AppMenuCommand) => void) | null = null;
     listenForAppMenuCommandMock.mockImplementation(async (handler) => {
@@ -507,6 +551,32 @@ describe("App", () => {
     await expect(
       screen.findByRole("alert", { name: "File command error" }),
     ).resolves.toHaveTextContent("Menu synchronization unavailable");
+  });
+
+  it("keeps the new word wrap layout when the settings write fails", async () => {
+    let menuHandler: ((command: AppMenuCommand) => void) | null = null;
+    listenForAppMenuCommandMock.mockImplementation(async (handler) => {
+      menuHandler = handler;
+      return () => undefined;
+    });
+    render(<App />);
+    await waitFor(() => expect(menuHandler).not.toBeNull());
+    await waitFor(() => {
+      expect(syncWordWrapMenuCheckedMock).toHaveBeenCalledWith(true);
+    });
+    writeAppSettingsMock.mockRejectedValueOnce(
+      new Error("Settings write unavailable"),
+    );
+
+    act(() => menuHandler?.("toggle-word-wrap"));
+
+    expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+      "data-horizontal-scroll",
+      "true",
+    );
+    await expect(
+      screen.findByRole("alert", { name: "File command error" }),
+    ).resolves.toHaveTextContent("Settings write unavailable");
   });
 
   it("applies persisted theme settings to the app shell and editor", async () => {
@@ -664,15 +734,7 @@ describe("App", () => {
       target: { value: "large" },
     });
 
-    await waitFor(() => {
-      expect(writeAppSettingsMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          editorFontSize: "large",
-          openMode: "windows",
-        }),
-      );
-    });
-    writeAppSettingsMock.mockClear();
+    expect(writeAppSettingsMock).not.toHaveBeenCalled();
 
     await act(async () => {
       pendingSettings.resolve({
@@ -690,18 +752,20 @@ describe("App", () => {
     });
 
     await waitFor(() => {
-      expect(writeAppSettingsMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          themeSettings: expect.objectContaining({
-            mode: "system",
-            constantThemeId: "catppuccin-mocha",
-            lightThemeId: "galley-light",
-            darkThemeId: "galley-dark",
-          }),
-          editorFontSize: "large",
-          openMode: "windows",
-        }),
-      );
+      expect(writeAppSettingsMock).toHaveBeenCalledTimes(1);
+      expect(writeAppSettingsMock).toHaveBeenCalledWith({
+        appearanceTheme: "system",
+        themeSettings: {
+          mode: "system",
+          constantThemeId: "catppuccin-mocha",
+          lightThemeId: "galley-light",
+          darkThemeId: "galley-dark",
+        },
+        editorFontFamily: "system",
+        editorFontSize: "large",
+        openMode: "windows",
+        wordWrap: true,
+      });
     });
   });
 
