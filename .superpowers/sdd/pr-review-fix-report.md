@@ -30,10 +30,14 @@ the `isTauri()` implementation change, the focused suite passed.
 
 ## Delivery
 
-- Commit: `fix(menu): use public Tauri runtime detection`.
+- Fix commit: `17dde125611c7214e8520f6cbe0d0895b6dab508`
+  (`fix(menu): use public Tauri runtime detection`).
 - Branch: `agent/editor-search-word-wrap`.
-- Review replies are required for threads 3644905573 and 3644905578 after
-  the commit has been pushed.
+- Pushed to `origin/agent/editor-search-word-wrap` with tracking configured.
+- Inline reply posted to thread 3644905573:
+  https://github.com/InkyQuill/galley-pad/pull/14#discussion_r3644929916
+- Inline reply posted to thread 3644905578:
+  https://github.com/InkyQuill/galley-pad/pull/14#discussion_r3644929910
 
 ## Concerns
 
