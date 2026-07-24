@@ -115,6 +115,43 @@ test("loads the Galley Editor integration without a unit-test mock", async ({
   await expect(editor.locator(".cm-editor")).toBeVisible();
 });
 
+test("toggles word wrap through the development menu-command hook", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  const editor = page.getByRole("tabpanel", { name: "Untitled.md" });
+  const codeMirror = editor.locator(".cm-editor");
+  await expect(codeMirror).toHaveClass(/ge-width-constrained/);
+
+  await page.evaluate(() => {
+    window.dispatchEvent(
+      new CustomEvent("galley-pad-test-menu-command", {
+        detail: "toggle-word-wrap",
+      }),
+    );
+  });
+
+  await expect(codeMirror).toHaveClass(/ge-horizontal-scroll/);
+});
+
+test("opens the real editor search panel through the development menu-command hook", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  const editor = page.getByRole("tabpanel", { name: "Untitled.md" });
+  await expect(editor.locator(".cm-search")).not.toBeVisible();
+
+  await page.evaluate(() => {
+    window.dispatchEvent(
+      new CustomEvent("galley-pad-test-menu-command", { detail: "find" }),
+    );
+  });
+
+  await expect(editor.locator(".cm-search")).toBeVisible();
+});
+
 test("marks the document unsaved after editor changes", async ({ page }) => {
   await page.goto("/");
 
