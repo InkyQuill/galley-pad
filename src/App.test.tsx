@@ -526,6 +526,50 @@ describe("App", () => {
     });
   });
 
+  it("merges queued preference changes after a same-batch startup repair", async () => {
+    const pendingSettings = deferred<Awaited<ReturnType<typeof readAppSettings>>>();
+    readAppSettingsMock.mockReturnValue(pendingSettings.promise);
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: ",", ctrlKey: true });
+    await screen.findByRole("dialog", { name: "Settings" });
+
+    await act(async () => {
+      screen.getByRole("radio", { name: "Separate windows" }).click();
+      expect(writeAppSettingsMock).not.toHaveBeenCalled();
+      pendingSettings.resolve({
+        themeSettings: {
+          mode: "system",
+          constantThemeId: "catppuccin-mocha",
+          lightThemeId: "tokyo-night",
+          darkThemeId: "solarized-light",
+        },
+        editorFontFamily: "Inter",
+        editorFontSize: "large",
+        openMode: "tabs",
+        wordWrap: false,
+      });
+      await pendingSettings.promise;
+    });
+
+    await waitFor(() => {
+      expect(writeAppSettingsMock).toHaveBeenCalledTimes(1);
+      expect(writeAppSettingsMock).toHaveBeenCalledWith({
+        appearanceTheme: "system",
+        themeSettings: {
+          mode: "system",
+          constantThemeId: "catppuccin-mocha",
+          lightThemeId: "galley-light",
+          darkThemeId: "galley-dark",
+        },
+        editorFontFamily: "Inter",
+        editorFontSize: "large",
+        openMode: "windows",
+        wordWrap: false,
+      });
+    });
+  });
+
   it("keeps the new word wrap layout when native menu synchronization fails", async () => {
     let menuHandler: ((command: AppMenuCommand) => void) | null = null;
     listenForAppMenuCommandMock.mockImplementation(async (handler) => {
