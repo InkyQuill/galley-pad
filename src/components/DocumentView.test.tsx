@@ -1,7 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { createRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { DocumentView } from "./DocumentView";
+import { mockGalleyOpenSearch } from "../test/galley-editor.mock";
+import { DocumentView, type DocumentViewHandle } from "./DocumentView";
 
 const runtimePlatform = vi.hoisted(() => ({ isLinuxDesktop: false }));
 
@@ -38,6 +40,7 @@ function dispatchMiddleButton(target: Element, type: "mousedown" | "auxclick") {
 describe("DocumentView", () => {
   beforeEach(() => {
     runtimePlatform.isLinuxDesktop = false;
+    mockGalleyOpenSearch.mockClear();
   });
 
   it("renders the markdown editor region", () => {
@@ -167,6 +170,44 @@ describe("DocumentView", () => {
 
     expect(onContentChange).toHaveBeenCalledTimes(1);
     expect(onContentChange).toHaveBeenCalledWith("Changed");
+  });
+
+  it("wraps lines by default and enables horizontal scrolling on request", () => {
+    const { rerender } = render(
+      <DocumentView content="Long line" onContentChange={() => undefined} />,
+    );
+
+    expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+      "data-horizontal-scroll",
+      "false",
+    );
+
+    rerender(
+      <DocumentView
+        content="Long line"
+        onContentChange={() => undefined}
+        wordWrap={false}
+      />,
+    );
+
+    expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+      "data-horizontal-scroll",
+      "true",
+    );
+  });
+
+  it("opens Galley search through the DocumentView handle", () => {
+    const ref = createRef<DocumentViewHandle>();
+    render(
+      <DocumentView
+        ref={ref}
+        content="Find me"
+        onContentChange={() => undefined}
+      />,
+    );
+
+    expect(ref.current?.openSearch()).toBe(true);
+    expect(mockGalleyOpenSearch).toHaveBeenCalledOnce();
   });
 
   it.each(["mousedown", "auxclick"] as const)(
