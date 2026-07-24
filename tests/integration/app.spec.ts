@@ -115,14 +115,13 @@ test("loads the Galley Editor integration without a unit-test mock", async ({
   await expect(editor.locator(".cm-editor")).toBeVisible();
 });
 
-test("toggles word wrap through the development menu-command hook", async ({
+test("switches the real editor between wrapped and horizontal layouts", async ({
   page,
 }) => {
   await page.goto("/");
 
-  const editor = page.getByRole("tabpanel", { name: "Untitled.md" });
-  const codeMirror = editor.locator(".cm-editor");
-  await expect(codeMirror).toHaveClass(/ge-width-constrained/);
+  const editor = page.locator(".cm-editor");
+  await expect(editor).toHaveClass(/ge-width-constrained/);
 
   await page.evaluate(() => {
     window.dispatchEvent(
@@ -132,7 +131,20 @@ test("toggles word wrap through the development menu-command hook", async ({
     );
   });
 
-  await expect(codeMirror).toHaveClass(/ge-horizontal-scroll/);
+  await expect(editor).toHaveClass(/ge-horizontal-scroll/);
+});
+
+test("opens Galley Editor search with the platform find shortcut", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.locator(".cm-content").click();
+  await page.keyboard.press(
+    process.platform === "darwin" ? "Meta+F" : "Control+F",
+  );
+
+  await expect(page.locator(".cm-search")).toBeVisible();
+  await expect(page.locator('input[name="search"]')).toBeFocused();
 });
 
 test("opens the real editor search panel through the development menu-command hook", async ({

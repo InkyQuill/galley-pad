@@ -33,6 +33,7 @@ react-dom >=18
 @codemirror/commands >=6.10.0
 @codemirror/lang-markdown >=6.5.0
 @codemirror/language >=6.12.0
+@codemirror/search >=6.5.0
 @lezer/markdown >=1.6.0
 @lezer/highlight >=1.2.0
 ```
@@ -49,8 +50,23 @@ The desktop app may need Galley Editor support for:
 - source/live mode control
 - theme integration
 - focus commands
-- find integration or CodeMirror access
 - relative image base path or resolver
 - editor state preservation across reloads
 
 When these needs appear, prefer adding narrow, reusable Galley Editor APIs instead of app-local DOM workarounds.
+
+## Galley Editor 0.12 Integration
+
+Galley Pad pins `@inkyquill/galley-editor` 0.12.0 and supplies its
+`@codemirror/search >=6.5.0` peer dependency.
+
+`DocumentView` maps the persisted app preference to the editor-wide layout:
+
+```tsx
+<GalleyEditor horizontalScroll={!wordWrap} />
+```
+
+The editor owns `Ctrl+F`/`Cmd+F` while focused. Galley Pad's native
+`Edit > Find...` item calls `DocumentViewHandle.openSearch()`, which delegates
+to `GalleyHandle.openSearch()`. Do not query CodeMirror DOM or build a second
+search panel in the app.
