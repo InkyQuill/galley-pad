@@ -27,12 +27,24 @@ describe("native menu events", () => {
   it("listens for app menu command events inside Tauri", async () => {
     (globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
     listenMock.mockResolvedValue(() => undefined);
+    const handler = vi.fn();
 
-    await listenForAppMenuCommand(() => undefined);
+    await listenForAppMenuCommand(handler);
 
     expect(listenMock).toHaveBeenCalledWith(
       APP_MENU_COMMAND_EVENT,
       expect.any(Function),
     );
+
+    const listener = listenMock.mock.calls[0]?.[1];
+    listener?.({ event: APP_MENU_COMMAND_EVENT, id: 1, payload: "find" });
+    listener?.({
+      event: APP_MENU_COMMAND_EVENT,
+      id: 2,
+      payload: "toggle-word-wrap",
+    });
+
+    expect(handler).toHaveBeenNthCalledWith(1, "find");
+    expect(handler).toHaveBeenNthCalledWith(2, "toggle-word-wrap");
   });
 });
