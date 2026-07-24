@@ -9,6 +9,7 @@ const labels = [
   "Save",
   "Save As...",
   "Toggle Editor Toolbar",
+  "Word WrapAlt+Z",
   "Settings...",
 ];
 
@@ -21,14 +22,22 @@ const commands = [
   ["Settings...", "settings"],
 ] as const;
 
-function renderMenu() {
+function renderMenu(wordWrap = true) {
   const onCommand = vi.fn();
-  render(<FooterMenuButton onCommand={onCommand} />);
+  render(<FooterMenuButton wordWrap={wordWrap} onCommand={onCommand} />);
 
   return {
     onCommand,
     trigger: screen.getByRole("button", { name: "Galley Pad menu" }),
   };
+}
+
+function getMenuItems(menu: HTMLElement): HTMLElement[] {
+  return Array.from(
+    menu.querySelectorAll<HTMLElement>(
+      '[role="menuitem"], [role="menuitemcheckbox"]',
+    ),
+  );
 }
 
 describe("FooterMenuButton", () => {
@@ -46,7 +55,7 @@ describe("FooterMenuButton", () => {
     fireEvent.click(trigger);
 
     const menu = screen.getByRole("menu");
-    const items = within(menu).getAllByRole("menuitem");
+    const items = getMenuItems(menu);
     expect(items.map((item) => item.textContent)).toEqual(labels);
     expect(items[0]).toHaveFocus();
     expect(trigger).toHaveAttribute("aria-expanded", "true");
@@ -56,19 +65,22 @@ describe("FooterMenuButton", () => {
     const { trigger } = renderMenu();
     fireEvent.click(trigger);
 
-    const separator = within(screen.getByRole("menu")).getByRole("separator");
-    expect(separator.tagName).toBe("HR");
-    expect(separator).toHaveClass("footer-menu-separator");
+    const separators = within(screen.getByRole("menu")).getAllByRole("separator");
+    expect(separators).toHaveLength(2);
+    for (const separator of separators) {
+      expect(separator.tagName).toBe("HR");
+      expect(separator).toHaveClass("footer-menu-separator");
+    }
   });
 
   it("wraps focus with ArrowDown and ArrowUp", () => {
     const { trigger } = renderMenu();
     fireEvent.click(trigger);
     const menu = screen.getByRole("menu");
-    const items = within(menu).getAllByRole("menuitem");
+    const items = getMenuItems(menu);
 
     fireEvent.keyDown(menu, { key: "ArrowUp" });
-    expect(items[5]).toHaveFocus();
+    expect(items[6]).toHaveFocus();
 
     fireEvent.keyDown(menu, { key: "ArrowDown" });
     expect(items[0]).toHaveFocus();
@@ -78,10 +90,10 @@ describe("FooterMenuButton", () => {
     const { trigger } = renderMenu();
     fireEvent.click(trigger);
     const menu = screen.getByRole("menu");
-    const items = within(menu).getAllByRole("menuitem");
+    const items = getMenuItems(menu);
 
     fireEvent.keyDown(menu, { key: "End" });
-    expect(items[5]).toHaveFocus();
+    expect(items[6]).toHaveFocus();
 
     fireEvent.keyDown(menu, { key: "Home" });
     expect(items[0]).toHaveFocus();
@@ -114,6 +126,37 @@ describe("FooterMenuButton", () => {
 
     expect(onCommand).toHaveBeenCalledOnce();
     expect(onCommand).toHaveBeenCalledWith(command);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it.each([true, false])(
+    "shows Word Wrap under View with its current checked state %s",
+    (wordWrap) => {
+      const { trigger } = renderMenu(wordWrap);
+      fireEvent.click(trigger);
+
+      const menu = screen.getByRole("menu");
+      expect(within(menu).getByText("View")).toBeVisible();
+      const wordWrapItem = within(menu).getByRole("menuitemcheckbox", {
+        name: /Word Wrap.*Alt\+Z/,
+      });
+      expect(wordWrapItem).toHaveAttribute("aria-checked", String(wordWrap));
+      expect(within(wordWrapItem).getByText("Alt+Z")).toBeVisible();
+    },
+  );
+
+  it("routes the Word Wrap checkbox through the app menu callback", () => {
+    const { onCommand, trigger } = renderMenu(false);
+    fireEvent.click(trigger);
+
+    fireEvent.click(
+      screen.getByRole("menuitemcheckbox", {
+        name: /Word Wrap.*Alt\+Z/,
+      }),
+    );
+
+    expect(onCommand).toHaveBeenCalledOnce();
+    expect(onCommand).toHaveBeenCalledWith("toggle-word-wrap");
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 });

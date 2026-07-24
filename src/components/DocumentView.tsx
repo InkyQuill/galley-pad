@@ -139,7 +139,10 @@ export const DocumentView = forwardRef<DocumentViewHandle, DocumentViewProps>(
             after: ({ wordCount }: GalleyFooterContext) => (
               <>
                 {IS_LINUX_DESKTOP && onMenuCommand ? (
-                  <FooterMenuButton onCommand={onMenuCommand} />
+                  <FooterMenuButton
+                    wordWrap={wordWrap}
+                    onCommand={onMenuCommand}
+                  />
                 ) : null}
                 <span className="document-footer-words">
                   {wordCount} {wordCount === 1 ? "word" : "words"}

@@ -582,6 +582,9 @@ textarea {
 }
 
 .footer-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   min-height: 30px;
   padding: 0 8px;
@@ -592,6 +595,36 @@ textarea {
   font-size: 12px;
   text-align: left;
   white-space: nowrap;
+}
+
+.footer-menu-heading {
+  padding: 2px 8px 3px;
+  color: var(--app-text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.footer-menu-check {
+  display: inline-flex;
+  flex: 0 0 14px;
+  align-items: center;
+  justify-content: center;
+}
+
+.footer-menu-check svg {
+  width: 14px;
+  height: 14px;
+}
+
+.footer-menu-item-label {
+  flex: 1;
+}
+
+.footer-menu-shortcut {
+  color: var(--app-text-muted);
+  font: inherit;
 }
 
 .footer-menu-item:hover,

@@ -272,6 +272,30 @@ describe("DocumentView", () => {
     expect(onMenuCommand).toHaveBeenCalledWith("new");
   });
 
+  it("routes the Linux footer Word Wrap checkbox through the app toggle pipeline", () => {
+    runtimePlatform.isLinuxDesktop = true;
+    const onMenuCommand = vi.fn();
+    render(
+      <DocumentView
+        content="Initial"
+        onContentChange={() => undefined}
+        onMenuCommand={onMenuCommand}
+        wordWrap={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Galley Pad menu" }));
+    const wordWrapItem = screen.getByRole("menuitemcheckbox", {
+      name: /Word Wrap.*Alt\+Z/,
+    });
+    expect(wordWrapItem).toHaveAttribute("aria-checked", "false");
+
+    fireEvent.click(wordWrapItem);
+
+    expect(onMenuCommand).toHaveBeenCalledOnce();
+    expect(onMenuCommand).toHaveBeenCalledWith("toggle-word-wrap");
+  });
+
   it("hides the footer menu on Linux when its callback is missing", () => {
     runtimePlatform.isLinuxDesktop = true;
     render(<DocumentView content="Initial" onContentChange={() => undefined} />);
