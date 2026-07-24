@@ -142,6 +142,7 @@ test("Vite build dedupes editor peer dependencies", async () => {
     "@codemirror/commands",
     "@codemirror/lang-markdown",
     "@codemirror/language",
+    "@codemirror/search",
     "@codemirror/state",
     "@codemirror/view",
     "@lezer/highlight",
