@@ -13,6 +13,7 @@ type TableControlIconRenderer = ({
 }) => HTMLElement | null;
 
 export const mockGalleyOpenSearch = vi.fn(() => true);
+export const mockGalleyHandleState = { ready: true };
 
 export const GalleyEditor = forwardRef(function MockGalleyEditor(
   {
@@ -52,9 +53,13 @@ export const GalleyEditor = forwardRef(function MockGalleyEditor(
   },
   ref,
 ) {
-  useImperativeHandle(ref, () => ({
-    openSearch: mockGalleyOpenSearch,
-  }));
+  useImperativeHandle(ref, () =>
+    mockGalleyHandleState.ready
+      ? {
+          openSearch: mockGalleyOpenSearch,
+        }
+      : null,
+  );
   const iconCount =
     typeof toolbar === "object" ? Object.keys(toolbar.icons ?? {}).length : 0;
   const tableControlIconEntries = Object.entries(tableControlIcons ?? {});

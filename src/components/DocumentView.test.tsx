@@ -2,7 +2,10 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { createRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { mockGalleyOpenSearch } from "../test/galley-editor.mock";
+import {
+  mockGalleyHandleState,
+  mockGalleyOpenSearch,
+} from "../test/galley-editor.mock";
 import { DocumentView, type DocumentViewHandle } from "./DocumentView";
 
 const runtimePlatform = vi.hoisted(() => ({ isLinuxDesktop: false }));
@@ -40,6 +43,7 @@ function dispatchMiddleButton(target: Element, type: "mousedown" | "auxclick") {
 describe("DocumentView", () => {
   beforeEach(() => {
     runtimePlatform.isLinuxDesktop = false;
+    mockGalleyHandleState.ready = true;
     mockGalleyOpenSearch.mockClear();
   });
 
@@ -208,6 +212,21 @@ describe("DocumentView", () => {
 
     expect(ref.current?.openSearch()).toBe(true);
     expect(mockGalleyOpenSearch).toHaveBeenCalledOnce();
+  });
+
+  it("returns false when search is requested before the editor handle is ready", () => {
+    mockGalleyHandleState.ready = false;
+    const ref = createRef<DocumentViewHandle>();
+    render(
+      <DocumentView
+        ref={ref}
+        content="Find me later"
+        onContentChange={() => undefined}
+      />,
+    );
+
+    expect(ref.current?.openSearch()).toBe(false);
+    expect(mockGalleyOpenSearch).not.toHaveBeenCalled();
   });
 
   it.each(["mousedown", "auxclick"] as const)(
