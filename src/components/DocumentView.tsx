@@ -7,6 +7,7 @@ import {
 } from "@inkyquill/galley-editor";
 import {
   forwardRef,
+  useEffect,
   useImperativeHandle,
   useRef,
   type CSSProperties,
@@ -58,9 +59,16 @@ export type DocumentViewHandle = {
   openSearch(): boolean;
 };
 
+type SavedDocumentPosition = {
+  anchor: number;
+  head: number;
+  scrollFraction: number;
+};
+
 export type DocumentViewProps = {
   content: string;
   onContentChange: (content: string) => void;
+  documentKey?: string;
   panelId?: string;
   labelledBy?: string;
   toolbarVisible?: boolean;
@@ -77,6 +85,7 @@ export const DocumentView = forwardRef<DocumentViewHandle, DocumentViewProps>(
     {
       content,
       onContentChange,
+      documentKey,
       panelId,
       labelledBy,
       toolbarVisible = false,
@@ -90,6 +99,8 @@ export const DocumentView = forwardRef<DocumentViewHandle, DocumentViewProps>(
     ref,
   ) {
     const editorRef = useRef<GalleyHandle>(null);
+    const savedPositions = useRef(new Map<string, SavedDocumentPosition>());
+    const activeDocumentKey = useRef(documentKey);
 
     useImperativeHandle(
       ref,
@@ -98,6 +109,39 @@ export const DocumentView = forwardRef<DocumentViewHandle, DocumentViewProps>(
       }),
       [],
     );
+
+    // Restore the in-session position when returning to a known tab. Tabs
+    // seen for the first time keep the editor's start-of-document reset.
+    useEffect(() => {
+      if (activeDocumentKey.current === documentKey) {
+        return;
+      }
+
+      activeDocumentKey.current = documentKey;
+      const saved = documentKey
+        ? savedPositions.current.get(documentKey)
+        : undefined;
+      if (!saved) {
+        return;
+      }
+
+      editorRef.current?.select(saved.anchor, saved.head);
+      editorRef.current?.scrollTo(saved.scrollFraction);
+    }, [documentKey]);
+
+    function recordPosition(update: Partial<SavedDocumentPosition>) {
+      const key = activeDocumentKey.current;
+      if (!key) {
+        return;
+      }
+
+      const saved = savedPositions.current.get(key) ?? {
+        anchor: 0,
+        head: 0,
+        scrollFraction: 0,
+      };
+      savedPositions.current.set(key, { ...saved, ...update });
+    }
 
     const fontStyle = editorFontStyle(fontSettings);
 
@@ -115,6 +159,11 @@ export const DocumentView = forwardRef<DocumentViewHandle, DocumentViewProps>(
           ref={editorRef}
           value={content}
           onChange={onContentChange}
+          docKey={documentKey}
+          onSelectionChange={(selection) =>
+            recordPosition({ anchor: selection.anchor, head: selection.head })
+          }
+          onScroll={(fraction) => recordPosition({ scrollFraction: fraction })}
           layout="fill"
           horizontalScroll={!wordWrap}
           theme={editorScheme ?? "auto"}

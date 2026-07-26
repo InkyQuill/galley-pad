@@ -123,6 +123,17 @@ textarea {
   white-space: nowrap;
 }
 
+.tab-path-hint {
+  margin-left: 6px;
+  color: var(--app-tab-text);
+  opacity: 0.66;
+  font-size: 10px;
+}
+
+.tab-active .tab-path-hint {
+  color: var(--app-text);
+}
+
 .tab button[role="tab"]:focus-visible,
 .tab-close:focus-visible,
 .tabstrip-action:focus-visible,
