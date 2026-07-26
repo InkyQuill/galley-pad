@@ -214,6 +214,31 @@ describe("App", () => {
     expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("");
   });
 
+  it("gives each tab a distinct document identity in the editor", () => {
+    render(<App />);
+
+    const firstDocKey = screen
+      .getByTestId("mock-galley-editor-shell")
+      .getAttribute("data-doc-key");
+    expect(firstDocKey).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "New tab" }));
+
+    const secondDocKey = screen
+      .getByTestId("mock-galley-editor-shell")
+      .getAttribute("data-doc-key");
+    expect(secondDocKey).toBeTruthy();
+    expect(secondDocKey).not.toBe(firstDocKey);
+
+    const firstTab = screen.getAllByRole("tab", { name: /Untitled\.md/ })[0];
+    fireEvent.click(firstTab);
+
+    expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+      "data-doc-key",
+      firstDocKey,
+    );
+  });
+
   it("renders a close control for every tab", () => {
     render(<App />);
 
@@ -2583,6 +2608,85 @@ describe("App", () => {
       screen.queryByRole("alert", { name: "File command error" }),
     ).not.toBeInTheDocument();
     consoleError.mockRestore();
+  });
+
+  it("shows distinguishing path hints for tabs with identical names", async () => {
+    readSwapStateMock.mockResolvedValue({
+      version: 1,
+      savedAt: 1,
+      activeTabId: "tab-a",
+      openMode: "tabs",
+      tabs: [
+        {
+          id: "tab-a",
+          session: {
+            id: "file:/home/u/projectA/notes.md",
+            path: "/home/u/projectA/notes.md",
+            displayName: "notes.md",
+            content: "A edited",
+            savedContent: "A",
+            dirty: true,
+            lineEnding: "lf",
+            lastKnownModifiedAt: null,
+          },
+        },
+        {
+          id: "tab-b",
+          session: {
+            id: "file:/home/u/projectB/notes.md",
+            path: "/home/u/projectB/notes.md",
+            displayName: "notes.md",
+            content: "B",
+            savedContent: "B",
+            dirty: false,
+            lineEnding: "lf",
+            lastKnownModifiedAt: null,
+          },
+        },
+      ],
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("tab", { name: "notes.md — projectA" }),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.getByRole("tab", { name: "notes.md — projectB" }),
+    ).toBeInTheDocument();
+  });
+
+  it.each(["mousedown", "auxclick"] as const)(
+    "suppresses middle-button %s defaults app-wide to avoid primary-selection paste",
+    (type) => {
+      render(<App />);
+
+      const tablist = screen.getByRole("tablist", { name: "Open documents" });
+      const event = new MouseEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        button: 1,
+      });
+      tablist.dispatchEvent(event);
+
+      expect(event.defaultPrevented).toBe(true);
+    },
+  );
+
+  it("keeps left-button mousedown defaults intact", () => {
+    render(<App />);
+
+    const tablist = screen.getByRole("tablist", { name: "Open documents" });
+    const event = new MouseEvent("mousedown", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+    });
+    tablist.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
   });
 });
 

@@ -3,8 +3,11 @@ import { createRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  mockGalleyCallbacks,
   mockGalleyHandleState,
   mockGalleyOpenSearch,
+  mockGalleyScrollTo,
+  mockGalleySelect,
 } from "../test/galley-editor.mock";
 import { DocumentView, type DocumentViewHandle } from "./DocumentView";
 
@@ -68,6 +71,21 @@ describe("DocumentView", () => {
     expect(
       screen.queryByRole("toolbar", { name: "Mock Galley Toolbar" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("passes the document identity through to the Galley editor", () => {
+    render(
+      <DocumentView
+        content="# Hello"
+        onContentChange={() => undefined}
+        documentKey="tab-42"
+      />,
+    );
+
+    expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+      "data-doc-key",
+      "tab-42",
+    );
   });
 
   it("links the document panel to its owning tab", () => {
@@ -337,5 +355,64 @@ describe("DocumentView", () => {
     expect(
       screen.queryByRole("button", { name: "Galley Pad menu" }),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("DocumentView per-tab position memory", () => {
+  function renderWithKey(documentKey: string) {
+    return render(
+      <DocumentView
+        content="# Hello"
+        onContentChange={() => undefined}
+        documentKey={documentKey}
+      />,
+    );
+  }
+
+  it("restores the recorded position when switching back to a known tab", () => {
+    const { rerender } = renderWithKey("tab-a");
+
+    mockGalleyCallbacks.onSelectionChange?.({ from: 5, to: 5, anchor: 5, head: 5 });
+    mockGalleyCallbacks.onScroll?.(0.4);
+
+    rerender(
+      <DocumentView
+        content="other"
+        onContentChange={() => undefined}
+        documentKey="tab-b"
+      />,
+    );
+    mockGalleySelect.mockClear();
+    mockGalleyScrollTo.mockClear();
+
+    rerender(
+      <DocumentView
+        content="# Hello"
+        onContentChange={() => undefined}
+        documentKey="tab-a"
+      />,
+    );
+
+    expect(mockGalleySelect).toHaveBeenCalledWith(5, 5);
+    expect(mockGalleyScrollTo).toHaveBeenCalledWith(0.4);
+  });
+
+  it("does not restore any position for a tab seen for the first time", () => {
+    const { rerender } = renderWithKey("tab-a");
+
+    mockGalleyCallbacks.onSelectionChange?.({ from: 5, to: 5, anchor: 5, head: 5 });
+    mockGalleySelect.mockClear();
+    mockGalleyScrollTo.mockClear();
+
+    rerender(
+      <DocumentView
+        content="fresh"
+        onContentChange={() => undefined}
+        documentKey="tab-new"
+      />,
+    );
+
+    expect(mockGalleySelect).not.toHaveBeenCalled();
+    expect(mockGalleyScrollTo).not.toHaveBeenCalled();
   });
 });

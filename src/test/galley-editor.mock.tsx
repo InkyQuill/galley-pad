@@ -13,12 +13,26 @@ type TableControlIconRenderer = ({
 }) => HTMLElement | null;
 
 export const mockGalleyOpenSearch = vi.fn(() => true);
+export const mockGalleySelect = vi.fn();
+export const mockGalleyScrollTo = vi.fn();
 export const mockGalleyHandleState = { ready: true };
+export const mockGalleyCallbacks: {
+  onSelectionChange?: (selection: {
+    from: number;
+    to: number;
+    anchor: number;
+    head: number;
+  }) => void;
+  onScroll?: (fraction: number) => void;
+} = {};
 
 export const GalleyEditor = forwardRef(function MockGalleyEditor(
   {
     value,
     onChange,
+    docKey,
+    onSelectionChange,
+    onScroll,
     toolbar = true,
     footer = true,
     layout = "autosize",
@@ -29,6 +43,14 @@ export const GalleyEditor = forwardRef(function MockGalleyEditor(
   }: {
     value: string;
     onChange: (content: string) => void;
+    docKey?: string | number;
+    onSelectionChange?: (selection: {
+      from: number;
+      to: number;
+      anchor: number;
+      head: number;
+    }) => void;
+    onScroll?: (fraction: number) => void;
     toolbar?: boolean | { icons?: Record<string, unknown> };
     tableControlIcons?: Record<string, TableControlIconRenderer>;
     footer?:
@@ -53,10 +75,15 @@ export const GalleyEditor = forwardRef(function MockGalleyEditor(
   },
   ref,
 ) {
+  mockGalleyCallbacks.onSelectionChange = onSelectionChange;
+  mockGalleyCallbacks.onScroll = onScroll;
+
   useImperativeHandle(ref, () =>
     mockGalleyHandleState.ready
       ? {
           openSearch: mockGalleyOpenSearch,
+          select: mockGalleySelect,
+          scrollTo: mockGalleyScrollTo,
         }
       : null,
   );
@@ -92,6 +119,7 @@ export const GalleyEditor = forwardRef(function MockGalleyEditor(
   return (
     <div
       data-testid="mock-galley-editor-shell"
+      data-doc-key={docKey}
       data-layout={layout}
       data-theme={theme}
       data-horizontal-scroll={String(horizontalScroll)}

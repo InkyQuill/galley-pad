@@ -39,6 +39,7 @@ import {
   updateSessionContent,
   type DocumentSession,
 } from "./document/session";
+import { computeTabPathHints } from "./document/tabLabels";
 import {
   addDocumentTab,
   closeDocumentTab,
@@ -682,6 +683,26 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
     return () => {
       disposed = true;
       unlisten?.();
+    };
+  }, []);
+
+  // Middle-button defaults are never wanted anywhere in the app: on Linux the
+  // release after a middle-click (for example closing a tab that shifts layout
+  // mid-click) otherwise triggers a primary-selection paste into the focused
+  // editor.
+  useEffect(() => {
+    function suppressMiddleButtonDefault(event: MouseEvent) {
+      if (event.button === 1) {
+        event.preventDefault();
+      }
+    }
+
+    window.addEventListener("mousedown", suppressMiddleButtonDefault, true);
+    window.addEventListener("auxclick", suppressMiddleButtonDefault, true);
+
+    return () => {
+      window.removeEventListener("mousedown", suppressMiddleButtonDefault, true);
+      window.removeEventListener("auxclick", suppressMiddleButtonDefault, true);
     };
   }, []);
 
@@ -1580,6 +1601,17 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
 
   const activeTabButtonId = tabButtonId(workspace.activeTabId);
   const activeTabPanelId = tabPanelId(workspace.activeTabId);
+  const tabPathHints = computeTabPathHints(
+    workspace.tabs.map((tab) => ({
+      id: tab.id,
+      displayName: tab.session.displayName,
+      path: tab.session.path,
+    })),
+  );
+  const tabAccessibleName = (tabId: string, displayName: string) => {
+    const hint = tabPathHints.get(tabId);
+    return hint ? `${displayName} — ${hint}` : displayName;
+  };
   const resolvedTheme = resolveTheme(themeSettings, systemScheme);
   const themeStyle = themeToCssVariables(resolvedTheme);
   const editorScheme =
@@ -1635,9 +1667,18 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
                       type="button"
                       className="tab-menu-select"
                       role="menuitem"
+                      aria-label={tabAccessibleName(
+                        tab.id,
+                        tab.session.displayName,
+                      )}
                       onClick={() => selectDocumentTab(tab.id)}
                     >
                       <span>{tab.session.displayName}</span>
+                      {tabPathHints.get(tab.id) ? (
+                        <span className="tab-path-hint" aria-hidden="true">
+                          {tabPathHints.get(tab.id)}
+                        </span>
+                      ) : null}
                       {tab.session.dirty ? <span aria-hidden="true"> *</span> : null}
                     </button>
                     <button
@@ -1673,11 +1714,16 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
                 role="tab"
                 id={tabButtonId(tab.id)}
                 aria-controls={tabPanelId(tab.id)}
-                aria-label={tab.session.displayName}
+                aria-label={tabAccessibleName(tab.id, tab.session.displayName)}
                 aria-selected={tab.id === workspace.activeTabId}
                 onClick={() => selectDocumentTab(tab.id)}
               >
                 <span aria-hidden="true">{tab.session.displayName}</span>
+                {tabPathHints.get(tab.id) ? (
+                  <span className="tab-path-hint" aria-hidden="true">
+                    {tabPathHints.get(tab.id)}
+                  </span>
+                ) : null}
                 {tab.session.dirty ? <span aria-hidden="true"> *</span> : null}
               </button>
               <button
@@ -1818,6 +1864,7 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
             ref={documentViewRef}
             wordWrap={wordWrap}
             content={document.content}
+            documentKey={workspace.activeTabId}
             panelId={activeTabPanelId}
             labelledBy={activeTabButtonId}
             toolbarVisible={toolbarVisible}
