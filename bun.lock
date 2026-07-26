@@ -11,7 +11,7 @@
         "@codemirror/search": "^6.7.1",
         "@codemirror/state": "^6.7.0",
         "@codemirror/view": "^6.43.4",
-        "@inkyquill/galley-editor": "0.12.0",
+        "@inkyquill/galley-editor": "0.13.0",
         "@lezer/highlight": "^1.2.0",
         "@lezer/markdown": "^1.6.0",
         "@tauri-apps/api": "^2.11.1",
@@ -119,7 +119,7 @@
 
     "@exodus/bytes": ["@exodus/bytes@1.15.1", "", { "peerDependencies": { "@noble/hashes": "^1.8.0 || ^2.0.0" }, "optionalPeers": ["@noble/hashes"] }, "sha512-S6mL0yNB/Abt9Ei4tq8gDhcczc4S3+vQ4ra7vxnAf+YHC02srtqxKKZghx2Dq6p0e66THKwR6r8N6P95wEty7Q=="],
 
-    "@inkyquill/galley-editor": ["@inkyquill/galley-editor@0.12.0", "", { "peerDependencies": { "@codemirror/commands": ">=6.10.0", "@codemirror/lang-markdown": ">=6.5.0", "@codemirror/language": ">=6.12.0", "@codemirror/search": ">=6.5.0", "@codemirror/state": ">=6.6.0", "@codemirror/view": ">=6.41.0", "@lezer/highlight": ">=1.2.0", "@lezer/markdown": ">=1.6.0", "react": ">=18", "react-dom": ">=18" } }, "sha512-d05cLO5372gIdNzzHPRbs+W54O3bjTzuhSymQANRXZmM2VAVgdCMxVFCTF60o1aW8nOAKFpoIBSKfVRNFTG53w=="],
+    "@inkyquill/galley-editor": ["@inkyquill/galley-editor@0.13.0", "", { "peerDependencies": { "@codemirror/commands": ">=6.10.0", "@codemirror/lang-markdown": ">=6.5.0", "@codemirror/language": ">=6.12.0", "@codemirror/search": ">=6.5.0", "@codemirror/state": ">=6.6.0", "@codemirror/view": ">=6.41.0", "@lezer/highlight": ">=1.2.0", "@lezer/markdown": ">=1.6.0", "react": ">=18", "react-dom": ">=18" } }, "sha512-y9PZEYelG29c7AtQd5s0zDEWbDCrTkF6LLvIgBzm/B8+dWjNohk8X9+3IwyalTnS8uIvYY2DOgYpejhk9C+V7A=="],
 
     "@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.3.13", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA=="],
 
