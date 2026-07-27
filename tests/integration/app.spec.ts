@@ -93,9 +93,11 @@ function expectNeverSelected(
 test("shows a footer action for a newer stable GitHub release", async ({
   page,
 }) => {
+  let updateRouteHits = 0;
   await page.route(
     "https://api.github.com/repos/InkyQuill/galley-pad/releases/latest",
     async (route) => {
+      updateRouteHits += 1;
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -108,22 +110,25 @@ test("shows a footer action for a newer stable GitHub release", async ({
         }),
       });
     },
-    { times: 1 },
   );
 
   await page.goto("/");
+  await page.waitForLoadState("networkidle");
 
   await expect(
     page.getByRole("button", { name: "Update available" }),
   ).toBeVisible();
+  expect(updateRouteHits).toBe(1);
 });
 
 test("hides the footer update action for the current GitHub release", async ({
   page,
 }) => {
+  let updateRouteHits = 0;
   await page.route(
     "https://api.github.com/repos/InkyQuill/galley-pad/releases/latest",
     async (route) => {
+      updateRouteHits += 1;
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -136,14 +141,15 @@ test("hides the footer update action for the current GitHub release", async ({
         }),
       });
     },
-    { times: 1 },
   );
 
   await page.goto("/");
+  await page.waitForLoadState("networkidle");
 
   await expect(
     page.getByRole("button", { name: "Update available" }),
   ).toHaveCount(0);
+  expect(updateRouteHits).toBe(1);
 });
 
 test("renders the document editor shell in a real browser", async ({ page }) => {

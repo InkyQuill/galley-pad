@@ -190,6 +190,8 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
   const latestEditorFontSettings = useRef(editorFontSettings);
   const latestWordWrap = useRef(wordWrap);
   const documentViewRef = useRef<DocumentViewHandle>(null);
+  const updateCheckPromiseRef =
+    useRef<Promise<AvailableUpdate | null> | null>(null);
   const swapWriteTimer = useRef<number | null>(null);
   const swapWriteChain = useRef<Promise<void>>(Promise.resolve());
   const closingRef = useRef(false);
@@ -238,7 +240,8 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
   useEffect(() => {
     let disposed = false;
 
-    void checkForGitHubUpdate(APP_VERSION).then((update) => {
+    updateCheckPromiseRef.current ??= checkForGitHubUpdate(APP_VERSION);
+    void updateCheckPromiseRef.current.then((update) => {
       if (!disposed) {
         setAvailableUpdate(update);
       }

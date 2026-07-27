@@ -7,6 +7,7 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { APP_BRAND_LABEL, APP_VERSION } from "./appInfo";
@@ -160,10 +161,14 @@ describe("App", () => {
     window.history.replaceState(null, "", "/");
   });
 
-  it("checks once and shows an available GitHub release", async () => {
+  it("checks once under StrictMode and shows an available GitHub release", async () => {
     checkForGitHubUpdateMock.mockResolvedValue(AVAILABLE_UPDATE);
 
-    render(<App />);
+    render(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+    );
 
     expect(
       await screen.findByRole("button", { name: "Update available" }),
