@@ -63,7 +63,7 @@ The checker is a small pure-boundary module rather than App-local fetch logic. I
 | `src/styles.css` | Compact footer-link styling, hover, focus, and dark-theme appearance |
 | `src-tauri/Cargo.toml`, `package.json` | Add matching Tauri opener plugin packages |
 | `src-tauri/src/lib.rs` | Register the Tauri opener plugin |
-| `src-tauri/capabilities/default.json` | Allow opening the validated GitHub release URL in the system browser |
+| `src-tauri/capabilities/default.json` | Scope opener access to `https://github.com/InkyQuill/galley-pad/releases/tag/*` |
 | `src-tauri/tauri.conf.json` | Permit `https://api.github.com` in the CSP `connect-src` directive |
 
 ## Validation and Safety
