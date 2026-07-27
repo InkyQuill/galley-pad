@@ -29,7 +29,7 @@ Download the installer for your platform from the latest GitHub release.
 
 - Linux: install the `.deb`, `.rpm`, or `.AppImage` artifact.
 - Windows: run the `.exe` installer.
-- macOS: install the `.dmg` or `.pkg` artifact.
+- macOS: install the `.pkg` artifact for your processor architecture.
 
 The installed command-line launcher is `gpad`.
 

@@ -119,7 +119,8 @@ test("GitHub release workflows dispatch and upload all installer families", asyn
   assert.match(buildWorkflow, /archlinux:base-devel/);
   assert.match(buildWorkflow, /makepkg --nodeps --noconfirm/);
   assert.match(buildWorkflow, /bun run tauri -- build --bundles nsis/);
-  assert.match(buildWorkflow, /bun run tauri -- build --bundles app,dmg/);
+  assert.match(buildWorkflow, /bun run tauri -- build --bundles app/);
+  assert.doesNotMatch(buildWorkflow, /--bundles app,dmg/);
   assert.match(buildWorkflow, /scripts\/build-macos-pkg\.mjs --release --skip-app-build/);
 
   for (const glob of [
@@ -128,7 +129,6 @@ test("GitHub release workflows dispatch and upload all installer families", asyn
     "src-tauri/target/release/bundle/appimage/*.AppImage",
     "packaging/aur/galley-pad-bin/*.pkg.tar.zst",
     "src-tauri/target/release/bundle/nsis/*.exe",
-    "src-tauri/target/release/bundle/dmg/*.dmg",
     "src-tauri/target/release/bundle/pkg/*.pkg",
   ]) {
     assert.match(buildWorkflow, new RegExp(escapeRegExp(glob)));
