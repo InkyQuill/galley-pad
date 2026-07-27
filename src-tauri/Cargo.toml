@@ -21,6 +21,7 @@ tauri-plugin-dialog = "2.7.1"
 tauri-plugin-single-instance = "2"
 fontdb = "0.23.0"
 sys-locale = "0.3.2"
+tauri-plugin-opener = "2"
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }

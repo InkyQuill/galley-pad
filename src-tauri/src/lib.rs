@@ -999,6 +999,7 @@ pub fn run() {
         PendingMarkdownFileOpen(Mutex::new(markdown_paths_from_os_args(&args, &cwd)));
 
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .manage(pending_markdown_file_open)
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             for path in markdown_paths_from_args(&args, Path::new(&cwd)) {

@@ -36,6 +36,7 @@
     "@lezer/markdown": "^1.6.0",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-dialog": "2.7.1",
+    "@tauri-apps/plugin-opener": "~2",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-icons": "^5.7.0",
