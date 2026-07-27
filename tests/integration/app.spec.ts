@@ -1,4 +1,7 @@
 import { expect, test, type Locator } from "@playwright/test";
+import packageJson from "../../package.json" with { type: "json" };
+
+const currentReleaseTag = `v${packageJson.version}`;
 
 type SelectionMutation = {
   attribute: "aria-selected" | "class";
@@ -135,9 +138,9 @@ test("hides the footer update action for the current GitHub release", async ({
         body: JSON.stringify({
           draft: false,
           prerelease: false,
-          tag_name: "v1.5.0",
+          tag_name: currentReleaseTag,
           html_url:
-            "https://github.com/InkyQuill/galley-pad/releases/tag/v1.5.0",
+            `https://github.com/InkyQuill/galley-pad/releases/tag/${currentReleaseTag}`,
         }),
       });
     },
