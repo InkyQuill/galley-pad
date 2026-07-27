@@ -27,7 +27,12 @@ function parseAvailableUpdate(
 ): AvailableUpdate | null {
   if (!isRelease(release)) return null;
 
-  const version = semver.clean(release.tag_name);
+  const versionTag = release.tag_name.startsWith("v")
+    ? release.tag_name.slice(1)
+    : release.tag_name;
+  if (versionTag !== versionTag.trim() || !/^[0-9]/.test(versionTag)) return null;
+
+  const version = semver.valid(versionTag);
   if (!version || semver.prerelease(version) || !semver.gt(version, currentVersion)) {
     return null;
   }

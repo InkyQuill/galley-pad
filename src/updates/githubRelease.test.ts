@@ -30,6 +30,9 @@ it.each([
   ["an older version", "v1.4.0"],
   ["a prerelease", "v1.6.0-beta.1"],
   ["an invalid tag", "newest"],
+  ["an equals-prefixed v tag", "=v1.6.0"],
+  ["a whitespace-padded tag", "  v1.6.0  "],
+  ["an equals sign after v", "v=1.6.0"],
 ])("returns null for %s", async (_description, tag_name) => {
   const fetchImpl = vi.fn().mockResolvedValue(
     response({
