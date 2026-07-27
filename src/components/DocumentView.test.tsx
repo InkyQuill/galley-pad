@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { createRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -355,6 +356,32 @@ describe("DocumentView", () => {
     expect(
       screen.queryByRole("button", { name: "Galley Pad menu" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("shows the available update action only when its release is actionable", async () => {
+    const user = userEvent.setup();
+    const onOpenUpdate = vi.fn();
+    const { rerender } = render(
+      <DocumentView content="Initial" onContentChange={() => undefined} />,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Update available" }),
+    ).not.toBeInTheDocument();
+
+    rerender(
+      <DocumentView
+        content="Initial"
+        onContentChange={() => undefined}
+        updateReleaseUrl="https://github.com/InkyQuill/galley-pad/releases/tag/v1.5.1"
+        onOpenUpdate={onOpenUpdate}
+      />,
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Update available" }),
+    );
+
+    expect(onOpenUpdate).toHaveBeenCalledOnce();
   });
 });
 

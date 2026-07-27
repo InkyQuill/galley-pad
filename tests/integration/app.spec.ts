@@ -90,6 +90,62 @@ function expectNeverSelected(
   ).toBe(false);
 }
 
+test("shows a footer action for a newer stable GitHub release", async ({
+  page,
+}) => {
+  await page.route(
+    "https://api.github.com/repos/InkyQuill/galley-pad/releases/latest",
+    async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          draft: false,
+          prerelease: false,
+          tag_name: "v999.0.0",
+          html_url:
+            "https://github.com/InkyQuill/galley-pad/releases/tag/v999.0.0",
+        }),
+      });
+    },
+    { times: 1 },
+  );
+
+  await page.goto("/");
+
+  await expect(
+    page.getByRole("button", { name: "Update available" }),
+  ).toBeVisible();
+});
+
+test("hides the footer update action for the current GitHub release", async ({
+  page,
+}) => {
+  await page.route(
+    "https://api.github.com/repos/InkyQuill/galley-pad/releases/latest",
+    async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          draft: false,
+          prerelease: false,
+          tag_name: "v1.5.0",
+          html_url:
+            "https://github.com/InkyQuill/galley-pad/releases/tag/v1.5.0",
+        }),
+      });
+    },
+    { times: 1 },
+  );
+
+  await page.goto("/");
+
+  await expect(
+    page.getByRole("button", { name: "Update available" }),
+  ).toHaveCount(0);
+});
+
 test("renders the document editor shell in a real browser", async ({ page }) => {
   await page.goto("/");
 

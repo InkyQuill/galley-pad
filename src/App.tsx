@@ -16,6 +16,7 @@ import {
   DocumentView,
   type DocumentViewHandle,
 } from "./components/DocumentView";
+import { APP_VERSION } from "./appInfo";
 import { ExternalFileBanner } from "./components/ExternalFileBanner";
 import { ExternalReconcileView } from "./components/ExternalReconcileView";
 import { FontPicker } from "./components/FontPicker";
@@ -87,6 +88,7 @@ import {
   type AppMenuCommand,
 } from "./tauri/menuEvents";
 import { syncWordWrapMenuChecked } from "./tauri/nativeMenu";
+import { openReleasePage } from "./tauri/opener";
 import { openMarkdownFileWindow } from "./tauri/windows";
 import {
   closeCurrentWindow,
@@ -114,6 +116,10 @@ import {
 } from "./themes/settings";
 import { themeToCssVariables } from "./themes/style";
 import type { ThemeId, ThemeScheme } from "./themes/tokens";
+import {
+  checkForGitHubUpdate,
+  type AvailableUpdate,
+} from "./updates/githubRelease";
 
 type CommandName = "Open" | "Save" | "Save As" | "Open File";
 type UnsavedChoice = "save" | "save-as" | "discard" | "cancel";
@@ -147,6 +153,8 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
   );
   const [pendingCommand, setPendingCommand] = useState<CommandName | null>(null);
   const [commandError, setCommandError] = useState<string | null>(null);
+  const [availableUpdate, setAvailableUpdate] =
+    useState<AvailableUpdate | null>(null);
   const [toolbarVisible, setToolbarVisible] = useState(false);
   const [wordWrap, setWordWrap] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -226,6 +234,20 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
       document.displayName
     } - Galley Pad`;
   }, [document.dirty, document.displayName]);
+
+  useEffect(() => {
+    let disposed = false;
+
+    void checkForGitHubUpdate(APP_VERSION).then((update) => {
+      if (!disposed) {
+        setAvailableUpdate(update);
+      }
+    });
+
+    return () => {
+      disposed = true;
+    };
+  }, []);
 
   useEffect(() => {
     function checkActiveExternalFile() {
@@ -1123,6 +1145,14 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
     setUnsavedPrompt(null);
   }
 
+  function handleOpenUpdate() {
+    if (!availableUpdate) {
+      return;
+    }
+
+    void openReleasePage(availableUpdate.releaseUrl).catch(() => undefined);
+  }
+
   async function resolveDirtyTabForClose(tabId: string): Promise<boolean> {
     const tab = latestWorkspace.current.tabs.find(
       (candidate) => candidate.id === tabId,
@@ -1872,6 +1902,8 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
             editorStyle={themeStyle}
             fontSettings={editorFontSettings}
             onMenuCommand={runMenuCommand}
+            updateReleaseUrl={availableUpdate?.releaseUrl}
+            onOpenUpdate={handleOpenUpdate}
             status={
               pendingCommand
                 ? `${pendingCommand}...`

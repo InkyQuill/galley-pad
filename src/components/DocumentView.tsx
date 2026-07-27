@@ -78,6 +78,8 @@ export type DocumentViewProps = {
   status?: string;
   wordWrap?: boolean;
   onMenuCommand?: (command: AppMenuCommand) => void;
+  updateReleaseUrl?: string;
+  onOpenUpdate?: () => void;
 };
 
 export const DocumentView = forwardRef<DocumentViewHandle, DocumentViewProps>(
@@ -95,6 +97,8 @@ export const DocumentView = forwardRef<DocumentViewHandle, DocumentViewProps>(
       status = "Draft",
       wordWrap = true,
       onMenuCommand,
+      updateReleaseUrl,
+      onOpenUpdate,
     },
     ref,
   ) {
@@ -192,6 +196,15 @@ export const DocumentView = forwardRef<DocumentViewHandle, DocumentViewProps>(
                     wordWrap={wordWrap}
                     onCommand={onMenuCommand}
                   />
+                ) : null}
+                {updateReleaseUrl && onOpenUpdate ? (
+                  <button
+                    type="button"
+                    className="document-footer-update"
+                    onClick={onOpenUpdate}
+                  >
+                    Update available
+                  </button>
                 ) : null}
                 <span className="document-footer-words">
                   {wordCount} {wordCount === 1 ? "word" : "words"}

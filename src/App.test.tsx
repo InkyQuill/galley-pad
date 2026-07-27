@@ -6,10 +6,13 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
-import { APP_BRAND_LABEL } from "./appInfo";
+import { APP_BRAND_LABEL, APP_VERSION } from "./appInfo";
 import { mockGalleyOpenSearch } from "./test/galley-editor.mock";
+import { openReleasePage } from "./tauri/opener";
+import { checkForGitHubUpdate } from "./updates/githubRelease";
 import {
   getPendingMarkdownFileOpens,
   getWindowMarkdownFileOpen,
@@ -76,6 +79,12 @@ vi.mock("./tauri/windowClose", () => ({
   closeCurrentWindow: vi.fn(),
   listenForWindowCloseRequest: vi.fn(),
 }));
+vi.mock("./tauri/opener", () => ({
+  openReleasePage: vi.fn(),
+}));
+vi.mock("./updates/githubRelease", () => ({
+  checkForGitHubUpdate: vi.fn(),
+}));
 
 const pickOpenFileMock = vi.mocked(pickOpenFile);
 const pickSaveFileMock = vi.mocked(pickSaveFile);
@@ -95,6 +104,14 @@ const writeSwapStateMock = vi.mocked(writeSwapState);
 const syncWordWrapMenuCheckedMock = vi.mocked(syncWordWrapMenuChecked);
 const closeCurrentWindowMock = vi.mocked(closeCurrentWindow);
 const listenForWindowCloseRequestMock = vi.mocked(listenForWindowCloseRequest);
+const openReleasePageMock = vi.mocked(openReleasePage);
+const checkForGitHubUpdateMock = vi.mocked(checkForGitHubUpdate);
+
+const AVAILABLE_UPDATE = {
+  version: "1.5.1",
+  releaseUrl:
+    "https://github.com/InkyQuill/galley-pad/releases/tag/v1.5.1",
+};
 
 describe("App", () => {
   beforeEach(() => {
@@ -133,12 +150,71 @@ describe("App", () => {
         },
       ],
     });
+    checkForGitHubUpdateMock.mockResolvedValue(null);
+    openReleasePageMock.mockResolvedValue();
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
       value: undefined,
     });
     localStorage.clear();
     window.history.replaceState(null, "", "/");
+  });
+
+  it("checks once and shows an available GitHub release", async () => {
+    checkForGitHubUpdateMock.mockResolvedValue(AVAILABLE_UPDATE);
+
+    render(<App />);
+
+    expect(
+      await screen.findByRole("button", { name: "Update available" }),
+    ).toBeInTheDocument();
+    expect(checkForGitHubUpdateMock).toHaveBeenCalledOnce();
+    expect(checkForGitHubUpdateMock).toHaveBeenCalledWith(APP_VERSION);
+  });
+
+  it("keeps the update action hidden when GitHub has no newer release", async () => {
+    checkForGitHubUpdateMock.mockResolvedValue(null);
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(checkForGitHubUpdateMock).toHaveBeenCalledOnce();
+    });
+    expect(
+      screen.queryByRole("button", { name: "Update available" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("opens the available release page from the footer", async () => {
+    const user = userEvent.setup();
+    checkForGitHubUpdateMock.mockResolvedValue(AVAILABLE_UPDATE);
+    render(<App />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Update available" }),
+    );
+
+    expect(openReleasePageMock).toHaveBeenCalledWith(
+      "https://github.com/InkyQuill/galley-pad/releases/tag/v1.5.1",
+    );
+  });
+
+  it("ignores release opener failures without showing an error", async () => {
+    const user = userEvent.setup();
+    checkForGitHubUpdateMock.mockResolvedValue(AVAILABLE_UPDATE);
+    openReleasePageMock.mockRejectedValue(new Error("Opener unavailable"));
+    render(<App />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Update available" }),
+    );
+    await waitFor(() => {
+      expect(openReleasePageMock).toHaveBeenCalledOnce();
+    });
+
+    expect(
+      screen.queryByRole("alert", { name: "File command error" }),
+    ).not.toBeInTheDocument();
   });
 
   it("renders the tabbed editor shell without the temporary file command toolbar", () => {
