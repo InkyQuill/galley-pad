@@ -147,7 +147,6 @@ git commit -m "feat(updates): check latest GitHub release"
 - Modify: `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `src-tauri/src/lib.rs`
 - Modify: `src-tauri/capabilities/default.json`
 - Modify: `src-tauri/tauri.conf.json`
-- Modify: existing configuration regression test under `scripts/`
 
 **Interfaces:**
 
@@ -195,9 +194,9 @@ Append this capability permission:
 
 Change the CSP connect source to `ipc: http://ipc.localhost https://api.github.com`. Do not change any other source directive.
 
-- [ ] **Step 4: Write a configuration regression test**
+- [ ] **Step 4: Validate the real Tauri configuration**
 
-Extend the existing script test that reads release/configuration files. Assert the exact opener permission and exact release-tag glob are present; assert `opener:default` and a broad GitHub wildcard are absent. Parse the Tauri config and assert `connect-src` includes `https://api.github.com`.
+Build the Tauri desktop application after applying the capability and CSP changes. The Tauri build parses the capability schema and registers the opener plugin, which is the consumer-facing validation for this configuration. Keep the URL trust boundary covered by Task 1's unit tests and the browser-opening behavior covered by Task 3's App test; do not add source-text assertions for JSON configuration.
 
 - [ ] **Step 5: Run focused validation**
 
@@ -207,14 +206,15 @@ Run:
 bun run test:scripts
 cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 cargo test --manifest-path src-tauri/Cargo.toml
+node scripts/with-timeout.mjs 120 bun run tauri -- build --debug --no-bundle
 ```
 
-Expected: the plugin compiles and configuration tests pass. If the existing macOS `native_menu` main-thread failure recurs, record the exact command and output as unrelated verification evidence; do not weaken or bypass the new configuration assertions.
+Expected: the plugin compiles, the Tauri capability schema accepts the scoped URL permission, and the debug build succeeds. If the existing macOS `native_menu` main-thread failure recurs, record the exact command and output as unrelated verification evidence; do not weaken the new update checks.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add package.json bun.lock src/tauri/opener.ts src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/src/lib.rs src-tauri/capabilities/default.json src-tauri/tauri.conf.json scripts
+git add package.json bun.lock src/tauri/opener.ts src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/src/lib.rs src-tauri/capabilities/default.json src-tauri/tauri.conf.json
 git commit -m "feat(updates): open release pages in browser"
 ```
 
