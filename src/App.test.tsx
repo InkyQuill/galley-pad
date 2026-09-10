@@ -6,9 +6,14 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
-import { APP_BRAND_LABEL } from "./appInfo";
+import { APP_BRAND_LABEL, APP_VERSION } from "./appInfo";
+import { mockGalleyOpenSearch } from "./test/galley-editor.mock";
+import { openReleasePage } from "./tauri/opener";
+import { checkForGitHubUpdate } from "./updates/githubRelease";
 import {
   getPendingMarkdownFileOpens,
   getWindowMarkdownFileOpen,
@@ -28,7 +33,9 @@ import {
   readSwapState,
   writeAppSettings,
   writeSwapState,
+  type RawPersistedAppSettings,
 } from "./tauri/appPersistence";
+import { syncWordWrapMenuChecked } from "./tauri/nativeMenu";
 import {
   closeCurrentWindow,
   listenForWindowCloseRequest,
@@ -66,9 +73,18 @@ vi.mock("./tauri/appPersistence", () => ({
   writeAppSettings: vi.fn(),
   writeSwapState: vi.fn(),
 }));
+vi.mock("./tauri/nativeMenu", () => ({
+  syncWordWrapMenuChecked: vi.fn(),
+}));
 vi.mock("./tauri/windowClose", () => ({
   closeCurrentWindow: vi.fn(),
   listenForWindowCloseRequest: vi.fn(),
+}));
+vi.mock("./tauri/opener", () => ({
+  openReleasePage: vi.fn(),
+}));
+vi.mock("./updates/githubRelease", () => ({
+  checkForGitHubUpdate: vi.fn(),
 }));
 
 const pickOpenFileMock = vi.mocked(pickOpenFile);
@@ -86,12 +102,23 @@ const readAppSettingsMock = vi.mocked(readAppSettings);
 const readSwapStateMock = vi.mocked(readSwapState);
 const writeAppSettingsMock = vi.mocked(writeAppSettings);
 const writeSwapStateMock = vi.mocked(writeSwapState);
+const syncWordWrapMenuCheckedMock = vi.mocked(syncWordWrapMenuChecked);
 const closeCurrentWindowMock = vi.mocked(closeCurrentWindow);
 const listenForWindowCloseRequestMock = vi.mocked(listenForWindowCloseRequest);
+const openReleasePageMock = vi.mocked(openReleasePage);
+const checkForGitHubUpdateMock = vi.mocked(checkForGitHubUpdate);
+
+const AVAILABLE_UPDATE = {
+  version: "1.5.1",
+  releaseUrl:
+    "https://github.com/InkyQuill/galley-pad/releases/tag/v1.5.1",
+};
 
 describe("App", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGalleyOpenSearch.mockReset();
+    mockGalleyOpenSearch.mockReturnValue(true);
     vi.spyOn(window, "confirm").mockReturnValue(true);
     document.title = "";
     getPendingMarkdownFileOpensMock.mockResolvedValue([]);
@@ -107,6 +134,7 @@ describe("App", () => {
     readSwapStateMock.mockResolvedValue(null);
     writeAppSettingsMock.mockResolvedValue();
     writeSwapStateMock.mockResolvedValue();
+    syncWordWrapMenuCheckedMock.mockResolvedValue();
     listSystemFontsMock.mockResolvedValue({
       locale: "ru-RU",
       previewText: "Aa Bb Cc Аа Бб Вв 0123456789 Съешь ещё этих мягких булок",
@@ -123,12 +151,75 @@ describe("App", () => {
         },
       ],
     });
+    checkForGitHubUpdateMock.mockResolvedValue(null);
+    openReleasePageMock.mockResolvedValue();
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
       value: undefined,
     });
     localStorage.clear();
     window.history.replaceState(null, "", "/");
+  });
+
+  it("checks once under StrictMode and shows an available GitHub release", async () => {
+    checkForGitHubUpdateMock.mockResolvedValue(AVAILABLE_UPDATE);
+
+    render(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+    );
+
+    expect(
+      await screen.findByRole("button", { name: "Update available" }),
+    ).toBeInTheDocument();
+    expect(checkForGitHubUpdateMock).toHaveBeenCalledOnce();
+    expect(checkForGitHubUpdateMock).toHaveBeenCalledWith(APP_VERSION);
+  });
+
+  it("keeps the update action hidden when GitHub has no newer release", async () => {
+    checkForGitHubUpdateMock.mockResolvedValue(null);
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(checkForGitHubUpdateMock).toHaveBeenCalledOnce();
+    });
+    expect(
+      screen.queryByRole("button", { name: "Update available" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("opens the available release page from the footer", async () => {
+    const user = userEvent.setup();
+    checkForGitHubUpdateMock.mockResolvedValue(AVAILABLE_UPDATE);
+    render(<App />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Update available" }),
+    );
+
+    expect(openReleasePageMock).toHaveBeenCalledWith(
+      "https://github.com/InkyQuill/galley-pad/releases/tag/v1.5.1",
+    );
+  });
+
+  it("ignores release opener failures without showing an error", async () => {
+    const user = userEvent.setup();
+    checkForGitHubUpdateMock.mockResolvedValue(AVAILABLE_UPDATE);
+    openReleasePageMock.mockRejectedValue(new Error("Opener unavailable"));
+    render(<App />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Update available" }),
+    );
+    await waitFor(() => {
+      expect(openReleasePageMock).toHaveBeenCalledOnce();
+    });
+
+    expect(
+      screen.queryByRole("alert", { name: "File command error" }),
+    ).not.toBeInTheDocument();
   });
 
   it("renders the tabbed editor shell without the temporary file command toolbar", () => {
@@ -204,6 +295,151 @@ describe("App", () => {
     expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue("");
   });
 
+  it("gives each tab a distinct document identity in the editor", () => {
+    render(<App />);
+
+    const firstDocKey = screen
+      .getByTestId("mock-galley-editor-shell")
+      .getAttribute("data-doc-key");
+    expect(firstDocKey).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "New tab" }));
+
+    const secondDocKey = screen
+      .getByTestId("mock-galley-editor-shell")
+      .getAttribute("data-doc-key");
+    expect(secondDocKey).toBeTruthy();
+    expect(secondDocKey).not.toBe(firstDocKey);
+
+    const firstTab = screen.getAllByRole("tab", { name: /Untitled\.md/ })[0];
+    fireEvent.click(firstTab);
+
+    expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+      "data-doc-key",
+      firstDocKey,
+    );
+  });
+
+  it("renders a close control for every tab", () => {
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: "n", ctrlKey: true });
+
+    expect(
+      screen.getAllByRole("button", { name: "Close Untitled.md" }),
+    ).toHaveLength(2);
+  });
+
+  it("keeps an inactive close control in the DOM when its tab is focused", () => {
+    render(<App />);
+    fireEvent.keyDown(window, { key: "n", ctrlKey: true });
+
+    const inactiveTab = screen.getAllByRole("tab", { name: "Untitled.md" })[0];
+    const inactiveTabWrapper = inactiveTab.closest(".tab");
+    const closeButton = within(inactiveTabWrapper as HTMLElement).getByRole(
+      "button",
+      { name: "Close Untitled.md" },
+    );
+
+    inactiveTab.focus();
+
+    expect(inactiveTab).toHaveFocus();
+    expect(closeButton).toBeInTheDocument();
+    expect(inactiveTabWrapper).not.toHaveClass("tab-active");
+  });
+
+  it("middle-clicks an inactive clean tab without selecting it first", async () => {
+    render(<App />);
+    fireEvent.keyDown(window, { key: "n", ctrlKey: true });
+
+    const tabs = screen.getAllByRole("tab", { name: "Untitled.md" });
+    const inactiveTab = tabs[0];
+    const activeTab = tabs[1];
+    expect(inactiveTab).toHaveAttribute("aria-selected", "false");
+    expect(activeTab).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.mouseDown(inactiveTab.closest(".tab")!, { button: 1 });
+
+    expect(inactiveTab).toHaveAttribute("aria-selected", "false");
+    expect(activeTab).toHaveAttribute("aria-selected", "true");
+    await waitFor(() => {
+      expect(screen.getAllByRole("tab", { name: "Untitled.md" })).toHaveLength(1);
+    });
+    expect(activeTab).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("cancels middle-click close for a dirty inactive tab without losing content", async () => {
+    render(<App />);
+    fireEvent.change(screen.getByLabelText("Mock Galley Editor"), {
+      target: { value: "Dirty inactive draft" },
+    });
+    fireEvent.keyDown(window, { key: "n", ctrlKey: true });
+
+    const tabs = screen.getAllByRole("tab", { name: /Untitled\.md/ });
+    const inactiveTab = tabs[0];
+    const activeTab = tabs[1];
+    fireEvent.mouseDown(inactiveTab.closest(".tab")!, { button: 1 });
+
+    await screen.findByRole("dialog", { name: "Save changes?" });
+    expect(activeTab).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("dialog", { name: "Save changes?" }),
+      ).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(inactiveTab);
+    expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
+      "Dirty inactive draft",
+    );
+  });
+
+  it("middle-clicks a tab menu row to close its tab and menu", async () => {
+    render(<App />);
+    fireEvent.keyDown(window, { key: "n", ctrlKey: true });
+    fireEvent.click(screen.getByRole("button", { name: "Show tabs" }));
+
+    const menuItem = screen.getAllByRole("menuitem", { name: "Untitled.md" })[0];
+    fireEvent.mouseDown(menuItem.closest(".tab-menu-item")!, { button: 1 });
+
+    expect(
+      screen.queryByRole("menu", { name: "Open tabs" }),
+    ).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getAllByRole("tab", { name: "Untitled.md" })).toHaveLength(1);
+    });
+  });
+
+  it("does not close a tab from a left-button mousedown", () => {
+    render(<App />);
+    fireEvent.keyDown(window, { key: "n", ctrlKey: true });
+
+    const inactiveTab = screen.getAllByRole("tab", { name: "Untitled.md" })[0];
+    fireEvent.mouseDown(inactiveTab.closest(".tab")!, { button: 0 });
+
+    expect(screen.getAllByRole("tab", { name: "Untitled.md" })).toHaveLength(2);
+    expect(
+      screen.queryByRole("dialog", { name: "Save changes?" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("makes one dirty-tab close attempt per middle-button press", async () => {
+    const promptUnsavedChanges = vi.fn();
+    render(<App onUnsavedPrompt={promptUnsavedChanges} />);
+    fireEvent.change(screen.getByLabelText("Mock Galley Editor"), {
+      target: { value: "Dirty inactive draft" },
+    });
+    fireEvent.keyDown(window, { key: "n", ctrlKey: true });
+
+    const inactiveTab = screen.getAllByRole("tab", { name: /Untitled\.md/ })[0];
+    fireEvent.mouseDown(inactiveTab.closest(".tab")!, { button: 1 });
+
+    await screen.findByRole("dialog", { name: "Save changes?" });
+    expect(promptUnsavedChanges).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  });
+
   it("shows a tab menu with select and close actions", async () => {
     render(<App />);
     fireEvent.change(screen.getByLabelText("Mock Galley Editor"), {
@@ -251,6 +487,246 @@ describe("App", () => {
     expect(shell.style.getPropertyValue("--ge-color-text")).toBeTruthy();
     expect(shell.style.getPropertyValue("--ge-color-code-fence-bg")).toBeTruthy();
     expect(shell.style.getPropertyValue("--ge-color-token-string")).toBeTruthy();
+  });
+
+  it.each([
+    ["missing", {}],
+    ["null", { wordWrap: null }],
+    ["malformed", { wordWrap: "broken" } as RawPersistedAppSettings],
+  ])("defaults %s persisted word wrap to enabled", async (_label, settings) => {
+    readAppSettingsMock.mockResolvedValue(settings);
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+        "data-horizontal-scroll",
+        "false",
+      );
+      expect(syncWordWrapMenuCheckedMock).toHaveBeenLastCalledWith(true);
+    });
+  });
+
+  it("restores disabled word wrap from app settings", async () => {
+    readAppSettingsMock.mockResolvedValue({ wordWrap: false });
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+        "data-horizontal-scroll",
+        "true",
+      );
+      expect(syncWordWrapMenuCheckedMock).toHaveBeenLastCalledWith(false);
+    });
+  });
+
+  it("opens editor search from the native menu", async () => {
+    let menuHandler: ((command: AppMenuCommand) => void) | null = null;
+    listenForAppMenuCommandMock.mockImplementation(async (handler) => {
+      menuHandler = handler;
+      return () => undefined;
+    });
+    render(<App />);
+    await waitFor(() => expect(menuHandler).not.toBeNull());
+
+    act(() => menuHandler?.("find"));
+
+    expect(mockGalleyOpenSearch).toHaveBeenCalledOnce();
+  });
+
+  it("toggles, persists, and synchronizes word wrap from the native menu", async () => {
+    let menuHandler: ((command: AppMenuCommand) => void) | null = null;
+    listenForAppMenuCommandMock.mockImplementation(async (handler) => {
+      menuHandler = handler;
+      return () => undefined;
+    });
+    render(<App />);
+    await waitFor(() => expect(menuHandler).not.toBeNull());
+    await waitFor(() => {
+      expect(syncWordWrapMenuCheckedMock).toHaveBeenCalledWith(true);
+    });
+    syncWordWrapMenuCheckedMock.mockClear();
+
+    act(() => menuHandler?.("toggle-word-wrap"));
+
+    expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+      "data-horizontal-scroll",
+      "true",
+    );
+    expect(syncWordWrapMenuCheckedMock).toHaveBeenCalledWith(false);
+    await waitFor(() => {
+      expect(writeAppSettingsMock).toHaveBeenCalledWith({
+        appearanceTheme: "system",
+        themeSettings: {
+          mode: "system",
+          constantThemeId: "galley-light",
+          lightThemeId: "galley-light",
+          darkThemeId: "galley-dark",
+        },
+        editorFontFamily: "system",
+        editorFontSize: "medium",
+        openMode: "tabs",
+        wordWrap: false,
+      });
+    });
+  });
+
+  it("does not let late startup settings overwrite a toggled word wrap preference", async () => {
+    const pendingSettings = deferred<Awaited<ReturnType<typeof readAppSettings>>>();
+    let menuHandler: ((command: AppMenuCommand) => void) | null = null;
+    readAppSettingsMock.mockReturnValue(pendingSettings.promise);
+    listenForAppMenuCommandMock.mockImplementation(async (handler) => {
+      menuHandler = handler;
+      return () => undefined;
+    });
+    render(<App />);
+    await waitFor(() => expect(menuHandler).not.toBeNull());
+
+    act(() => menuHandler?.("toggle-word-wrap"));
+    expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+      "data-horizontal-scroll",
+      "true",
+    );
+
+    await act(async () => {
+      pendingSettings.resolve({ wordWrap: true });
+      await pendingSettings.promise;
+    });
+
+    expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+      "data-horizontal-scroll",
+      "true",
+    );
+  });
+
+  it("waits for startup settings before persisting an unrelated preference", async () => {
+    const pendingSettings = deferred<Awaited<ReturnType<typeof readAppSettings>>>();
+    readAppSettingsMock.mockReturnValue(pendingSettings.promise);
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: ",", ctrlKey: true });
+    await screen.findByRole("dialog", { name: "Settings" });
+    fireEvent.click(screen.getByRole("radio", { name: "Separate windows" }));
+
+    expect(writeAppSettingsMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      pendingSettings.resolve({ wordWrap: false });
+      await pendingSettings.promise;
+    });
+
+    await waitFor(() => {
+      expect(writeAppSettingsMock).toHaveBeenCalledTimes(1);
+      expect(writeAppSettingsMock).toHaveBeenCalledWith({
+        appearanceTheme: "system",
+        themeSettings: {
+          mode: "system",
+          constantThemeId: "galley-light",
+          lightThemeId: "galley-light",
+          darkThemeId: "galley-dark",
+        },
+        editorFontFamily: "system",
+        editorFontSize: "medium",
+        openMode: "windows",
+        wordWrap: false,
+      });
+    });
+  });
+
+  it("merges queued preference changes after a same-batch startup repair", async () => {
+    const pendingSettings = deferred<Awaited<ReturnType<typeof readAppSettings>>>();
+    readAppSettingsMock.mockReturnValue(pendingSettings.promise);
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: ",", ctrlKey: true });
+    await screen.findByRole("dialog", { name: "Settings" });
+
+    await act(async () => {
+      screen.getByRole("radio", { name: "Separate windows" }).click();
+      expect(writeAppSettingsMock).not.toHaveBeenCalled();
+      pendingSettings.resolve({
+        themeSettings: {
+          mode: "system",
+          constantThemeId: "catppuccin-mocha",
+          lightThemeId: "tokyo-night",
+          darkThemeId: "solarized-light",
+        },
+        editorFontFamily: "Inter",
+        editorFontSize: "large",
+        openMode: "tabs",
+        wordWrap: false,
+      });
+      await pendingSettings.promise;
+    });
+
+    await waitFor(() => {
+      expect(writeAppSettingsMock).toHaveBeenCalledTimes(1);
+      expect(writeAppSettingsMock).toHaveBeenCalledWith({
+        appearanceTheme: "system",
+        themeSettings: {
+          mode: "system",
+          constantThemeId: "catppuccin-mocha",
+          lightThemeId: "galley-light",
+          darkThemeId: "galley-dark",
+        },
+        editorFontFamily: "Inter",
+        editorFontSize: "large",
+        openMode: "windows",
+        wordWrap: false,
+      });
+    });
+  });
+
+  it("keeps the new word wrap layout when native menu synchronization fails", async () => {
+    let menuHandler: ((command: AppMenuCommand) => void) | null = null;
+    listenForAppMenuCommandMock.mockImplementation(async (handler) => {
+      menuHandler = handler;
+      return () => undefined;
+    });
+    render(<App />);
+    await waitFor(() => expect(menuHandler).not.toBeNull());
+    await waitFor(() => {
+      expect(syncWordWrapMenuCheckedMock).toHaveBeenCalledWith(true);
+    });
+    syncWordWrapMenuCheckedMock.mockClear();
+    syncWordWrapMenuCheckedMock.mockRejectedValueOnce(
+      new Error("Menu synchronization unavailable"),
+    );
+
+    act(() => menuHandler?.("toggle-word-wrap"));
+
+    expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+      "data-horizontal-scroll",
+      "true",
+    );
+    await expect(
+      screen.findByRole("alert", { name: "File command error" }),
+    ).resolves.toHaveTextContent("Menu synchronization unavailable");
+  });
+
+  it("keeps the new word wrap layout when the settings write fails", async () => {
+    let menuHandler: ((command: AppMenuCommand) => void) | null = null;
+    listenForAppMenuCommandMock.mockImplementation(async (handler) => {
+      menuHandler = handler;
+      return () => undefined;
+    });
+    render(<App />);
+    await waitFor(() => expect(menuHandler).not.toBeNull());
+    await waitFor(() => {
+      expect(syncWordWrapMenuCheckedMock).toHaveBeenCalledWith(true);
+    });
+    writeAppSettingsMock.mockRejectedValueOnce(
+      new Error("Settings write unavailable"),
+    );
+
+    act(() => menuHandler?.("toggle-word-wrap"));
+
+    expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+      "data-horizontal-scroll",
+      "true",
+    );
+    await expect(
+      screen.findByRole("alert", { name: "File command error" }),
+    ).resolves.toHaveTextContent("Settings write unavailable");
   });
 
   it("applies persisted theme settings to the app shell and editor", async () => {
@@ -408,15 +884,7 @@ describe("App", () => {
       target: { value: "large" },
     });
 
-    await waitFor(() => {
-      expect(writeAppSettingsMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          editorFontSize: "large",
-          openMode: "windows",
-        }),
-      );
-    });
-    writeAppSettingsMock.mockClear();
+    expect(writeAppSettingsMock).not.toHaveBeenCalled();
 
     await act(async () => {
       pendingSettings.resolve({
@@ -434,18 +902,20 @@ describe("App", () => {
     });
 
     await waitFor(() => {
-      expect(writeAppSettingsMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          themeSettings: expect.objectContaining({
-            mode: "system",
-            constantThemeId: "catppuccin-mocha",
-            lightThemeId: "galley-light",
-            darkThemeId: "galley-dark",
-          }),
-          editorFontSize: "large",
-          openMode: "windows",
-        }),
-      );
+      expect(writeAppSettingsMock).toHaveBeenCalledTimes(1);
+      expect(writeAppSettingsMock).toHaveBeenCalledWith({
+        appearanceTheme: "system",
+        themeSettings: {
+          mode: "system",
+          constantThemeId: "catppuccin-mocha",
+          lightThemeId: "galley-light",
+          darkThemeId: "galley-dark",
+        },
+        editorFontFamily: "system",
+        editorFontSize: "large",
+        openMode: "windows",
+        wordWrap: true,
+      });
     });
   });
 
@@ -698,7 +1168,15 @@ describe("App", () => {
       menuHandler?.("new");
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Close Untitled.md" }));
+    const activeTab = screen.getByRole("tab", {
+      name: "Untitled.md",
+      selected: true,
+    });
+    fireEvent.click(
+      within(activeTab.closest(".tab") as HTMLElement).getByRole("button", {
+        name: "Close Untitled.md",
+      }),
+    );
 
     await waitFor(() => {
       expect(screen.getByLabelText("Mock Galley Editor")).toHaveValue(
@@ -2211,6 +2689,85 @@ describe("App", () => {
       screen.queryByRole("alert", { name: "File command error" }),
     ).not.toBeInTheDocument();
     consoleError.mockRestore();
+  });
+
+  it("shows distinguishing path hints for tabs with identical names", async () => {
+    readSwapStateMock.mockResolvedValue({
+      version: 1,
+      savedAt: 1,
+      activeTabId: "tab-a",
+      openMode: "tabs",
+      tabs: [
+        {
+          id: "tab-a",
+          session: {
+            id: "file:/home/u/projectA/notes.md",
+            path: "/home/u/projectA/notes.md",
+            displayName: "notes.md",
+            content: "A edited",
+            savedContent: "A",
+            dirty: true,
+            lineEnding: "lf",
+            lastKnownModifiedAt: null,
+          },
+        },
+        {
+          id: "tab-b",
+          session: {
+            id: "file:/home/u/projectB/notes.md",
+            path: "/home/u/projectB/notes.md",
+            displayName: "notes.md",
+            content: "B",
+            savedContent: "B",
+            dirty: false,
+            lineEnding: "lf",
+            lastKnownModifiedAt: null,
+          },
+        },
+      ],
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("tab", { name: "notes.md — projectA" }),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.getByRole("tab", { name: "notes.md — projectB" }),
+    ).toBeInTheDocument();
+  });
+
+  it.each(["mousedown", "auxclick"] as const)(
+    "suppresses middle-button %s defaults app-wide to avoid primary-selection paste",
+    (type) => {
+      render(<App />);
+
+      const tablist = screen.getByRole("tablist", { name: "Open documents" });
+      const event = new MouseEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        button: 1,
+      });
+      tablist.dispatchEvent(event);
+
+      expect(event.defaultPrevented).toBe(true);
+    },
+  );
+
+  it("keeps left-button mousedown defaults intact", () => {
+    render(<App />);
+
+    const tablist = screen.getByRole("tablist", { name: "Open documents" });
+    const event = new MouseEvent("mousedown", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+    });
+    tablist.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
   });
 });
 

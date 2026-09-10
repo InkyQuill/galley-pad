@@ -1,9 +1,30 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { createRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
-import { DocumentView } from "./DocumentView";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  mockGalleyCallbacks,
+  mockGalleyHandleState,
+  mockGalleyOpenSearch,
+  mockGalleyScrollTo,
+  mockGalleySelect,
+} from "../test/galley-editor.mock";
+import { DocumentView, type DocumentViewHandle } from "./DocumentView";
+
+const runtimePlatform = vi.hoisted(() => ({ isLinuxDesktop: false }));
 
 vi.mock("@inkyquill/galley-editor", () => import("../test/galley-editor.mock"));
+vi.mock("../appInfo", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../appInfo")>();
+
+  return {
+    ...actual,
+    get IS_LINUX_DESKTOP() {
+      return runtimePlatform.isLinuxDesktop;
+    },
+  };
+});
 vi.mock("react-dom/server", async (importOriginal) => {
   const actual = await importOriginal<typeof import("react-dom/server")>();
 
@@ -13,7 +34,23 @@ vi.mock("react-dom/server", async (importOriginal) => {
   };
 });
 
+function dispatchMiddleButton(target: Element, type: "mousedown" | "auxclick") {
+  const event = new MouseEvent(type, {
+    bubbles: true,
+    button: 1,
+    cancelable: true,
+  });
+  target.dispatchEvent(event);
+  return event;
+}
+
 describe("DocumentView", () => {
+  beforeEach(() => {
+    runtimePlatform.isLinuxDesktop = false;
+    mockGalleyHandleState.ready = true;
+    mockGalleyOpenSearch.mockClear();
+  });
+
   it("renders the markdown editor region", () => {
     render(<DocumentView content="# Hello" onContentChange={() => undefined} />);
 
@@ -35,6 +72,21 @@ describe("DocumentView", () => {
     expect(
       screen.queryByRole("toolbar", { name: "Mock Galley Toolbar" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("passes the document identity through to the Galley editor", () => {
+    render(
+      <DocumentView
+        content="# Hello"
+        onContentChange={() => undefined}
+        documentKey="tab-42"
+      />,
+    );
+
+    expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+      "data-doc-key",
+      "tab-42",
+    );
   });
 
   it("links the document panel to its owning tab", () => {
@@ -141,5 +193,253 @@ describe("DocumentView", () => {
 
     expect(onContentChange).toHaveBeenCalledTimes(1);
     expect(onContentChange).toHaveBeenCalledWith("Changed");
+  });
+
+  it("wraps lines by default and enables horizontal scrolling on request", () => {
+    const { rerender } = render(
+      <DocumentView content="Long line" onContentChange={() => undefined} />,
+    );
+
+    expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+      "data-horizontal-scroll",
+      "false",
+    );
+
+    rerender(
+      <DocumentView
+        content="Long line"
+        onContentChange={() => undefined}
+        wordWrap={false}
+      />,
+    );
+
+    expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+      "data-horizontal-scroll",
+      "true",
+    );
+  });
+
+  it("opens Galley search through the DocumentView handle", () => {
+    const ref = createRef<DocumentViewHandle>();
+    render(
+      <DocumentView
+        ref={ref}
+        content="Find me"
+        onContentChange={() => undefined}
+      />,
+    );
+
+    expect(ref.current?.openSearch()).toBe(true);
+    expect(mockGalleyOpenSearch).toHaveBeenCalledOnce();
+  });
+
+  it("returns false when search is requested before the editor handle is ready", () => {
+    mockGalleyHandleState.ready = false;
+    const ref = createRef<DocumentViewHandle>();
+    render(
+      <DocumentView
+        ref={ref}
+        content="Find me later"
+        onContentChange={() => undefined}
+      />,
+    );
+
+    expect(ref.current?.openSearch()).toBe(false);
+    expect(mockGalleyOpenSearch).not.toHaveBeenCalled();
+  });
+
+  it.each(["mousedown", "auxclick"] as const)(
+    "cancels middle-button %s events at the editor boundary",
+    (eventType) => {
+      const parent = document.createElement("div");
+      const onBubble = vi.fn();
+      parent.addEventListener(eventType, onBubble);
+      const view = render(
+        <DocumentView content="Initial" onContentChange={() => undefined} />,
+        { container: parent },
+      );
+
+      const event = dispatchMiddleButton(
+        view.getByLabelText("Mock Galley Editor"),
+        eventType,
+      );
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(onBubble).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["mousedown", "auxclick"] as const)(
+    "allows left-button %s events through the editor boundary",
+    (eventType) => {
+      const parent = document.createElement("div");
+      const onBubble = vi.fn();
+      parent.addEventListener(eventType, onBubble);
+      const view = render(
+        <DocumentView content="Initial" onContentChange={() => undefined} />,
+        { container: parent },
+      );
+      const event = new MouseEvent(eventType, {
+        bubbles: true,
+        button: 0,
+        cancelable: true,
+      });
+
+      view.getByLabelText("Mock Galley Editor").dispatchEvent(event);
+
+      expect(event.defaultPrevented).toBe(false);
+      expect(onBubble).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("renders and dispatches footer menu commands on Linux", () => {
+    runtimePlatform.isLinuxDesktop = true;
+    const onMenuCommand = vi.fn();
+    render(
+      <DocumentView
+        content="Initial"
+        onContentChange={() => undefined}
+        onMenuCommand={onMenuCommand}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Galley Pad menu" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "New" }));
+
+    expect(onMenuCommand).toHaveBeenCalledTimes(1);
+    expect(onMenuCommand).toHaveBeenCalledWith("new");
+  });
+
+  it("routes the Linux footer Word Wrap checkbox through the app toggle pipeline", () => {
+    runtimePlatform.isLinuxDesktop = true;
+    const onMenuCommand = vi.fn();
+    render(
+      <DocumentView
+        content="Initial"
+        onContentChange={() => undefined}
+        onMenuCommand={onMenuCommand}
+        wordWrap={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Galley Pad menu" }));
+    const wordWrapItem = screen.getByRole("menuitemcheckbox", {
+      name: /Word Wrap.*Alt\+Z/,
+    });
+    expect(wordWrapItem).toHaveAttribute("aria-checked", "false");
+
+    fireEvent.click(wordWrapItem);
+
+    expect(onMenuCommand).toHaveBeenCalledOnce();
+    expect(onMenuCommand).toHaveBeenCalledWith("toggle-word-wrap");
+  });
+
+  it("hides the footer menu on Linux when its callback is missing", () => {
+    runtimePlatform.isLinuxDesktop = true;
+    render(<DocumentView content="Initial" onContentChange={() => undefined} />);
+
+    expect(
+      screen.queryByRole("button", { name: "Galley Pad menu" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("hides the footer menu off Linux when its callback is present", () => {
+    runtimePlatform.isLinuxDesktop = false;
+    render(
+      <DocumentView
+        content="Initial"
+        onContentChange={() => undefined}
+        onMenuCommand={() => undefined}
+      />,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Galley Pad menu" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows the available update action only when its release is actionable", async () => {
+    const user = userEvent.setup();
+    const onOpenUpdate = vi.fn();
+    const { rerender } = render(
+      <DocumentView content="Initial" onContentChange={() => undefined} />,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Update available" }),
+    ).not.toBeInTheDocument();
+
+    rerender(
+      <DocumentView
+        content="Initial"
+        onContentChange={() => undefined}
+        updateReleaseUrl="https://github.com/InkyQuill/galley-pad/releases/tag/v1.5.1"
+        onOpenUpdate={onOpenUpdate}
+      />,
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Update available" }),
+    );
+
+    expect(onOpenUpdate).toHaveBeenCalledOnce();
+  });
+});
+
+describe("DocumentView per-tab position memory", () => {
+  function renderWithKey(documentKey: string) {
+    return render(
+      <DocumentView
+        content="# Hello"
+        onContentChange={() => undefined}
+        documentKey={documentKey}
+      />,
+    );
+  }
+
+  it("restores the recorded position when switching back to a known tab", () => {
+    const { rerender } = renderWithKey("tab-a");
+
+    mockGalleyCallbacks.onSelectionChange?.({ from: 5, to: 5, anchor: 5, head: 5 });
+    mockGalleyCallbacks.onScroll?.(0.4);
+
+    rerender(
+      <DocumentView
+        content="other"
+        onContentChange={() => undefined}
+        documentKey="tab-b"
+      />,
+    );
+    mockGalleySelect.mockClear();
+    mockGalleyScrollTo.mockClear();
+
+    rerender(
+      <DocumentView
+        content="# Hello"
+        onContentChange={() => undefined}
+        documentKey="tab-a"
+      />,
+    );
+
+    expect(mockGalleySelect).toHaveBeenCalledWith(5, 5);
+    expect(mockGalleyScrollTo).toHaveBeenCalledWith(0.4);
+  });
+
+  it("does not restore any position for a tab seen for the first time", () => {
+    const { rerender } = renderWithKey("tab-a");
+
+    mockGalleyCallbacks.onSelectionChange?.({ from: 5, to: 5, anchor: 5, head: 5 });
+    mockGalleySelect.mockClear();
+    mockGalleyScrollTo.mockClear();
+
+    rerender(
+      <DocumentView
+        content="fresh"
+        onContentChange={() => undefined}
+        documentKey="tab-new"
+      />,
+    );
+
+    expect(mockGalleySelect).not.toHaveBeenCalled();
+    expect(mockGalleyScrollTo).not.toHaveBeenCalled();
   });
 });

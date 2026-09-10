@@ -1,10 +1,19 @@
 import {
   GalleyEditor,
   type GalleyFooterContext,
+  type GalleyHandle,
   type GalleyTableControlIconName,
   type ToolbarIconName,
 } from "@inkyquill/galley-editor";
-import type { CSSProperties, ReactNode } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   TbAlignCenter,
@@ -36,16 +45,30 @@ import {
 } from "react-icons/tb";
 import type { IconType } from "react-icons";
 import { GalleyPadFooterMark } from "./GalleyPadFooterMark";
+import { FooterMenuButton } from "./FooterMenuButton";
+import { IS_LINUX_DESKTOP } from "../appInfo";
 import {
   editorFontStyle,
   type EditorFontSettings,
 } from "../settings/appearance";
+import type { AppMenuCommand } from "../tauri/menuEvents";
 
 type EditorSurfaceStyle = CSSProperties & Record<`--${string}`, string>;
+
+export type DocumentViewHandle = {
+  openSearch(): boolean;
+};
+
+type SavedDocumentPosition = {
+  anchor: number;
+  head: number;
+  scrollFraction: number;
+};
 
 export type DocumentViewProps = {
   content: string;
   onContentChange: (content: string) => void;
+  documentKey?: string;
   panelId?: string;
   labelledBy?: string;
   toolbarVisible?: boolean;
@@ -53,67 +76,159 @@ export type DocumentViewProps = {
   editorStyle?: EditorSurfaceStyle;
   fontSettings?: EditorFontSettings;
   status?: string;
+  wordWrap?: boolean;
+  onMenuCommand?: (command: AppMenuCommand) => void;
+  updateReleaseUrl?: string;
+  onOpenUpdate?: () => void;
 };
 
-export function DocumentView({
-  content,
-  onContentChange,
-  panelId,
-  labelledBy,
-  toolbarVisible = false,
-  editorScheme,
-  editorStyle,
-  fontSettings = { family: "system", size: "medium" },
-  status = "Draft",
-}: DocumentViewProps) {
-  const fontStyle = editorFontStyle(fontSettings);
+export const DocumentView = forwardRef<DocumentViewHandle, DocumentViewProps>(
+  function DocumentView(
+    {
+      content,
+      onContentChange,
+      documentKey,
+      panelId,
+      labelledBy,
+      toolbarVisible = false,
+      editorScheme,
+      editorStyle,
+      fontSettings = { family: "system", size: "medium" },
+      status = "Draft",
+      wordWrap = true,
+      onMenuCommand,
+      updateReleaseUrl,
+      onOpenUpdate,
+    },
+    ref,
+  ) {
+    const editorRef = useRef<GalleyHandle>(null);
+    const savedPositions = useRef(new Map<string, SavedDocumentPosition>());
+    const activeDocumentKey = useRef(documentKey);
 
-  return (
-    <main
-      className="document-view"
-      id={panelId}
-      role="tabpanel"
-      aria-label={labelledBy ? undefined : "Markdown document editor"}
-      aria-labelledby={labelledBy}
-    >
-      <GalleyEditor
-        value={content}
-        onChange={onContentChange}
-        layout="fill"
-        theme={editorScheme ?? "auto"}
-        surface={{
-          className: "galley-pad-editor-surface",
-          style: {
-            ...editorStyle,
-            "--ge-font-body": fontStyle.fontFamily,
-            "--ge-font-size": fontStyle.fontSize,
-          } as CSSProperties,
-        }}
-        toolbar={
-          toolbarVisible
-            ? {
-                icons: GALLEY_TOOLBAR_ICONS,
-              }
-            : false
-        }
-        tableControlIcons={GALLEY_TABLE_CONTROL_ICONS}
-        footer={{
-          before: <span className="document-footer-status">{status}</span>,
-          after: ({ wordCount }: GalleyFooterContext) => (
-            <>
-              <span className="document-footer-words">
-                {wordCount} {wordCount === 1 ? "word" : "words"}
-              </span>
-              <GalleyPadFooterMark />
-            </>
-          ),
-          logo: false,
-          wordCount: false,
-          characterCount: true,
-        }}
-      />
-    </main>
-  );
+    useImperativeHandle(
+      ref,
+      () => ({
+        openSearch: () => editorRef.current?.openSearch() ?? false,
+      }),
+      [],
+    );
+
+    // Restore the in-session position when returning to a known tab. Tabs
+    // seen for the first time keep the editor's start-of-document reset.
+    useEffect(() => {
+      if (activeDocumentKey.current === documentKey) {
+        return;
+      }
+
+      activeDocumentKey.current = documentKey;
+      const saved = documentKey
+        ? savedPositions.current.get(documentKey)
+        : undefined;
+      if (!saved) {
+        return;
+      }
+
+      editorRef.current?.select(saved.anchor, saved.head);
+      editorRef.current?.scrollTo(saved.scrollFraction);
+    }, [documentKey]);
+
+    function recordPosition(update: Partial<SavedDocumentPosition>) {
+      const key = activeDocumentKey.current;
+      if (!key) {
+        return;
+      }
+
+      const saved = savedPositions.current.get(key) ?? {
+        anchor: 0,
+        head: 0,
+        scrollFraction: 0,
+      };
+      savedPositions.current.set(key, { ...saved, ...update });
+    }
+
+    const fontStyle = editorFontStyle(fontSettings);
+
+    return (
+      <main
+        className="document-view"
+        id={panelId}
+        role="tabpanel"
+        aria-label={labelledBy ? undefined : "Markdown document editor"}
+        aria-labelledby={labelledBy}
+        onMouseDownCapture={suppressMiddleButton}
+        onAuxClickCapture={suppressMiddleButton}
+      >
+        <GalleyEditor
+          ref={editorRef}
+          value={content}
+          onChange={onContentChange}
+          docKey={documentKey}
+          onSelectionChange={(selection) =>
+            recordPosition({ anchor: selection.anchor, head: selection.head })
+          }
+          onScroll={(fraction) => recordPosition({ scrollFraction: fraction })}
+          layout="fill"
+          horizontalScroll={!wordWrap}
+          theme={editorScheme ?? "auto"}
+          surface={{
+            className: "galley-pad-editor-surface",
+            style: {
+              ...editorStyle,
+              "--ge-font-body": fontStyle.fontFamily,
+              "--ge-font-size": fontStyle.fontSize,
+            } as CSSProperties,
+          }}
+          toolbar={
+            toolbarVisible
+              ? {
+                  icons: GALLEY_TOOLBAR_ICONS,
+                }
+              : false
+          }
+          tableControlIcons={GALLEY_TABLE_CONTROL_ICONS}
+          footer={{
+            before: <span className="document-footer-status">{status}</span>,
+            after: ({ wordCount }: GalleyFooterContext) => (
+              <>
+                {IS_LINUX_DESKTOP && onMenuCommand ? (
+                  <FooterMenuButton
+                    wordWrap={wordWrap}
+                    onCommand={onMenuCommand}
+                  />
+                ) : null}
+                {updateReleaseUrl && onOpenUpdate ? (
+                  <button
+                    type="button"
+                    className="document-footer-update"
+                    onClick={onOpenUpdate}
+                  >
+                    Update available
+                  </button>
+                ) : null}
+                <span className="document-footer-words">
+                  {wordCount} {wordCount === 1 ? "word" : "words"}
+                </span>
+                <GalleyPadFooterMark />
+              </>
+            ),
+            logo: false,
+            wordCount: false,
+            characterCount: true,
+          }}
+        />
+      </main>
+    );
+  },
+);
+
+function suppressMiddleButton(event: ReactMouseEvent<HTMLElement>): void {
+  if (event.button !== 1) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
 }
 
 const GALLEY_TOOLBAR_ICONS: Record<ToolbarIconName, ReactNode> = {

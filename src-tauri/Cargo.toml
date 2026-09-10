@@ -1,6 +1,6 @@
 [package]
 name = "galley-pad"
-version = "1.2.3"
+version = "1.6.0"
 description = "A simple desktop Markdown editor powered by Galley."
 authors = ["Inky Quill"]
 license = "MIT"
@@ -21,6 +21,8 @@ tauri-plugin-dialog = "2.7.1"
 tauri-plugin-single-instance = "2"
 fontdb = "0.23.0"
 sys-locale = "0.3.2"
+tauri-plugin-opener = "2"
 
 [dev-dependencies]
+tauri = { version = "2", features = ["test"] }
 tempfile = "3"

@@ -7,8 +7,10 @@ export type AppMenuCommand =
   | "open"
   | "save"
   | "save-as"
+  | "find"
   | "settings"
-  | "toggle-toolbar";
+  | "toggle-toolbar"
+  | "toggle-word-wrap";
 
 export function listenForAppMenuCommand(
   handler: (command: AppMenuCommand) => void,

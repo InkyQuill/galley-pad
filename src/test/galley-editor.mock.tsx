@@ -1,4 +1,10 @@
-import type { CSSProperties, ReactNode } from "react";
+import {
+  forwardRef,
+  useImperativeHandle,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
+import { vi } from "vitest";
 
 type TableControlIconRenderer = ({
   label,
@@ -6,39 +12,81 @@ type TableControlIconRenderer = ({
   label: string;
 }) => HTMLElement | null;
 
-export function GalleyEditor({
-  value,
-  onChange,
-  toolbar = true,
-  footer = true,
-  layout = "autosize",
-  theme = "auto",
-  surface,
-  tableControlIcons,
-}: {
-  value: string;
-  onChange: (content: string) => void;
-  toolbar?: boolean | { icons?: Record<string, unknown> };
-  tableControlIcons?: Record<string, TableControlIconRenderer>;
-  footer?:
-    | boolean
-    | {
-        before?: ReactNode;
-        after?: (context: {
-          wordCount: number;
-          characterCount: number;
-        }) => ReactNode;
-        wordCount?: boolean;
-        characterCount?: boolean;
-        logo?: boolean;
-      };
-  layout?: string;
-  theme?: string;
-  surface?: {
-    className?: string;
-    style?: CSSProperties;
-  };
-}) {
+export const mockGalleyOpenSearch = vi.fn(() => true);
+export const mockGalleySelect = vi.fn();
+export const mockGalleyScrollTo = vi.fn();
+export const mockGalleyHandleState = { ready: true };
+export const mockGalleyCallbacks: {
+  onSelectionChange?: (selection: {
+    from: number;
+    to: number;
+    anchor: number;
+    head: number;
+  }) => void;
+  onScroll?: (fraction: number) => void;
+} = {};
+
+export const GalleyEditor = forwardRef(function MockGalleyEditor(
+  {
+    value,
+    onChange,
+    docKey,
+    onSelectionChange,
+    onScroll,
+    toolbar = true,
+    footer = true,
+    layout = "autosize",
+    theme = "auto",
+    surface,
+    tableControlIcons,
+    horizontalScroll = false,
+  }: {
+    value: string;
+    onChange: (content: string) => void;
+    docKey?: string | number;
+    onSelectionChange?: (selection: {
+      from: number;
+      to: number;
+      anchor: number;
+      head: number;
+    }) => void;
+    onScroll?: (fraction: number) => void;
+    toolbar?: boolean | { icons?: Record<string, unknown> };
+    tableControlIcons?: Record<string, TableControlIconRenderer>;
+    footer?:
+      | boolean
+      | {
+          before?: ReactNode;
+          after?: (context: {
+            wordCount: number;
+            characterCount: number;
+          }) => ReactNode;
+          wordCount?: boolean;
+          characterCount?: boolean;
+          logo?: boolean;
+        };
+    layout?: string;
+    theme?: string;
+    surface?: {
+      className?: string;
+      style?: CSSProperties;
+    };
+    horizontalScroll?: boolean;
+  },
+  ref,
+) {
+  mockGalleyCallbacks.onSelectionChange = onSelectionChange;
+  mockGalleyCallbacks.onScroll = onScroll;
+
+  useImperativeHandle(ref, () =>
+    mockGalleyHandleState.ready
+      ? {
+          openSearch: mockGalleyOpenSearch,
+          select: mockGalleySelect,
+          scrollTo: mockGalleyScrollTo,
+        }
+      : null,
+  );
   const iconCount =
     typeof toolbar === "object" ? Object.keys(toolbar.icons ?? {}).length : 0;
   const tableControlIconEntries = Object.entries(tableControlIcons ?? {});
@@ -71,8 +119,10 @@ export function GalleyEditor({
   return (
     <div
       data-testid="mock-galley-editor-shell"
+      data-doc-key={docKey}
       data-layout={layout}
       data-theme={theme}
+      data-horizontal-scroll={String(horizontalScroll)}
       className={surface?.className}
       style={surface?.style}
     >
@@ -137,4 +187,4 @@ export function GalleyEditor({
       ) : null}
     </div>
   );
-}
+});

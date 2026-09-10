@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  type MouseEvent as ReactMouseEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   TbChevronLeft,
   TbChevronRight,
@@ -6,7 +12,11 @@ import {
   TbPlus,
   TbX,
 } from "react-icons/tb";
-import { DocumentView } from "./components/DocumentView";
+import {
+  DocumentView,
+  type DocumentViewHandle,
+} from "./components/DocumentView";
+import { APP_VERSION } from "./appInfo";
 import { ExternalFileBanner } from "./components/ExternalFileBanner";
 import { ExternalReconcileView } from "./components/ExternalReconcileView";
 import { FontPicker } from "./components/FontPicker";
@@ -30,6 +40,7 @@ import {
   updateSessionContent,
   type DocumentSession,
 } from "./document/session";
+import { computeTabPathHints } from "./document/tabLabels";
 import {
   addDocumentTab,
   closeDocumentTab,
@@ -55,6 +66,7 @@ import {
   type EditorFontSize,
 } from "./settings/appearance";
 import { loadOpenMode, saveOpenMode } from "./settings/openMode";
+import { normalizeWordWrap } from "./settings/wordWrap";
 import {
   clearSwapState,
   readAppSettings,
@@ -75,6 +87,8 @@ import {
   listenForAppMenuCommand,
   type AppMenuCommand,
 } from "./tauri/menuEvents";
+import { syncWordWrapMenuChecked } from "./tauri/nativeMenu";
+import { openReleasePage } from "./tauri/opener";
 import { openMarkdownFileWindow } from "./tauri/windows";
 import {
   closeCurrentWindow,
@@ -102,12 +116,19 @@ import {
 } from "./themes/settings";
 import { themeToCssVariables } from "./themes/style";
 import type { ThemeId, ThemeScheme } from "./themes/tokens";
+import {
+  checkForGitHubUpdate,
+  type AvailableUpdate,
+} from "./updates/githubRelease";
 
 type CommandName = "Open" | "Save" | "Save As" | "Open File";
 type UnsavedChoice = "save" | "save-as" | "discard" | "cancel";
 type UnsavedPromptState = {
   session: DocumentSession;
   resolve: (choice: UnsavedChoice) => void;
+};
+type AppProps = {
+  onUnsavedPrompt?: () => void;
 };
 type ExternalFileWarning =
   | {
@@ -126,13 +147,16 @@ type ExternalFileWarning =
       result: Extract<ExternalFileChangeResult, { kind: "deleted" }>;
     };
 
-export default function App() {
+export default function App({ onUnsavedPrompt }: AppProps = {}) {
   const [workspace, setWorkspace] = useState(() =>
     createDocumentWorkspace(loadOpenMode()),
   );
   const [pendingCommand, setPendingCommand] = useState<CommandName | null>(null);
   const [commandError, setCommandError] = useState<string | null>(null);
+  const [availableUpdate, setAvailableUpdate] =
+    useState<AvailableUpdate | null>(null);
   const [toolbarVisible, setToolbarVisible] = useState(false);
+  const [wordWrap, setWordWrap] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [themeSettings, setThemeSettings] = useState<ThemeSettings>(() =>
     loadNormalizedThemeSettings(),
@@ -164,15 +188,23 @@ export default function App() {
   const latestExternalFileWarning = useRef(externalFileWarning);
   const latestThemeSettings = useRef(themeSettings);
   const latestEditorFontSettings = useRef(editorFontSettings);
+  const latestWordWrap = useRef(wordWrap);
+  const documentViewRef = useRef<DocumentViewHandle>(null);
+  const updateCheckPromiseRef =
+    useRef<Promise<AvailableUpdate | null> | null>(null);
   const swapWriteTimer = useRef<number | null>(null);
   const swapWriteChain = useRef<Promise<void>>(Promise.resolve());
   const closingRef = useRef(false);
-  const pendingAppSettingsWrite = useRef<PersistedAppSettings | null>(null);
+  const appSettingsReadComplete = useRef(false);
+  const pendingAppSettingsWrite = useRef<Partial<PersistedAppSettings> | null>(
+    null,
+  );
   const appSettingsWriteInFlight = useRef<Promise<void> | null>(null);
   const touchedPreferences = useRef({
     appearanceTheme: false,
     editorFont: false,
     openMode: false,
+    wordWrap: false,
   });
   const settingsDialogRef = useRef<HTMLDialogElement>(null);
   const unsavedDialogRef = useRef<HTMLDialogElement>(null);
@@ -204,6 +236,21 @@ export default function App() {
       document.displayName
     } - Galley Pad`;
   }, [document.dirty, document.displayName]);
+
+  useEffect(() => {
+    let disposed = false;
+
+    updateCheckPromiseRef.current ??= checkForGitHubUpdate(APP_VERSION);
+    void updateCheckPromiseRef.current.then((update) => {
+      if (!disposed) {
+        setAvailableUpdate(update);
+      }
+    });
+
+    return () => {
+      disposed = true;
+    };
+  }, []);
 
   useEffect(() => {
     function checkActiveExternalFile() {
@@ -295,6 +342,27 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (import.meta.env.PROD) {
+      return;
+    }
+
+    const handleTestMenuCommand = (event: Event) => {
+      const command = (event as CustomEvent<AppMenuCommand>).detail;
+      if (command === "find" || command === "toggle-word-wrap") {
+        runMenuCommand(command);
+      }
+    };
+
+    window.addEventListener("galley-pad-test-menu-command", handleTestMenuCommand);
+    return () => {
+      window.removeEventListener(
+        "galley-pad-test-menu-command",
+        handleTestMenuCommand,
+      );
+    };
+  }, []);
+
+  useEffect(() => {
     if (!tabMenuOpen) {
       return;
     }
@@ -362,7 +430,23 @@ export default function App() {
 
     void readAppSettings()
       .then((settings) => {
-        if (disposed || !settings) {
+        if (disposed) {
+          return;
+        }
+
+        if (!touchedPreferences.current.wordWrap) {
+          const nextWordWrap = normalizeWordWrap(settings?.wordWrap);
+          latestWordWrap.current = nextWordWrap;
+          setWordWrap(nextWordWrap);
+          void syncWordWrapMenuChecked(nextWordWrap).catch((error: unknown) => {
+            if (!disposed) {
+              setCommandError(errorMessage(error));
+            }
+          });
+        }
+
+        if (!settings) {
+          releaseAppSettingsReadBarrier();
           return;
         }
 
@@ -372,6 +456,7 @@ export default function App() {
           if (parsedThemeSettings) {
             const normalizedThemeSettings =
               normalizeThemeSettings(parsedThemeSettings);
+            latestThemeSettings.current = normalizedThemeSettings;
             setThemeSettings(normalizedThemeSettings);
             saveThemeSettings(normalizedThemeSettings);
             if (!themeSettingsEqual(parsedThemeSettings, normalizedThemeSettings)) {
@@ -386,6 +471,7 @@ export default function App() {
                 latestThemeSettings.current,
               ),
             );
+            latestThemeSettings.current = migratedThemeSettings;
             setThemeSettings(migratedThemeSettings);
             saveThemeSettings(migratedThemeSettings);
             saveAppearanceThemeId(settings.appearanceTheme);
@@ -398,23 +484,24 @@ export default function App() {
         if (!touchedPreferences.current.editorFont) {
           const editorFontSize = settings.editorFontSize;
           if (isEditorFontSize(editorFontSize)) {
-            setEditorFontSettings((current) => {
-              const next = {
-                family:
-                  settings.editorFontFamily && settings.editorFontFamily.trim()
-                    ? settings.editorFontFamily
-                    : current.family,
-                size: editorFontSize,
-              };
-              saveEditorFontSettings(next);
-              return next;
-            });
+            const next = {
+              family:
+                settings.editorFontFamily && settings.editorFontFamily.trim()
+                  ? settings.editorFontFamily
+                  : latestEditorFontSettings.current.family,
+              size: editorFontSize,
+            };
+            latestEditorFontSettings.current = next;
+            saveEditorFontSettings(next);
+            setEditorFontSettings(next);
           } else if (settings.editorFontFamily?.trim()) {
-            setEditorFontSettings((current) => {
-              const next = { ...current, family: settings.editorFontFamily! };
-              saveEditorFontSettings(next);
-              return next;
-            });
+            const next = {
+              ...latestEditorFontSettings.current,
+              family: settings.editorFontFamily,
+            };
+            latestEditorFontSettings.current = next;
+            saveEditorFontSettings(next);
+            setEditorFontSettings(next);
           }
         }
 
@@ -423,12 +510,20 @@ export default function App() {
           isOpenMode(settings.openMode)
         ) {
           saveOpenMode(settings.openMode);
-          setWorkspace((current) => setOpenMode(current, settings.openMode!));
+          const nextWorkspace = setOpenMode(
+            latestWorkspace.current,
+            settings.openMode,
+          );
+          latestWorkspace.current = nextWorkspace;
+          setWorkspace(nextWorkspace);
         }
+
+        releaseAppSettingsReadBarrier();
       })
       .catch((error: unknown) => {
         if (!disposed) {
           setCommandError(errorMessage(error));
+          releaseAppSettingsReadBarrier();
         }
       });
 
@@ -613,6 +708,26 @@ export default function App() {
     return () => {
       disposed = true;
       unlisten?.();
+    };
+  }, []);
+
+  // Middle-button defaults are never wanted anywhere in the app: on Linux the
+  // release after a middle-click (for example closing a tab that shifts layout
+  // mid-click) otherwise triggers a primary-selection paste into the focused
+  // editor.
+  useEffect(() => {
+    function suppressMiddleButtonDefault(event: MouseEvent) {
+      if (event.button === 1) {
+        event.preventDefault();
+      }
+    }
+
+    window.addEventListener("mousedown", suppressMiddleButtonDefault, true);
+    window.addEventListener("auxclick", suppressMiddleButtonDefault, true);
+
+    return () => {
+      window.removeEventListener("mousedown", suppressMiddleButtonDefault, true);
+      window.removeEventListener("auxclick", suppressMiddleButtonDefault, true);
     };
   }, []);
 
@@ -878,11 +993,17 @@ export default function App() {
           saveDocumentAs(session, dependencies),
         );
         break;
+      case "find":
+        documentViewRef.current?.openSearch();
+        break;
       case "settings":
         setSettingsOpen(true);
         break;
       case "toggle-toolbar":
         setToolbarVisible((visible) => !visible);
+        break;
+      case "toggle-word-wrap":
+        toggleWordWrap();
         break;
     }
   }
@@ -906,11 +1027,39 @@ export default function App() {
     }
   }
 
+  function handleTabMouseDown(
+    event: ReactMouseEvent<HTMLElement>,
+    tabId: string,
+    closeMenu = false,
+  ) {
+    if (event.button !== 1) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    if (closeMenu) {
+      setTabMenuOpen(false);
+    }
+    void requestCloseTab(tabId);
+  }
+
   function updateOpenMode(openMode: OpenMode) {
     touchedPreferences.current.openMode = true;
     saveOpenMode(openMode);
     persistAppSettings({ openMode });
     setWorkspace((current) => setOpenMode(current, openMode));
+  }
+
+  function toggleWordWrap() {
+    touchedPreferences.current.wordWrap = true;
+    const nextWordWrap = !latestWordWrap.current;
+    latestWordWrap.current = nextWordWrap;
+    setWordWrap(nextWordWrap);
+    persistAppSettings({ wordWrap: nextWordWrap });
+    void syncWordWrapMenuChecked(nextWordWrap).catch((error: unknown) => {
+      setCommandError(errorMessage(error));
+    });
   }
 
   function updateThemeSettings(next: ThemeSettings) {
@@ -988,6 +1137,7 @@ export default function App() {
   }
 
   function promptUnsavedChanges(session: DocumentSession): Promise<UnsavedChoice> {
+    onUnsavedPrompt?.();
     return new Promise((resolve) => {
       setUnsavedPrompt({ session, resolve });
     });
@@ -996,6 +1146,14 @@ export default function App() {
   function answerUnsavedPrompt(choice: UnsavedChoice) {
     unsavedPrompt?.resolve(choice);
     setUnsavedPrompt(null);
+  }
+
+  function handleOpenUpdate() {
+    if (!availableUpdate) {
+      return;
+    }
+
+    void openReleasePage(availableUpdate.releaseUrl).catch(() => undefined);
   }
 
   async function resolveDirtyTabForClose(tabId: string): Promise<boolean> {
@@ -1307,17 +1465,49 @@ export default function App() {
 
   function persistAppSettings(settings: Partial<PersistedAppSettings>) {
     pendingAppSettingsWrite.current = {
-      ...(pendingAppSettingsWrite.current ?? currentAppSettingsSnapshot()),
+      ...(pendingAppSettingsWrite.current ?? {}),
       ...settings,
     };
 
+    if (!appSettingsReadComplete.current) {
+      return;
+    }
+
+    pendingAppSettingsWrite.current = {
+      ...currentAppSettingsSnapshot(),
+      ...pendingAppSettingsWrite.current,
+    };
+    return startAppSettingsWriteLoop();
+  }
+
+  function releaseAppSettingsReadBarrier() {
+    if (appSettingsReadComplete.current) {
+      return;
+    }
+
+    appSettingsReadComplete.current = true;
+    if (!pendingAppSettingsWrite.current) {
+      return;
+    }
+
+    pendingAppSettingsWrite.current = {
+      ...currentAppSettingsSnapshot(),
+      ...pendingAppSettingsWrite.current,
+    };
+    void startAppSettingsWriteLoop();
+  }
+
+  function startAppSettingsWriteLoop() {
     if (appSettingsWriteInFlight.current) {
       return appSettingsWriteInFlight.current;
     }
 
     const writeLoop = (async () => {
       while (pendingAppSettingsWrite.current) {
-        const next = pendingAppSettingsWrite.current;
+        const next = {
+          ...currentAppSettingsSnapshot(),
+          ...pendingAppSettingsWrite.current,
+        };
         pendingAppSettingsWrite.current = null;
         try {
           await writeAppSettings(next);
@@ -1343,6 +1533,7 @@ export default function App() {
       editorFontFamily: latestEditorFontSettings.current.family,
       editorFontSize: latestEditorFontSettings.current.size,
       openMode: latestWorkspace.current.openMode,
+      wordWrap: latestWordWrap.current,
     };
   }
 
@@ -1370,6 +1561,11 @@ export default function App() {
         !touchedPreferences.current.openMode && isOpenMode(settings.openMode)
           ? settings.openMode
           : snapshot.openMode,
+      wordWrap:
+        !touchedPreferences.current.wordWrap &&
+        typeof settings.wordWrap === "boolean"
+          ? settings.wordWrap
+          : snapshot.wordWrap,
     };
   }
 
@@ -1438,6 +1634,17 @@ export default function App() {
 
   const activeTabButtonId = tabButtonId(workspace.activeTabId);
   const activeTabPanelId = tabPanelId(workspace.activeTabId);
+  const tabPathHints = computeTabPathHints(
+    workspace.tabs.map((tab) => ({
+      id: tab.id,
+      displayName: tab.session.displayName,
+      path: tab.session.path,
+    })),
+  );
+  const tabAccessibleName = (tabId: string, displayName: string) => {
+    const hint = tabPathHints.get(tabId);
+    return hint ? `${displayName} — ${hint}` : displayName;
+  };
   const resolvedTheme = resolveTheme(themeSettings, systemScheme);
   const themeStyle = themeToCssVariables(resolvedTheme);
   const editorScheme =
@@ -1485,14 +1692,26 @@ export default function App() {
                         : "tab-menu-item"
                     }
                     key={tab.id}
+                    onMouseDown={(event) =>
+                      handleTabMouseDown(event, tab.id, true)
+                    }
                   >
                     <button
                       type="button"
                       className="tab-menu-select"
                       role="menuitem"
+                      aria-label={tabAccessibleName(
+                        tab.id,
+                        tab.session.displayName,
+                      )}
                       onClick={() => selectDocumentTab(tab.id)}
                     >
                       <span>{tab.session.displayName}</span>
+                      {tabPathHints.get(tab.id) ? (
+                        <span className="tab-path-hint" aria-hidden="true">
+                          {tabPathHints.get(tab.id)}
+                        </span>
+                      ) : null}
                       {tab.session.dirty ? <span aria-hidden="true"> *</span> : null}
                     </button>
                     <button
@@ -1521,29 +1740,33 @@ export default function App() {
                 tab.id === workspace.activeTabId ? "tab tab-active" : "tab"
               }
               key={tab.id}
+              onMouseDown={(event) => handleTabMouseDown(event, tab.id)}
             >
               <button
                 type="button"
                 role="tab"
                 id={tabButtonId(tab.id)}
                 aria-controls={tabPanelId(tab.id)}
-                aria-label={tab.session.displayName}
+                aria-label={tabAccessibleName(tab.id, tab.session.displayName)}
                 aria-selected={tab.id === workspace.activeTabId}
                 onClick={() => selectDocumentTab(tab.id)}
               >
                 <span aria-hidden="true">{tab.session.displayName}</span>
+                {tabPathHints.get(tab.id) ? (
+                  <span className="tab-path-hint" aria-hidden="true">
+                    {tabPathHints.get(tab.id)}
+                  </span>
+                ) : null}
                 {tab.session.dirty ? <span aria-hidden="true"> *</span> : null}
               </button>
-              {tab.id === workspace.activeTabId ? (
-                <button
-                  type="button"
-                  className="tab-close"
-                  aria-label={`Close ${tab.session.displayName}`}
-                  onClick={() => void requestCloseTab(tab.id)}
-                >
-                  <TbX size={14} strokeWidth={2} aria-hidden="true" />
-                </button>
-              ) : null}
+              <button
+                type="button"
+                className="tab-close"
+                aria-label={`Close ${tab.session.displayName}`}
+                onClick={() => void requestCloseTab(tab.id)}
+              >
+                <TbX size={14} strokeWidth={2} aria-hidden="true" />
+              </button>
             </div>
           ))}
         </div>
@@ -1671,13 +1894,19 @@ export default function App() {
           />
         ) : (
           <DocumentView
+            ref={documentViewRef}
+            wordWrap={wordWrap}
             content={document.content}
+            documentKey={workspace.activeTabId}
             panelId={activeTabPanelId}
             labelledBy={activeTabButtonId}
             toolbarVisible={toolbarVisible}
             editorScheme={editorScheme}
             editorStyle={themeStyle}
             fontSettings={editorFontSettings}
+            onMenuCommand={runMenuCommand}
+            updateReleaseUrl={availableUpdate?.releaseUrl}
+            onOpenUpdate={handleOpenUpdate}
             status={
               pendingCommand
                 ? `${pendingCommand}...`

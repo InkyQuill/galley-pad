@@ -123,6 +123,17 @@ textarea {
   white-space: nowrap;
 }
 
+.tab-path-hint {
+  margin-left: 6px;
+  color: var(--app-tab-text);
+  opacity: 0.66;
+  font-size: 10px;
+}
+
+.tab-active .tab-path-hint {
+  color: var(--app-text);
+}
+
 .tab button[role="tab"]:focus-visible,
 .tab-close:focus-visible,
 .tabstrip-action:focus-visible,
@@ -155,6 +166,18 @@ textarea {
   color: var(--app-text-muted);
   font-size: 13px;
   line-height: 1;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 100ms ease,
+    visibility 100ms ease;
+}
+
+.tab:hover .tab-close,
+.tab:focus-within .tab-close,
+.tab-active .tab-close {
+  opacity: 1;
+  visibility: visible;
 }
 
 .tab-close svg {
@@ -523,6 +546,126 @@ textarea {
 .document-footer-words {
   color: var(--ge-color-text-muted);
   font-size: 12px;
+}
+
+.document-footer-update {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ge-color-text-muted);
+  font: inherit;
+  font-size: 12px;
+}
+
+.document-footer-update:hover {
+  text-decoration: underline;
+}
+
+.document-footer-update:focus-visible {
+  color: var(--app-focus);
+  outline: 2px solid var(--app-focus);
+  outline-offset: 2px;
+}
+
+.footer-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.footer-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ge-color-text-muted);
+}
+
+.footer-menu-trigger:hover {
+  background: var(--app-hover);
+  color: var(--app-text);
+}
+
+.footer-menu-trigger:focus-visible,
+.footer-menu-item:focus-visible {
+  outline: 2px solid var(--app-focus);
+  outline-offset: -2px;
+}
+
+.footer-menu-popover {
+  position: absolute;
+  z-index: 50;
+  right: 0;
+  bottom: calc(100% + 4px);
+  display: grid;
+  width: max-content;
+  min-width: 200px;
+  padding: 4px;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  background: var(--app-panel);
+  box-shadow: var(--app-dialog-shadow);
+}
+
+.footer-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--app-text);
+  font-size: 12px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.footer-menu-heading {
+  padding: 2px 8px 3px;
+  color: var(--app-text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.footer-menu-check {
+  display: inline-flex;
+  flex: 0 0 14px;
+  align-items: center;
+  justify-content: center;
+}
+
+.footer-menu-check svg {
+  width: 14px;
+  height: 14px;
+}
+
+.footer-menu-item-label {
+  flex: 1;
+}
+
+.footer-menu-shortcut {
+  color: var(--app-text-muted);
+  font: inherit;
+}
+
+.footer-menu-item:hover,
+.footer-menu-item:focus-visible {
+  background: var(--app-hover);
+}
+
+.footer-menu-separator {
+  height: 1px;
+  margin: 4px;
+  background: var(--app-border);
 }
 
 .settings-dialog {
