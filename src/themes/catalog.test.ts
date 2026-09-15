@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import * as sharedThemes from "@inkyquill/galley-themes";
 import {
   BUILT_IN_THEMES,
   DEFAULT_CONSTANT_THEME_ID,
@@ -119,6 +120,30 @@ describe("theme catalog", () => {
     expect(getTheme(DEFAULT_CONSTANT_THEME_ID)?.id).toBe("galley-light");
     expect(getTheme(DEFAULT_LIGHT_THEME_ID)?.scheme).toBe("light");
     expect(getTheme(DEFAULT_DARK_THEME_ID)?.scheme).toBe("dark");
+  });
+
+  it("matches the shared themes package catalog and keeps the legacy ids", () => {
+    expect(DEFAULT_CONSTANT_THEME_ID).toBe(sharedThemes.DEFAULT_CONSTANT_THEME_ID);
+    expect(DEFAULT_CONSTANT_THEME_ID).toBe("galley-light");
+    expect(DEFAULT_LIGHT_THEME_ID).toBe(sharedThemes.DEFAULT_LIGHT_THEME_ID);
+    expect(DEFAULT_DARK_THEME_ID).toBe(sharedThemes.DEFAULT_DARK_THEME_ID);
+
+    expect(BUILT_IN_THEMES.map((theme) => theme.id)).toEqual(
+      sharedThemes.BUILT_IN_THEMES.map((theme) => theme.id),
+    );
+    for (const sharedTheme of sharedThemes.BUILT_IN_THEMES) {
+      expect(getTheme(sharedTheme.id), sharedTheme.id).toEqual(sharedTheme);
+    }
+
+    expect(getTheme("galley-light")).toEqual(sharedThemes.getTheme("galley-light"));
+    expect(listThemesByScheme("light").map((theme) => theme.id)).toEqual(
+      sharedThemes.listThemesByScheme("light").map((theme) => theme.id),
+    );
+    expect(listThemesByScheme("dark").map((theme) => theme.id)).toEqual(
+      sharedThemes.listThemesByScheme("dark").map((theme) => theme.id),
+    );
+    expect(isThemeId("galley-light")).toBe(sharedThemes.isThemeId("galley-light"));
+    expect(isThemeId("missing-theme")).toBe(sharedThemes.isThemeId("missing-theme"));
   });
 
   it("filters themes by scheme", () => {

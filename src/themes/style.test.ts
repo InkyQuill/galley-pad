@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { themeToCssVariables as sharedThemeToCssVariables } from "@inkyquill/galley-themes";
 import type { ThemeDefinition } from "./tokens";
 import { themeToCssVariables } from "./style";
 
@@ -116,5 +117,11 @@ describe("themeToCssVariables", () => {
       "--ge-shadow-editor": "none",
       "--ge-content-padding": "42px 28px",
     });
+  });
+
+  it("stays equivalent to the shared themes package mapping", () => {
+    expect(themeToCssVariables(testTheme)).toEqual(
+      sharedThemeToCssVariables(testTheme),
+    );
   });
 });

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import * as sharedThemes from "@inkyquill/galley-themes";
 import { DEFAULT_THEME_SETTINGS } from "./settings";
 import { resolveTheme } from "./resolve";
 
@@ -49,5 +50,21 @@ describe("resolveTheme", () => {
 
     expect(resolveTheme(settings, "light").id).toBe("nord-light");
     expect(resolveTheme(settings, "dark").id).toBe("darcula");
+  });
+
+  it("resolves themes equivalent to the shared themes package catalog", () => {
+    const settings = {
+      ...DEFAULT_THEME_SETTINGS,
+      mode: "system",
+      lightThemeId: "solarized-light",
+      darkThemeId: "solarized-dark",
+    } as const;
+
+    expect(resolveTheme(settings, "light")).toEqual(
+      sharedThemes.getTheme("solarized-light"),
+    );
+    expect(resolveTheme(settings, "dark")).toEqual(
+      sharedThemes.getTheme("solarized-dark"),
+    );
   });
 });
