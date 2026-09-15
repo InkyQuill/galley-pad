@@ -145,6 +145,7 @@ xdg-mime default net.inkyquill.GalleyPad.desktop text/x-markdown
 - Tauri for the desktop shell and native file integration
 - React for app UI and document state
 - Galley Editor for Markdown editing and inline preview
+- Galley Themes (`@inkyquill/galley-themes`) for the shared built-in theme catalog and CSS variable tokens
 - Rust for filesystem, window lifecycle, dialogs, and platform integration
 
 ## Documentation
