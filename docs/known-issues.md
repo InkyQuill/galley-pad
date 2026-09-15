@@ -8,20 +8,6 @@
 - Owner: dependency maintenance (transitive versions pinned by `bun.lock`).
 - Next action: Upgrade the affected transitive dependencies, then re-run `mise run verify`. Until then, run the remaining verify steps individually (`bun run test:unit`, `bun run test:scripts`, `bun run test:integration`, `bun run build`, `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check`, `cargo test --manifest-path src-tauri/Cargo.toml`, Tauri info/build steps).
 
-## Shared Themes Package Is Vendored As A Tarball
-
-- Command: `bun install` / `bun run test:unit`
-- Expected: `@inkyquill/galley-themes` resolves from the npm registry.
-- Actual: The package is not published yet, so `package.json` pins a relative vendored tarball (`file:./vendor/galley-themes-0.13.0.tgz`, packed from a fresh build of `@inkyquill/galley-themes@0.13.0` in the Galley Editor workspace). This is transitional; the version published by CI may differ from `0.13.0`.
-- Owner: Galley Editor npm release (publication happens via GitHub CI after the shared-themes merge).
-- Next action: After CI publishes the package, swap the vendored tarball for the released version with:
-
-  ```bash
-  bun add --exact @inkyquill/galley-themes@<released version>
-  ```
-
-  `<released version>` is whatever version CI actually releases — do not assume `0.13.0`. Then delete `vendor/galley-themes-0.13.0.tgz` and commit the manifest plus lockfile update.
-
 ## Middle-Button Tabstrip Integration Test Fails
 
 - Command: `bun run test:integration tests/integration/app.spec.ts:472`
