@@ -469,7 +469,7 @@ test("shows close controls by active and hover state and middle-clicks tabs clos
   );
 });
 
-test("cancels middle-button editor events without cancelling tabstrip events", async ({
+test("cancels middle-button defaults in the editor and tabstrip", async ({
   page,
 }) => {
   await page.goto("/");
@@ -506,9 +506,11 @@ test("cancels middle-button editor events without cancelling tabstrip events", a
       type,
     );
 
+    // Window capture also cancels tabstrip defaults: a tab close can move the
+    // focused editor under the release and trigger Linux primary-selection paste.
     expect(tabstripResult).toEqual({
-      defaultPrevented: false,
-      dispatchResult: true,
+      defaultPrevented: true,
+      dispatchResult: false,
     });
   }
 });
