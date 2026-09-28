@@ -1136,7 +1136,7 @@ dependencies = [
 
 [[package]]
 name = "galley-pad"
-version = "1.6.1"
+version = "1.6.2"
 dependencies = [
  "fontdb",
  "serde",
