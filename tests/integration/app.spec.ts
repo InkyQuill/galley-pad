@@ -216,6 +216,7 @@ test("opens the real editor search panel through the development menu-command ho
   page,
 }) => {
   await page.goto("/");
+  await expect(page.locator(".cm-content")).toBeVisible();
 
   const editor = page.getByRole("tabpanel", { name: "Untitled.md" });
   await expect(editor.locator(".cm-search")).not.toBeVisible();
@@ -342,6 +343,7 @@ test("hides the Galley toolbar by default and shows it with the toolbar shortcut
   page,
 }) => {
   await page.goto("/");
+  await expect(page.locator(".cm-content")).toBeVisible();
 
   await expect(page.locator(".ge-toolbar")).not.toBeVisible();
 
@@ -544,6 +546,7 @@ test("scrolls long Markdown content inside the editor surface", async ({ page })
 
 test("shows external update banner and opens reconcile view", async ({ page }) => {
   await page.goto("/");
+  await expect(page.locator(".cm-content")).toBeVisible();
 
   await page.evaluate(() => {
     window.dispatchEvent(

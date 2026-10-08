@@ -21,7 +21,7 @@ fn word_wrap_menu_update_changes_the_checked_state() {
     let menu = Menu::with_items(&app, &[&view]).expect("create app menu");
     app.set_menu(menu).expect("set app menu");
 
-    set_word_wrap_menu_checked_for_app(&app.handle(), false).expect("update Word Wrap state");
+    set_word_wrap_menu_checked_for_app(app.handle(), false).expect("update Word Wrap state");
 
     assert!(!word_wrap.is_checked().expect("read Word Wrap state"));
 }
@@ -31,7 +31,7 @@ fn word_wrap_menu_update_reports_an_unavailable_app_menu() {
     let app = tauri::test::mock_app();
 
     assert_eq!(
-        set_word_wrap_menu_checked_for_app(&app.handle(), false),
+        set_word_wrap_menu_checked_for_app(app.handle(), false),
         Err("Application menu is unavailable".to_string())
     );
 }
@@ -45,7 +45,7 @@ fn word_wrap_menu_update_reports_an_unexpected_view_menu_type() {
     app.set_menu(menu).expect("set app menu");
 
     assert_eq!(
-        set_word_wrap_menu_checked_for_app(&app.handle(), false),
+        set_word_wrap_menu_checked_for_app(app.handle(), false),
         Err("View menu has an unexpected type".to_string())
     );
 }
@@ -59,7 +59,7 @@ fn word_wrap_menu_update_reports_a_missing_word_wrap_item() {
     app.set_menu(menu).expect("set app menu");
 
     assert_eq!(
-        set_word_wrap_menu_checked_for_app(&app.handle(), false),
+        set_word_wrap_menu_checked_for_app(app.handle(), false),
         Err("Word Wrap menu item is unavailable".to_string())
     );
 }

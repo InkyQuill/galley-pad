@@ -772,11 +772,8 @@ fn build_native_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Res
 }
 
 #[cfg(target_os = "linux")]
-fn should_disable_dmabuf_renderer(
-    effective_wayland_backend: bool,
-    dmabuf_renderer_configured: bool,
-) -> bool {
-    effective_wayland_backend && !dmabuf_renderer_configured
+fn should_disable_dmabuf_renderer(dmabuf_renderer_configured: bool) -> bool {
+    !dmabuf_renderer_configured
 }
 
 #[cfg(target_os = "linux")]
@@ -802,10 +799,10 @@ fn configure_linux_display_backend() {
     let effective_wayland_backend = std::env::var_os("WAYLAND_DISPLAY").is_some()
         && std::env::var_os("GDK_BACKEND").is_none_or(|backend| backend != "x11");
 
-    if should_disable_dmabuf_renderer(
-        effective_wayland_backend,
-        std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_some(),
-    ) {
+    // Desktop launchers may pass GDK_BACKEND=x11 even in a Wayland session.
+    // WebKit uses DMA-BUF there too; GBM allocation failure leaves a blank window.
+    if should_disable_dmabuf_renderer(std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_some())
+    {
         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
     }
 
@@ -1476,10 +1473,9 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn linux_wayland_disables_dmabuf_renderer_when_unconfigured() {
-        assert!(super::should_disable_dmabuf_renderer(true, false));
-        assert!(!super::should_disable_dmabuf_renderer(true, true));
-        assert!(!super::should_disable_dmabuf_renderer(false, false));
+    fn linux_disables_dmabuf_renderer_on_all_backends_unless_configured() {
+        assert!(super::should_disable_dmabuf_renderer(false));
+        assert!(!super::should_disable_dmabuf_renderer(true));
     }
 
     #[cfg(target_os = "linux")]

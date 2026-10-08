@@ -1,20 +1,27 @@
 # Known Issues
 
-## `bun audit` Fails On Pre-Existing Transitive Advisories
+## Default App launch produced a blank WebKit window (fixed)
 
-- Command: `mise run verify` (first step is `bun audit --json`)
-- Expected: the full verification suite runs to completion.
-- Actual: `bun audit` exits non-zero on advisories in transitive dependencies (`vitest`/`@vitest/mocker`, `js-yaml`, `nanoid`, `postcss`, `undici`), so `scripts/verify.mjs` aborts before running the later verification steps. Present on the base commit as well; the shared-themes change adds no new advisories.
-- Owner: dependency maintenance (transitive versions pinned by `bun.lock`).
-- Next action: Upgrade the affected transitive dependencies, then re-run `mise run verify`. Until then, run the remaining verify steps individually (`bun run test:unit`, `bun run test:scripts`, `bun run test:integration`, `bun run build`, `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check`, `cargo test --manifest-path src-tauri/Cargo.toml`, Tauri info/build steps).
+- Reproduced on 2026-10-08 by opening `CHANGELOG.md` from Codex with Open with → Default App.
+- The installed process received the correct absolute file path and inherited `GDK_BACKEND=x11` with `WAYLAND_DISPLAY=wayland-0`.
+- Its WebKit process logged `Failed to create GBM buffer of size 980x720: Invalid argument` (localized in the journal).
+- The DMA-BUF safeguard previously applied only to the effective Wayland backend. Desktop launchers selecting X11 bypassed it.
+- Fix: default `WEBKIT_DISABLE_DMABUF_RENDERER=1` for both Linux backends before creating WebKit, while preserving explicit overrides. The compositing workaround remains Wayland-specific.
+- React editor failures now retain document state and expose a read-only recovery copy with a retry button. Application import failures retain a visible startup message. These messages cannot diagnose a GPU failure that prevents WebKit itself from painting.
+- Verification: Rust policy regression and full verification suite; native debug app opened the Markdown fixture under isolated Xvfb/X11. The installed `/usr/bin/gpad` is unchanged; the exact Codex route on the workstation GPU still needs a retest after installation.
 
-## Middle-Button Tabstrip Integration Test Fails
+## Release migration verification
 
-- Command: `bun run test:integration tests/integration/app.spec.ts:472`
-- Expected: a middle-button press over the tabstrip is not default-prevented and still dispatches (`defaultPrevented: false`, `dispatchResult: true`).
-- Actual: the assertion fails with `defaultPrevented: true` and `dispatchResult: false`. The failure reproduces on the base commit as well, so it is not caused by the shared-themes change.
-- Owner: Galley Pad tabstrip middle-button event handling.
-- Next action: Investigate the tabstrip `onAuxClick`/`onMouseDownCapture` cancellation path and fix the event handling, then re-run the full integration suite.
+- Existing published baseline: `v1.6.2`; the retained local branch still had 1.6.1 metadata. Version sources and release-please's manifest now start at 1.6.2.
+- A local rehearsal using release-please 17.11.2's public strategy factory maps `fix(editor): update galley-editor to 0.17.0` to 1.6.3, and `feat` to 1.7.0, preserving historical changelog entries.
+- `actionlint` passes; `mise run verify` passes (276 frontend unit tests, 20 script tests, 21 browser integration tests, 40 Rust tests, frontend/Tauri builds). Separate Clippy and Rust documentation checks pass.
+- GitHub Actions permission to create release PRs was enabled while retaining the default read-only token policy. Actual bot PR creation, hosted CI and multi-platform installer publication have not been run from this checkout.
+
+## Previous verification blockers (resolved)
+
+The middle-button browser test passes. The remaining `source-map-js` advisory is
+resolved by the `^1.2.2` transitive override; `bun audit` passes. Other previously
+recorded transitive advisories no longer occur with the current lockfile.
 
 ## Stage 1 Desktop Skeleton
 
