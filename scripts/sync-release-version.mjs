@@ -45,7 +45,7 @@ async function updateTomlPackageVersion(path, packageName, version) {
     "m",
   );
   const next = content.replace(packageBlock, `$1${version}$3`);
-  if (next === content) {
+  if (!packageBlock.test(content)) {
     throw new Error(`Could not update ${packageName} version in ${path}`);
   }
   await writeFile(path, next);
@@ -58,7 +58,7 @@ async function updateCargoLockPackageVersion(path, packageName, version) {
     "m",
   );
   const next = content.replace(packageBlock, `$1${version}$3`);
-  if (next === content) {
+  if (!packageBlock.test(content)) {
     throw new Error(`Could not update ${packageName} version in ${path}`);
   }
   await writeFile(path, next);

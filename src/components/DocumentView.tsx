@@ -1,3 +1,4 @@
+import { EditorErrorBoundary } from "./EditorErrorBoundary";
 import {
   GalleyEditor,
   type GalleyFooterContext,
@@ -159,64 +160,66 @@ export const DocumentView = forwardRef<DocumentViewHandle, DocumentViewProps>(
         onMouseDownCapture={suppressMiddleButton}
         onAuxClickCapture={suppressMiddleButton}
       >
-        <GalleyEditor
-          ref={editorRef}
-          value={content}
-          onChange={onContentChange}
-          docKey={documentKey}
-          onSelectionChange={(selection) =>
-            recordPosition({ anchor: selection.anchor, head: selection.head })
-          }
-          onScroll={(fraction) => recordPosition({ scrollFraction: fraction })}
-          layout="fill"
-          horizontalScroll={!wordWrap}
-          theme={editorScheme ?? "auto"}
-          surface={{
-            className: "galley-pad-editor-surface",
-            style: {
-              ...editorStyle,
-              "--ge-font-body": fontStyle.fontFamily,
-              "--ge-font-size": fontStyle.fontSize,
-            } as CSSProperties,
-          }}
-          toolbar={
-            toolbarVisible
-              ? {
-                  icons: GALLEY_TOOLBAR_ICONS,
-                }
-              : false
-          }
-          tableControlIcons={GALLEY_TABLE_CONTROL_ICONS}
-          footer={{
-            before: <span className="document-footer-status">{status}</span>,
-            after: ({ wordCount }: GalleyFooterContext) => (
-              <>
-                {IS_LINUX_DESKTOP && onMenuCommand ? (
-                  <FooterMenuButton
-                    wordWrap={wordWrap}
-                    onCommand={onMenuCommand}
-                  />
-                ) : null}
-                {updateReleaseUrl && onOpenUpdate ? (
-                  <button
-                    type="button"
-                    className="document-footer-update"
-                    onClick={onOpenUpdate}
-                  >
-                    Update available
-                  </button>
-                ) : null}
-                <span className="document-footer-words">
-                  {wordCount} {wordCount === 1 ? "word" : "words"}
-                </span>
-                <GalleyPadFooterMark />
-              </>
-            ),
-            logo: false,
-            wordCount: false,
-            characterCount: true,
-          }}
-        />
+        <EditorErrorBoundary content={content} documentKey={documentKey}>
+          <GalleyEditor
+            ref={editorRef}
+            value={content}
+            onChange={onContentChange}
+            docKey={documentKey}
+            onSelectionChange={(selection) =>
+              recordPosition({ anchor: selection.anchor, head: selection.head })
+            }
+            onScroll={(fraction) => recordPosition({ scrollFraction: fraction })}
+            layout="fill"
+            horizontalScroll={!wordWrap}
+            theme={editorScheme ?? "auto"}
+            surface={{
+              className: "galley-pad-editor-surface",
+              style: {
+                ...editorStyle,
+                "--ge-font-body": fontStyle.fontFamily,
+                "--ge-font-size": fontStyle.fontSize,
+              } as CSSProperties,
+            }}
+            toolbar={
+              toolbarVisible
+                ? {
+                    icons: GALLEY_TOOLBAR_ICONS,
+                  }
+                : false
+            }
+            tableControlIcons={GALLEY_TABLE_CONTROL_ICONS}
+            footer={{
+              before: <span className="document-footer-status">{status}</span>,
+              after: ({ wordCount }: GalleyFooterContext) => (
+                <>
+                  {IS_LINUX_DESKTOP && onMenuCommand ? (
+                    <FooterMenuButton
+                      wordWrap={wordWrap}
+                      onCommand={onMenuCommand}
+                    />
+                  ) : null}
+                  {updateReleaseUrl && onOpenUpdate ? (
+                    <button
+                      type="button"
+                      className="document-footer-update"
+                      onClick={onOpenUpdate}
+                    >
+                      Update available
+                    </button>
+                  ) : null}
+                  <span className="document-footer-words">
+                    {wordCount} {wordCount === 1 ? "word" : "words"}
+                  </span>
+                  <GalleyPadFooterMark />
+                </>
+              ),
+              logo: false,
+              wordCount: false,
+              characterCount: true,
+            }}
+          />
+        </EditorErrorBoundary>
       </main>
     );
   },

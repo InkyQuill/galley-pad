@@ -1,7 +1,7 @@
 # Galley Pad
 
 [![Release](https://img.shields.io/github/v/release/InkyQuill/galley-pad?sort=semver)](https://github.com/InkyQuill/galley-pad/releases)
-[![Semantic Release](https://github.com/InkyQuill/galley-pad/actions/workflows/semantic-release.yml/badge.svg)](https://github.com/InkyQuill/galley-pad/actions/workflows/semantic-release.yml)
+[![Release Please](https://github.com/InkyQuill/galley-pad/actions/workflows/release-please.yml/badge.svg)](https://github.com/InkyQuill/galley-pad/actions/workflows/release-please.yml)
 [![Build Installers](https://github.com/InkyQuill/galley-pad/actions/workflows/build-release.yml/badge.svg)](https://github.com/InkyQuill/galley-pad/actions/workflows/build-release.yml)
 ![Tauri](https://img.shields.io/badge/Tauri-2-24c8db)
 ![React](https://img.shields.io/badge/React-19-61dafb)
@@ -163,21 +163,20 @@ Galley Pad is released under the MIT License. See `LICENSE`.
 
 ## Releases
 
-Releases are automated with GitHub Actions and semantic-release.
+Releases use release-please. Conventional Commits on `main` update a release PR;
+`fix` (including editor dependency fixes) produces a patch and `feat` a minor release.
+The release PR updates `version.txt`, the changelog and manifest; the workflow then
+synchronizes package, Cargo and Tauri versions and explicitly dispatches CI on that
+branch. Enable GitHub Actions permission to create pull requests in repository settings.
 
-Merging Conventional Commits into `main` runs `.github/workflows/semantic-release.yml`, which:
+Merging the release PR creates a draft GitHub release and dispatches installer builds
+with its tag and exact commit SHA. All platforms build that immutable commit. The
+release becomes public only after Linux, Windows and both macOS builds upload their
+installers. AUR publication follows if its SSH secret is configured and requires
+a preverified AUR host key in `AUR_SSH_KNOWN_HOSTS`; missing host trust fails the
+publish step instead of trusting a live network scan.
 
-- analyzes commit messages
-- bumps the app version
-- updates `CHANGELOG.md`
-- writes the release version into package, Cargo, and Tauri metadata
-- creates a GitHub release tagged as `vX.Y.Z`
-- starts installer builds for Linux, Windows, and macOS
-
-Run a local release dry run:
-
-```bash
-bun run release:dry-run
-```
-
-The dry run needs a valid `GITHUB_TOKEN` or `GH_TOKEN` with access to this repository.
+To retry installer publication, dispatch `build-release.yml` with the existing `tag`
+and its full `sha`. To refresh a release PR, dispatch `release-please.yml`. Neither
+workflow automatically merges PRs. `ci.yml` runs tests, browser integration, the build,
+and release-version consistency checks on normal PRs and explicit release-PR dispatches.

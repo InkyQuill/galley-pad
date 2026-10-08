@@ -27,6 +27,7 @@ test("syncReleaseVersion writes the release version to every build metadata file
     );
 
     await syncReleaseVersion("1.2.3", root);
+    await syncReleaseVersion("1.2.3", root); // A rerun must be idempotent.
 
     assert.equal(JSON.parse(await readFile(join(root, "package.json"))).version, "1.2.3");
     assert.equal(
@@ -80,6 +81,7 @@ test("syncReleaseVersion updates Cargo.lock package stanzas with CRLF endings", 
     );
 
     await syncReleaseVersion("1.2.3", root);
+    await syncReleaseVersion("1.2.3", root); // A rerun must be idempotent.
 
     assert.match(
       await readFile(join(root, "src-tauri", "Cargo.lock"), "utf8"),

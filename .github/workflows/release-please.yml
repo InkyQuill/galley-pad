@@ -1,0 +1,68 @@
+name: Release Please
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: write
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: release
+        uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071
+        with:
+          target-branch: main
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.3.14
+      - name: Synchronize release PR and dispatch its checks
+        if: steps.release.outputs.pr != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_PR: ${{ steps.release.outputs.pr }}
+        run: |
+          number=$(bun -e 'const n=JSON.parse(process.env.RELEASE_PR).number; if(!Number.isSafeInteger(n)||n<1)throw Error("Invalid PR"); console.log(n)')
+          head=$(gh pr view "$number" --json headRefName --jq .headRefName)
+          case "$head" in release-please--branches--main*) ;; *) exit 1;; esac
+          gh auth setup-git
+          git fetch origin "$head"
+          git switch -c "$head" "origin/$head"
+          bun install --frozen-lockfile
+          node scripts/sync-release-version.mjs "$(cat version.txt)"
+          node scripts/check-release-version.mjs
+          git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json
+          if ! git diff --cached --quiet; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git -c core.hooksPath=/dev/null commit -m 'chore(release): synchronize app version'
+            git push origin "$head"
+          fi
+          gh workflow run ci.yml --ref "$head"
+      - name: Dispatch installers for the exact release commit
+        if: steps.release.outputs.release_created == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.release.outputs.tag_name }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+        run: |
+          # GitHub drafts may not create a tag until publication. Pin it before builds.
+          if ! git ls-remote --exit-code origin "refs/tags/$TAG" >/dev/null; then
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$TAG" -f "sha=$RELEASE_SHA"
+          fi
+          git fetch origin "refs/tags/$TAG"
+          test "$(git rev-parse 'FETCH_HEAD^{commit}')" = "$RELEASE_SHA"
+          gh workflow run build-release.yml --ref main -f tag="$TAG" -f sha="$RELEASE_SHA"

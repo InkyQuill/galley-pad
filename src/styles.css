@@ -969,3 +969,11 @@ textarea {
     border-bottom: 0;
   }
 }
+
+.startup-error {
+  padding: 2rem;
+  overflow: auto;
+  width: 100%;
+}
+.startup-error pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.startup-error textarea { display: block; width: 100%; min-height: 12rem; margin-block: 1rem; }
