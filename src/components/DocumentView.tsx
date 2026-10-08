@@ -160,7 +160,7 @@ export const DocumentView = forwardRef<DocumentViewHandle, DocumentViewProps>(
         onMouseDownCapture={suppressMiddleButton}
         onAuxClickCapture={suppressMiddleButton}
       >
-        <EditorErrorBoundary content={content}>
+        <EditorErrorBoundary content={content} documentKey={documentKey}>
           <GalleyEditor
             ref={editorRef}
             value={content}

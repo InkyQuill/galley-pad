@@ -172,7 +172,9 @@ branch. Enable GitHub Actions permission to create pull requests in repository s
 Merging the release PR creates a draft GitHub release and dispatches installer builds
 with its tag and exact commit SHA. All platforms build that immutable commit. The
 release becomes public only after Linux, Windows and both macOS builds upload their
-installers. AUR publication follows if its SSH secret is configured.
+installers. AUR publication follows if its SSH secret is configured and requires
+a preverified AUR host key in `AUR_SSH_KNOWN_HOSTS`; missing host trust fails the
+publish step instead of trusting a live network scan.
 
 To retry installer publication, dispatch `build-release.yml` with the existing `tag`
 and its full `sha`. To refresh a release PR, dispatch `release-please.yml`. Neither

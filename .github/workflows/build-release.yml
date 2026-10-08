@@ -253,6 +253,11 @@ jobs:
             exit 0
           fi
 
+          if [ -z "${AUR_SSH_KNOWN_HOSTS:-}" ]; then
+            echo "AUR_SSH_KNOWN_HOSTS must contain a preverified AUR host key." >&2
+            exit 1
+          fi
+
           VERSION="${TAG#v}"
           AUR_REPO="ssh://aur@aur.archlinux.org/galley-pad-bin.git"
           WORK_DIR="$(mktemp -d)"
@@ -263,11 +268,7 @@ jobs:
           install -m 700 -d "$HOME/.ssh"
           printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > "$HOME/.ssh/aur"
           chmod 600 "$HOME/.ssh/aur"
-          if [ -n "${AUR_SSH_KNOWN_HOSTS:-}" ]; then
-            printf '%s\n' "$AUR_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
-          else
-            ssh-keyscan aur.archlinux.org > "$HOME/.ssh/known_hosts"
-          fi
+          printf '%s\n' "$AUR_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
 
           export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/aur -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
           if ! git clone "$AUR_REPO" "$WORK_DIR/aur"; then

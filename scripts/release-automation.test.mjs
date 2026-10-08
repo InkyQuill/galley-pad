@@ -18,6 +18,21 @@ test("release-please owns version PRs and explicitly checks the synchronized bra
   assert.doesNotMatch(workflow, /semantic-release|--admin|gh pr merge/);
 });
 
+test("AUR publication requires a preverified host key when credentials are configured", async () => {
+  const workflow = await readFile(".github/workflows/build-release.yml", "utf8");
+  const aurStep = workflow.slice(workflow.indexOf("      - name: Publish AUR package"));
+  const guard = aurStep.slice(aurStep.indexOf("        run: |") + "        run: |".length, aurStep.indexOf('          VERSION='));
+  assert.doesNotMatch(aurStep, /ssh-keyscan/);
+  for (const [privateKey, knownHosts, status] of [["", "", 0], ["test-key", "", 1], ["test-key", "preverified-host", 0]]) {
+    const result = spawnSync("bash", ["-eu", "-c", guard], {
+      encoding: "utf8",
+      env: { ...process.env, AUR_SSH_PRIVATE_KEY: privateKey, AUR_SSH_KNOWN_HOSTS: knownHosts },
+    });
+    assert.equal(result.status, status, result.stderr);
+    if (status === 1) assert.match(result.stderr, /preverified AUR host key/);
+  }
+});
+
 test("checked-in release versions agree", () => {
   const result = spawnSync(process.execPath, ["scripts/check-release-version.mjs"], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);

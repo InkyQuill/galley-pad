@@ -795,7 +795,8 @@ fn should_disable_compositing_mode(
 }
 
 #[cfg(target_os = "linux")]
-fn configure_linux_display_backend() {
+/// Configure WebKit defaults before GTK starts. Call only during single-threaded startup.
+pub fn configure_linux_display_backend() {
     let effective_wayland_backend = std::env::var_os("WAYLAND_DISPLAY").is_some()
         && std::env::var_os("GDK_BACKEND").is_none_or(|backend| backend != "x11");
 

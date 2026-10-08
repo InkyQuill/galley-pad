@@ -1,6 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
-type Props = { children: ReactNode; content: string };
+type Props = { children: ReactNode; content: string; documentKey?: string };
 type State = { error: Error | null };
 
 /** Keeps document state in App alive when the editor fails. */
@@ -13,6 +13,12 @@ export class EditorErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error("Galley Pad editor failed", error, info.componentStack);
+  }
+
+  componentDidUpdate(previous: Props) {
+    if (this.state.error && previous.documentKey !== this.props.documentKey) {
+      this.setState({ error: null });
+    }
   }
 
   render() {
