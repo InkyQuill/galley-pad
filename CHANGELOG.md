@@ -1,5 +1,14 @@
 ## [1.6.2](https://github.com/InkyQuill/galley-pad/compare/v1.6.1...v1.6.2) (2026-09-28)
 
+## [1.6.3](https://github.com/InkyQuill/galley-pad/compare/v1.6.2...v1.6.3) (2026-10-08)
+
+
+### Bug Fixes
+
+* **pad:** address release and editor recovery review findings ([57e8a70](https://github.com/InkyQuill/galley-pad/commit/57e8a7087a048926d78f706a6f4fa2d5833412a2))
+* **pad:** update editor and repair desktop startup ([f3baca3](https://github.com/InkyQuill/galley-pad/commit/f3baca3c72d167865b0798937b785f971b66b08c))
+* **pad:** update editor, repair desktop startup and migrate to release-please ([d9aeb34](https://github.com/InkyQuill/galley-pad/commit/d9aeb343bdbd9a6f610994a3e7ba59519aefde84))
+
 ## [1.6.1](https://github.com/InkyQuill/galley-pad/compare/v1.6.0...v1.6.1) (2026-09-15)
 
 ## [1.6.0](https://github.com/InkyQuill/galley-pad/compare/v1.5.1...v1.6.0) (2026-07-27)
