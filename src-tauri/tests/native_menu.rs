@@ -4,7 +4,14 @@ use tauri::menu::{CheckMenuItem, Menu, MenuItem, Submenu};
 const MENU_VIEW_ID: &str = "app-menu-view";
 const MENU_WORD_WRAP_ID: &str = "app-menu-word-wrap";
 
-#[test]
+fn main() {
+    word_wrap_menu_update_changes_the_checked_state();
+    word_wrap_menu_update_reports_an_unavailable_app_menu();
+    word_wrap_menu_update_reports_an_unexpected_view_menu_type();
+    word_wrap_menu_update_reports_a_missing_word_wrap_item();
+    println!("4 native menu checks passed");
+}
+
 fn word_wrap_menu_update_changes_the_checked_state() {
     let app = tauri::test::mock_app();
     let word_wrap = CheckMenuItem::with_id(
@@ -26,7 +33,6 @@ fn word_wrap_menu_update_changes_the_checked_state() {
     assert!(!word_wrap.is_checked().expect("read Word Wrap state"));
 }
 
-#[test]
 fn word_wrap_menu_update_reports_an_unavailable_app_menu() {
     let app = tauri::test::mock_app();
 
@@ -36,7 +42,6 @@ fn word_wrap_menu_update_reports_an_unavailable_app_menu() {
     );
 }
 
-#[test]
 fn word_wrap_menu_update_reports_an_unexpected_view_menu_type() {
     let app = tauri::test::mock_app();
     let view = MenuItem::with_id(&app, MENU_VIEW_ID, "View", true, None::<&str>)
@@ -50,7 +55,6 @@ fn word_wrap_menu_update_reports_an_unexpected_view_menu_type() {
     );
 }
 
-#[test]
 fn word_wrap_menu_update_reports_a_missing_word_wrap_item() {
     let app = tauri::test::mock_app();
     let view = Submenu::with_id_and_items(&app, MENU_VIEW_ID, "View", true, &[])

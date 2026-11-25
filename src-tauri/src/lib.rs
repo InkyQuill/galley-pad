@@ -13,9 +13,10 @@ use std::{
         atomic::{AtomicU64, Ordering},
         Mutex,
     },
-    thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{SystemTime, UNIX_EPOCH},
 };
+#[cfg(target_os = "linux")]
+use std::{thread, time::Duration};
 #[cfg(desktop)]
 use tauri::menu::AboutMetadata;
 #[cfg(desktop)]
@@ -1419,7 +1420,9 @@ mod tests {
     use super::app_title;
     use std::ffi::OsString;
     use std::fs;
-    use std::path::{Path, PathBuf};
+    #[cfg(unix)]
+    use std::path::Path;
+    use std::path::PathBuf;
     use tauri::Url;
 
     #[test]
