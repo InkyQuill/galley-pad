@@ -57,16 +57,19 @@ export function releaseClient({ repo, tag, sha, id, token }, fetcher = fetch) {
     return response.status === 204 ? undefined : response.json();
   }
 
-  async function validate() {
+  async function readRelease(requireDraft) {
     const release = await request(releaseUrl);
-    if (String(release.id) !== id || release.tag_name !== tag || release.target_commitish !== sha || !release.draft) {
-      throw new Error(`Release ${id} must be the draft for ${tag} at ${sha}`);
+    if (
+      String(release.id) !== id || release.tag_name !== tag ||
+      release.target_commitish !== sha || (requireDraft && !release.draft)
+    ) {
+      throw new Error(`Release ${id} must be the ${requireDraft ? "draft" : "release"} for ${tag} at ${sha}`);
     }
     return release;
   }
 
   async function upload(files) {
-    const release = await validate();
+    const release = await readRelease(true);
     for (const file of files) {
       const name = basename(file).replaceAll(" ", ".");
       const size = statSync(file).size;
@@ -86,25 +89,35 @@ export function releaseClient({ repo, tag, sha, id, token }, fetcher = fetch) {
 
       const url = new URL(uploadUrl);
       url.searchParams.set("name", name);
-      const uploaded = await request(url, {
-        method: "POST",
-        headers: { "content-type": "application/octet-stream", "content-length": String(size) },
-        duplex: "half",
-        body: createReadStream(file),
-      });
-      if (uploaded.name !== name || uploaded.state !== "uploaded" || uploaded.size !== size) {
-        throw new Error(`GitHub did not complete the upload for ${name}`);
+      try {
+        const uploaded = await request(url, {
+          method: "POST",
+          headers: { "content-type": "application/octet-stream", "content-length": String(size) },
+          duplex: "half",
+          body: createReadStream(file),
+        });
+        if (uploaded.name !== name || uploaded.state !== "uploaded" || uploaded.size !== size) {
+          throw new Error(`GitHub did not complete the upload for ${name}`);
+        }
+      } catch (error) {
+        const refreshed = await readRelease(true).catch(() => undefined);
+        const uploaded = refreshed?.assets.find((asset) => asset.name === name);
+        if (!uploadedInstaller(uploaded) || uploaded.size !== size) throw error;
       }
       console.log(`Uploaded ${name} to release ${id}`);
     }
   }
 
   async function publish() {
-    const release = await validate();
+    const release = await readRelease(false);
     const available = new Set(release.assets.filter(uploadedInstaller).map(({ name }) => name));
     const missing = expectedInstallerNames(tag).filter((name) => !available.has(name));
     if (missing.length) {
       throw new Error(`Release ${id} is missing uploaded installers: ${missing.join(", ")}`);
+    }
+    if (!release.draft) {
+      console.log(`Release ${id} is already public`);
+      return;
     }
     const published = await request(releaseUrl, {
       method: "PATCH",
@@ -116,7 +129,7 @@ export function releaseClient({ repo, tag, sha, id, token }, fetcher = fetch) {
     }
   }
 
-  return { validate, upload, publish };
+  return { validate: () => readRelease(true), upload, publish };
 }
 
 export function collectInstallers(platform, cwd = process.cwd()) {

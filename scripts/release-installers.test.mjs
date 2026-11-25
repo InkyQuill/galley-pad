@@ -53,6 +53,27 @@ test("uploads and publishes by exact ID and preserves previously uploaded assets
   ]);
 });
 
+test("rechecks the intended draft if GitHub reports an upload error after saving the file", async (context) => {
+  const directory = mkdtempSync(join(tmpdir(), "galley-upload-retry-"));
+  context.after(() => rmSync(directory, { recursive: true, force: true }));
+  const path = join(directory, "Galley Pad_1.9.0_x64-setup.exe");
+  writeFileSync(path, "installer");
+  const requests = [];
+  const client = releaseClient(identity, async (_url, options) => {
+    requests.push(options.method ?? "GET");
+    if (options.method === "POST") {
+      for await (const chunk of options.body) assert.ok(chunk.length);
+      return new Response("upload response lost", { status: 502 });
+    }
+    const assets = requests.length < 3 ? [] : [
+      { name: "Galley.Pad_1.9.0_x64-setup.exe", state: "uploaded", size: 9 },
+    ];
+    return Response.json({ ...draft, assets });
+  });
+  await client.upload([path]);
+  assert.deepEqual(requests, ["GET", "POST", "GET"]);
+});
+
 test("blocks publication while an expected artifact is missing or incomplete", async () => {
   const assets = expectedInstallerNames(identity.tag).map((name) => ({ name, state: "uploaded", size: 100 }));
   assets[0].state = "starter";
@@ -62,6 +83,15 @@ test("blocks publication while an expected artifact is missing or incomplete", a
     return Response.json({ ...draft, assets });
   });
   await assert.rejects(client.publish(), /missing uploaded installers: Galley\.Pad_1\.9\.0_amd64\.deb/);
+});
+
+test("a retry can proceed to AUR after the verified release is public", async () => {
+  const assets = expectedInstallerNames(identity.tag).map((name) => ({ name, state: "uploaded", size: 100 }));
+  const client = releaseClient(identity, async (_url, options) => {
+    assert.equal(options.method, undefined);
+    return Response.json({ ...draft, draft: false, assets });
+  });
+  await client.publish();
 });
 
 test("requires every Linux package type and picks the exact macOS architecture", (context) => {
