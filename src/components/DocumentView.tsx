@@ -1,14 +1,25 @@
 import { EditorErrorBoundary } from "./EditorErrorBoundary";
+import { DocumentOutline, outlinePositionAtViewport } from "./DocumentOutline";
+import { useDocumentImages } from "./useDocumentImages";
+import { openEditorUrl, resolveDocumentReference } from "../tauri/documentAssets";
+import "./DocumentOutline.css";
 import {
   GalleyEditor,
   type GalleyFooterContext,
   type GalleyHandle,
+  type GalleyHeading,
+  type GalleyMode,
+  type GalleyViewport,
   type GalleyTableControlIconName,
   type ToolbarIconName,
 } from "@inkyquill/galley-editor";
 import {
   forwardRef,
+  useCallback,
   useEffect,
+  useId,
+  useLayoutEffect,
+  useState,
   useImperativeHandle,
   useRef,
   type CSSProperties,
@@ -28,6 +39,7 @@ import {
   TbColumnInsertRight,
   TbColumnRemove,
   TbLayoutSidebarRight,
+  TbListDetails,
   TbLink,
   TbList,
   TbListCheck,
@@ -58,12 +70,8 @@ type EditorSurfaceStyle = CSSProperties & Record<`--${string}`, string>;
 
 export type DocumentViewHandle = {
   openSearch(): boolean;
-};
-
-type SavedDocumentPosition = {
-  anchor: number;
-  head: number;
-  scrollFraction: number;
+  focus(): void;
+  setMode(mode: GalleyMode): void;
 };
 
 export type DocumentViewProps = {
@@ -71,6 +79,15 @@ export type DocumentViewProps = {
   onContentChange: (content: string) => void;
   documentKey?: string;
   panelId?: string;
+  active?: boolean;
+  path?: string | null;
+  lineWidth?: number;
+  spellcheck?: boolean;
+  allowRemoteImages?: boolean;
+  outlineOpen?: boolean;
+  onToggleOutline?: () => void;
+  onOpenDocument?: (path: string) => void;
+  onLinkError?: (message: string) => void;
   labelledBy?: string;
   toolbarVisible?: boolean;
   editorScheme?: "auto" | "light" | "dark";
@@ -90,6 +107,15 @@ export const DocumentView = forwardRef<DocumentViewHandle, DocumentViewProps>(
       onContentChange,
       documentKey,
       panelId,
+      active = true,
+      path = null,
+      lineWidth = 0,
+      spellcheck = false,
+      allowRemoteImages = false,
+      outlineOpen = false,
+      onToggleOutline,
+      onOpenDocument,
+      onLinkError,
       labelledBy,
       toolbarVisible = false,
       editorScheme,
@@ -104,55 +130,82 @@ export const DocumentView = forwardRef<DocumentViewHandle, DocumentViewProps>(
     ref,
   ) {
     const editorRef = useRef<GalleyHandle>(null);
-    const savedPositions = useRef(new Map<string, SavedDocumentPosition>());
-    const activeDocumentKey = useRef(documentKey);
+    const linkRouting = useRef({ path, onOpenDocument, onLinkError });
+    const outlineId = useId();
+    const [mode, setMode] = useState<GalleyMode>("live");
+    const [headings, setHeadings] = useState<readonly GalleyHeading[]>([]);
+    const [viewport, setViewport] = useState<GalleyViewport>({ from: 0, to: 0 });
+    const resolveImageSource = useDocumentImages(path, allowRemoteImages);
 
     useImperativeHandle(
       ref,
       () => ({
         openSearch: () => editorRef.current?.openSearch() ?? false,
+        focus: () => editorRef.current?.focus(),
+        setMode,
       }),
       [],
     );
 
-    // Restore the in-session position when returning to a known tab. Tabs
-    // seen for the first time keep the editor's start-of-document reset.
+    useLayoutEffect(() => {
+      if (active) editorRef.current?.focus();
+    }, [active]);
+
+    useLayoutEffect(() => {
+      linkRouting.current = { path, onOpenDocument, onLinkError };
+    }, [path, onOpenDocument, onLinkError]);
+
     useEffect(() => {
-      if (activeDocumentKey.current === documentKey) {
-        return;
-      }
+      if (!active || !outlineOpen) return;
 
-      activeDocumentKey.current = documentKey;
-      const saved = documentKey
-        ? savedPositions.current.get(documentKey)
-        : undefined;
-      if (!saved) {
-        return;
-      }
+      const timer = window.setTimeout(() => {
+        setHeadings(editorRef.current?.getHeadings() ?? []);
+        const current = editorRef.current?.getViewport();
+        if (current) setViewport(current);
+      }, 200);
+      return () => window.clearTimeout(timer);
+    }, [active, content, outlineOpen]);
 
-      editorRef.current?.select(saved.anchor, saved.head);
-      editorRef.current?.scrollTo(saved.scrollFraction);
-    }, [documentKey]);
+    const handleViewportChange = useCallback((current: GalleyViewport) => {
+      if (outlineOpen && active) setViewport(current);
+    }, [active, outlineOpen]);
 
-    function recordPosition(update: Partial<SavedDocumentPosition>) {
-      const key = activeDocumentKey.current;
-      if (!key) {
-        return;
-      }
+    const handleLinkClick = useCallback((url: string) => {
+      if (url.startsWith("#")) return false;
 
-      const saved = savedPositions.current.get(key) ?? {
-        anchor: 0,
-        head: 0,
-        scrollFraction: 0,
-      };
-      savedPositions.current.set(key, { ...saved, ...update });
+      const { path, onOpenDocument, onLinkError } = linkRouting.current;
+      void (async () => {
+        if (await openEditorUrl(url)) return;
+        const target = path && await resolveDocumentReference(path, url, "document");
+        if (target && onOpenDocument) {
+          onOpenDocument(target);
+        } else {
+          onLinkError?.("Unable to open this link.");
+        }
+      })().catch(() => onLinkError?.("Unable to open this link."));
+
+      return true;
+    }, []);
+
+    function closeOutline() {
+      onToggleOutline?.();
+      editorRef.current?.focus();
+    }
+
+    function navigateToHeading(position: number) {
+      const editor = editorRef.current;
+      if (!editor) return;
+      editor.revealPosition(position, { align: "start", focus: true, select: true });
+      if (window.matchMedia?.("(max-width: 720px)").matches) onToggleOutline?.();
     }
 
     const fontStyle = editorFontStyle(fontSettings);
+    const outlinePosition = outlinePositionAtViewport(content, headings, viewport);
 
     return (
-      <main
+      <section
         className="document-view"
+        hidden={!active}
         id={panelId}
         role="tabpanel"
         aria-label={labelledBy ? undefined : "Markdown document editor"}
@@ -160,67 +213,108 @@ export const DocumentView = forwardRef<DocumentViewHandle, DocumentViewProps>(
         onMouseDownCapture={suppressMiddleButton}
         onAuxClickCapture={suppressMiddleButton}
       >
-        <EditorErrorBoundary content={content} documentKey={documentKey}>
-          <GalleyEditor
-            ref={editorRef}
-            value={content}
-            onChange={onContentChange}
-            docKey={documentKey}
-            onSelectionChange={(selection) =>
-              recordPosition({ anchor: selection.anchor, head: selection.head })
-            }
-            onScroll={(fraction) => recordPosition({ scrollFraction: fraction })}
-            layout="fill"
-            horizontalScroll={!wordWrap}
-            theme={editorScheme ?? "auto"}
-            surface={{
-              className: "galley-pad-editor-surface",
-              style: {
-                ...editorStyle,
-                "--ge-font-body": fontStyle.fontFamily,
-                "--ge-font-size": fontStyle.fontSize,
-              } as CSSProperties,
-            }}
-            toolbar={
-              toolbarVisible
-                ? {
-                    icons: GALLEY_TOOLBAR_ICONS,
-                  }
-                : false
-            }
-            tableControlIcons={GALLEY_TABLE_CONTROL_ICONS}
-            footer={{
-              before: <span className="document-footer-status">{status}</span>,
-              after: ({ wordCount }: GalleyFooterContext) => (
-                <>
-                  {IS_LINUX_DESKTOP && onMenuCommand ? (
-                    <FooterMenuButton
-                      wordWrap={wordWrap}
-                      onCommand={onMenuCommand}
-                    />
-                  ) : null}
-                  {updateReleaseUrl && onOpenUpdate ? (
-                    <button
-                      type="button"
-                      className="document-footer-update"
-                      onClick={onOpenUpdate}
+        <div
+          className="document-editor"
+          data-line-width={wordWrap && lineWidth > 0 ? lineWidth : undefined}
+          style={{ "--document-line-width": `${lineWidth}ch` } as CSSProperties}
+        >
+          <EditorErrorBoundary content={content} documentKey={documentKey}>
+            <GalleyEditor
+              ref={editorRef}
+              value={content}
+              onChange={onContentChange}
+              docKey={documentKey}
+              ariaLabel="Markdown document editor"
+              mode={mode}
+              onModeChange={setMode}
+              spellcheck={spellcheck}
+              resolveImageSource={resolveImageSource}
+              onLinkClick={handleLinkClick}
+              onViewportChange={handleViewportChange}
+              layout="fill"
+              horizontalScroll={!wordWrap}
+              theme={editorScheme ?? "auto"}
+              surface={{
+                className: "galley-pad-editor-surface",
+                style: {
+                  ...editorStyle,
+                  "--ge-font-body": fontStyle.fontFamily,
+                  "--ge-font-size": fontStyle.fontSize,
+                } as CSSProperties,
+              }}
+              toolbar={
+                toolbarVisible
+                  ? {
+                      icons: GALLEY_TOOLBAR_ICONS,
+                    }
+                  : false
+              }
+              tableControlIcons={GALLEY_TABLE_CONTROL_ICONS}
+              footer={{
+                before: <span className="document-footer-status">{status}</span>,
+                after: ({ wordCount }: GalleyFooterContext) => (
+                  <>
+                    {IS_LINUX_DESKTOP && onMenuCommand ? (
+                      <FooterMenuButton
+                        wordWrap={wordWrap}
+                        outlineOpen={outlineOpen}
+                        onCommand={onMenuCommand}
+                      />
+                    ) : null}
+                    <select
+                      className="document-footer-mode"
+                      aria-label="Editor mode"
+                      value={mode}
+                      onChange={(event) => setMode(event.target.value as GalleyMode)}
                     >
-                      Update available
-                    </button>
-                  ) : null}
-                  <span className="document-footer-words">
-                    {wordCount} {wordCount === 1 ? "word" : "words"}
-                  </span>
-                  <GalleyPadFooterMark />
-                </>
-              ),
-              logo: false,
-              wordCount: false,
-              characterCount: true,
-            }}
+                      <option value="live">Live Preview</option>
+                      <option value="markdown">Source</option>
+                      <option value="preview">Preview</option>
+                    </select>
+                    {onToggleOutline ? (
+                      <button
+                        type="button"
+                        className="document-footer-outline"
+                        aria-label="Table of contents"
+                        aria-expanded={outlineOpen}
+                        aria-controls={outlineOpen ? outlineId : undefined}
+                        onClick={onToggleOutline}
+                      >
+                        <TbListDetails size={16} aria-hidden="true" />
+                      </button>
+                    ) : null}
+                    {updateReleaseUrl && onOpenUpdate ? (
+                      <button
+                        type="button"
+                        className="document-footer-update"
+                        onClick={onOpenUpdate}
+                      >
+                        Update available
+                      </button>
+                    ) : null}
+                    <span className="document-footer-words">
+                      {wordCount} {wordCount === 1 ? "word" : "words"}
+                    </span>
+                    <GalleyPadFooterMark />
+                  </>
+                ),
+                logo: false,
+                wordCount: false,
+                characterCount: true,
+              }}
+            />
+          </EditorErrorBoundary>
+        </div>
+        {outlineOpen && active ? (
+          <DocumentOutline
+            id={outlineId}
+            headings={headings}
+            viewportStart={outlinePosition}
+            onNavigate={navigateToHeading}
+            onClose={closeOutline}
           />
-        </EditorErrorBoundary>
-      </main>
+        ) : null}
+      </section>
     );
   },
 );

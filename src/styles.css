@@ -317,6 +317,13 @@ textarea {
   line-height: 1;
 }
 
+.command-error button.command-error-retry {
+  width: auto;
+  margin-left: auto;
+  padding: 0 8px;
+  border: 1px solid var(--app-error-border);
+}
+
 .command-error button svg {
   display: block;
 }
@@ -339,8 +346,8 @@ textarea {
   grid-row: 1 / -1;
 }
 
-.document-area > .external-file-banner + .document-view {
-  grid-row: auto;
+.document-area > .external-file-banner ~ .document-view:not([hidden]) {
+  grid-row: 2;
 }
 
 .external-file-banner {
@@ -841,13 +848,18 @@ textarea {
 }
 
 .font-picker__list {
-  display: grid;
   min-height: 0;
   overflow: auto;
   padding: 4px;
 }
 
+.font-picker__virtual-list {
+  position: relative;
+}
+
 .font-picker__option {
+  position: absolute;
+  inset-inline: 0;
   display: grid;
   gap: 3px;
   width: 100%;
@@ -861,6 +873,7 @@ textarea {
 }
 
 .font-picker__option:hover,
+.font-picker__option[data-active],
 .font-picker__option[aria-selected="true"] {
   background: var(--app-hover);
 }
@@ -925,7 +938,7 @@ textarea {
 
 .button-primary {
   background: var(--app-focus);
-  color: white;
+  color: var(--app-focus-foreground, #000);
 }
 
 .button-secondary {
@@ -977,3 +990,89 @@ textarea {
 }
 .startup-error pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .startup-error textarea { display: block; width: 100%; min-height: 12rem; margin-block: 1rem; }
+
+.app-shell[data-tabstrip-hidden] {
+  grid-template-rows: 0 auto minmax(0, 1fr);
+}
+
+.tab[hidden],
+.tabstrip[hidden] {
+  display: none;
+}
+
+.tab[data-drop-target] {
+  box-shadow: inset 2px 0 var(--app-focus);
+}
+
+.tab-actions-menu {
+  position: fixed;
+  z-index: 45;
+  display: grid;
+  min-width: 170px;
+  padding: 4px;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  background: var(--app-panel);
+  color: var(--app-text);
+  box-shadow: var(--app-dialog-shadow);
+}
+
+.tab-actions-menu button {
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  text-align: start;
+}
+
+.tab-actions-menu button:enabled:hover,
+.tab-actions-menu button:focus-visible {
+  background: var(--app-hover);
+  outline: none;
+}
+
+.tab-actions-menu button:disabled {
+  opacity: 0.5;
+}
+
+.recent-files-dialog {
+  width: min(32rem, calc(100vw - 2rem));
+}
+
+.recent-file-list {
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.35rem;
+  list-style: none;
+}
+
+.recent-file-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.recent-file-open {
+  display: grid;
+  gap: 0.2rem;
+  text-align: start;
+  background: transparent;
+  color: inherit;
+  border: 1px solid var(--app-border);
+  border-radius: 0.35rem;
+  padding: 0.45rem 0.55rem;
+  cursor: pointer;
+}
+
+.recent-file-open:hover {
+  background: var(--app-hover);
+}
+
+.recent-file-open > small {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

@@ -4,10 +4,10 @@ use std::io::IsTerminal;
 #[cfg(target_os = "linux")]
 use std::os::unix::process::CommandExt;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     ffi::{OsStr, OsString},
     fs,
-    io::{ErrorKind, Write},
+    io::Write,
     path::{Component, Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -16,7 +16,7 @@ use std::{
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-#[cfg(target_os = "macos")]
+#[cfg(desktop)]
 use tauri::menu::AboutMetadata;
 #[cfg(desktop)]
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu};
@@ -24,17 +24,39 @@ use tauri::{AppHandle, Emitter, Manager};
 #[cfg(desktop)]
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 
+mod active_file_watch;
+mod app_quit;
+mod document_assets;
+mod document_file;
+mod document_ownership;
+mod recent_files;
+mod window_recovery;
+pub use document_file::{
+    read_text_file_from_path, write_text_file_to_path, FileReadResult, FileWriteResult, LineEnding,
+    TextEncoding,
+};
+use document_ownership::{activate_document_owner, DocumentOwners, DocumentOwnershipError};
+use window_recovery::{clear_swap_state, read_swap_state, write_swap_state};
+
 const MARKDOWN_FILE_OPENED_EVENT: &str = "markdown-file-opened";
 const APP_MENU_COMMAND_EVENT: &str = "app-menu-command";
+const MENU_CLOSE_ID: &str = "app-menu-close";
 const MENU_NEW_ID: &str = "app-menu-new";
 const MENU_OPEN_ID: &str = "app-menu-open";
+const MENU_OPEN_RECENT_ID: &str = "app-menu-open-recent";
+const MENU_MODE_LIVE_ID: &str = "app-menu-mode-live";
+const MENU_MODE_MARKDOWN_ID: &str = "app-menu-mode-markdown";
+const MENU_MODE_PREVIEW_ID: &str = "app-menu-mode-preview";
+const MENU_FILE_ID: &str = "app-menu-file";
 const MENU_SAVE_ID: &str = "app-menu-save";
 const MENU_SAVE_AS_ID: &str = "app-menu-save-as";
 const MENU_FIND_ID: &str = "app-menu-find";
+const MENU_TOGGLE_OUTLINE_ID: &str = "app-menu-toggle-outline";
 const MENU_TOGGLE_TOOLBAR_ID: &str = "app-menu-toggle-toolbar";
 const MENU_VIEW_ID: &str = "app-menu-view";
 const MENU_WORD_WRAP_ID: &str = "app-menu-word-wrap";
 const MENU_SETTINGS_ID: &str = "app-menu-settings";
+const MENU_QUIT_ID: &str = "app-menu-quit";
 const MAIN_WINDOW_LABEL: &str = "main";
 #[cfg(target_os = "linux")]
 const LINUX_CLI_CHILD_ENV: &str = "GALLEY_PAD_CLI_CHILD";
@@ -78,30 +100,6 @@ fn app_title() -> &'static str {
     "Galley Pad"
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum LineEnding {
-    Lf,
-    Crlf,
-}
-
-#[derive(Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FileReadResult {
-    pub path: String,
-    pub content: String,
-    pub line_ending: LineEnding,
-    pub last_modified_at: Option<u64>,
-}
-
-#[derive(Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FileWriteResult {
-    pub path: String,
-    pub line_ending: LineEnding,
-    pub last_modified_at: Option<u64>,
-}
-
 #[derive(Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SystemFont {
@@ -127,6 +125,9 @@ pub struct RawPersistedAppSettings {
     pub editor_font_size: Option<String>,
     pub open_mode: Option<String>,
     pub word_wrap: Option<serde_json::Value>,
+    pub editor_line_width: Option<u16>,
+    pub spellcheck: Option<bool>,
+    pub allow_remote_images: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -155,64 +156,54 @@ pub struct PersistedAppSettings {
     pub editor_font_size: Option<String>,
     pub open_mode: Option<String>,
     pub word_wrap: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub editor_line_width: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spellcheck: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allow_remote_images: Option<bool>,
 }
 
-struct PendingMarkdownFileOpen(Mutex<Vec<String>>);
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MarkdownFileOpen {
+    path: String,
+    allow_missing: bool,
+}
+
+#[derive(Default)]
+struct MarkdownOpenQueue {
+    pending: Vec<MarkdownFileOpen>,
+    ready_windows: HashSet<String>,
+}
+
+impl MarkdownOpenQueue {
+    fn register(&mut self, label: &str, primary_exists: bool) -> Vec<MarkdownFileOpen> {
+        self.ready_windows.insert(label.to_owned());
+        if label != MAIN_WINDOW_LABEL && primary_exists {
+            return Vec::new();
+        }
+        std::mem::take(&mut self.pending)
+    }
+}
+
+struct PendingMarkdownFileOpen(Mutex<MarkdownOpenQueue>);
 
 #[tauri::command]
 fn take_pending_markdown_file_opens(
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, PendingMarkdownFileOpen>,
-) -> Vec<String> {
-    state
-        .0
-        .lock()
-        .map(|mut paths| std::mem::take(&mut *paths))
-        .unwrap_or_default()
-}
-
-#[tauri::command]
-fn read_text_file(path: String) -> Result<FileReadResult, String> {
-    read_text_file_from_path(path)
-}
-
-pub fn read_text_file_from_path(path: String) -> Result<FileReadResult, String> {
-    let content = match fs::read_to_string(&path) {
-        Ok(content) => content,
-        Err(error) if error.kind() == ErrorKind::NotFound => {
-            return Ok(FileReadResult {
-                path,
-                line_ending: LineEnding::Lf,
-                content: String::new(),
-                last_modified_at: None,
-            });
-        }
-        Err(error) => return Err(format!("Failed to read text file '{path}': {error}")),
+) -> Vec<MarkdownFileOpen> {
+    let Ok(mut queue) = state.0.lock() else {
+        return Vec::new();
     };
-    let last_modified_at = last_modified_at_ms(&path)?;
-
-    Ok(FileReadResult {
-        path,
-        line_ending: detect_line_ending(&content),
-        content,
-        last_modified_at,
-    })
-}
-
-#[tauri::command]
-fn write_text_file(path: String, content: String) -> Result<FileWriteResult, String> {
-    write_text_file_to_path(path, content)
-}
-
-pub fn write_text_file_to_path(path: String, content: String) -> Result<FileWriteResult, String> {
-    fs::write(&path, &content)
-        .map_err(|error| format!("Failed to write text file '{path}': {error}"))?;
-    let last_modified_at = last_modified_at_ms(&path)?;
-
-    Ok(FileWriteResult {
-        path,
-        line_ending: detect_line_ending(&content),
-        last_modified_at,
-    })
+    queue.register(
+        window.label(),
+        window
+            .app_handle()
+            .get_webview_window(MAIN_WINDOW_LABEL)
+            .is_some(),
+    )
 }
 
 #[tauri::command]
@@ -234,41 +225,48 @@ fn read_app_settings(app: AppHandle) -> Result<Option<RawPersistedAppSettings>, 
         .map_err(|error| format!("Failed to parse app settings '{}': {error}", path.display()))
 }
 
-#[tauri::command]
-fn write_app_settings(app: AppHandle, settings: PersistedAppSettings) -> Result<(), String> {
-    write_json_file(&app_config_file(&app, "settings.json")?, &settings)
+#[derive(Default)]
+struct SettingsWriteLock(Mutex<()>);
+
+fn merge_app_settings(
+    path: &Path,
+    settings: PersistedAppSettings,
+) -> Result<serde_json::Map<String, serde_json::Value>, String> {
+    use serde_json::{Map, Value};
+
+    let mut stored: Map<String, Value> = match fs::read_to_string(path) {
+        Ok(content) => serde_json::from_str(&content).map_err(|error| {
+            format!("Failed to parse app settings '{}': {error}", path.display())
+        })?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Map::new(),
+        Err(error) => {
+            return Err(format!(
+                "Failed to read app settings '{}': {error}",
+                path.display()
+            ))
+        }
+    };
+    let Value::Object(mut patch) =
+        serde_json::to_value(settings).map_err(|error| error.to_string())?
+    else {
+        return Err("Invalid app settings patch".into());
+    };
+    patch.retain(|_, value| !value.is_null());
+    stored.extend(patch.clone());
+    write_json_file(path, &stored)?;
+    Ok(patch)
 }
 
 #[tauri::command]
-fn read_swap_state(app: AppHandle) -> Result<Option<serde_json::Value>, String> {
-    let path = app_config_file(&app, "swap.json")?;
-    if !path.exists() {
-        return Ok(None);
-    }
-
-    let content = fs::read_to_string(&path)
-        .map_err(|error| format!("Failed to read swap state '{}': {error}", path.display()))?;
-    serde_json::from_str(&content)
-        .map(Some)
-        .map_err(|error| format!("Failed to parse swap state '{}': {error}", path.display()))
-}
-
-#[tauri::command]
-fn write_swap_state(app: AppHandle, state: serde_json::Value) -> Result<(), String> {
-    write_json_file(&app_config_file(&app, "swap.json")?, &state)
-}
-
-#[tauri::command]
-fn clear_swap_state(app: AppHandle) -> Result<(), String> {
-    let path = app_config_file(&app, "swap.json")?;
-    match fs::remove_file(&path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(format!(
-            "Failed to clear swap state '{}': {error}",
-            path.display()
-        )),
-    }
+fn write_app_settings(
+    app: AppHandle,
+    lock: tauri::State<'_, SettingsWriteLock>,
+    settings: PersistedAppSettings,
+) -> Result<(), String> {
+    let _guard = lock.0.lock().map_err(|_| "App settings are unavailable")?;
+    let patch = merge_app_settings(&app_config_file(&app, "settings.json")?, settings)?;
+    app.emit("app-settings-updated", patch)
+        .map_err(|error| error.to_string())
 }
 
 pub fn list_system_fonts_catalog() -> SystemFontCatalog {
@@ -300,14 +298,6 @@ pub fn list_system_fonts_catalog() -> SystemFontCatalog {
         fonts: families.into_values().collect(),
         locale,
         preview_text,
-    }
-}
-
-fn detect_line_ending(content: &str) -> LineEnding {
-    if content.contains("\r\n") {
-        LineEnding::Crlf
-    } else {
-        LineEnding::Lf
     }
 }
 
@@ -406,22 +396,6 @@ fn localized_font_preview_text(locale: Option<&str>) -> &'static str {
         }
         _ => "Aa Bb Cc 0123456789 The quick brown fox",
     }
-}
-
-fn last_modified_at_ms(path: &str) -> Result<Option<u64>, String> {
-    let metadata = fs::metadata(path)
-        .map_err(|error| format!("Failed to read metadata for '{path}': {error}"))?;
-
-    match metadata.modified() {
-        Ok(modified) => Ok(system_time_to_ms(modified)),
-        Err(_) => Ok(None),
-    }
-}
-
-fn system_time_to_ms(time: SystemTime) -> Option<u64> {
-    time.duration_since(UNIX_EPOCH)
-        .ok()
-        .map(|duration| duration.as_millis() as u64)
 }
 
 fn markdown_paths_from_os_args(args: &[OsString], cwd: &Path) -> Vec<String> {
@@ -541,72 +515,132 @@ fn percent_encode_query_value(value: &str) -> String {
 }
 
 #[cfg(desktop)]
-#[tauri::command]
-fn open_markdown_file_window(app: AppHandle, path: String) -> Result<String, String> {
-    let label = markdown_window_label(MARKDOWN_WINDOW_INDEX.fetch_add(1, Ordering::Relaxed));
-    let url = markdown_window_url(&path);
-
-    WebviewWindowBuilder::new(&app, label.clone(), WebviewUrl::App(url.into()))
+fn build_editor_window(app: &AppHandle, label: &str, url: String) -> tauri::Result<()> {
+    WebviewWindowBuilder::new(app, label, WebviewUrl::App(url.into()))
         .title(app_title())
         .inner_size(980.0, 720.0)
         .min_inner_size(640.0, 420.0)
         .resizable(true)
-        .build()
-        .map_err(|error| format!("Failed to open '{path}' in a new window: {error}"))?;
+        .build()?;
+    Ok(())
+}
 
+#[cfg(desktop)]
+fn next_document_window_label(app: &AppHandle) -> Result<String, String> {
+    loop {
+        let candidate =
+            markdown_window_label(MARKDOWN_WINDOW_INDEX.fetch_add(1, Ordering::Relaxed));
+        if app.get_webview_window(&candidate).is_none()
+            && !window_recovery::swap_path(app, &candidate)?.exists()
+        {
+            return Ok(candidate);
+        }
+    }
+}
+
+#[cfg(desktop)]
+#[tauri::command]
+fn open_draft_window(app: AppHandle) -> Result<String, String> {
+    if app_quit::in_progress(&app) {
+        return Err("Wait for the quit confirmation before opening a new window".into());
+    }
+    let label = next_document_window_label(&app)?;
+    build_editor_window(&app, &label, "index.html".to_string())
+        .map_err(|error| format!("Failed to open a draft window: {error}"))?;
     Ok(label)
+}
+
+#[cfg(desktop)]
+#[tauri::command]
+fn open_markdown_file_window(
+    app: AppHandle,
+    owners: tauri::State<'_, DocumentOwners>,
+    path: String,
+    allow_missing: Option<bool>,
+) -> Result<String, String> {
+    if app_quit::in_progress(&app) {
+        return Err("Wait for the quit confirmation before opening a new window".into());
+    }
+    let label = next_document_window_label(&app)?;
+    let canonical = match owners.claim(&label, None, Path::new(&path)) {
+        Ok(path) => path,
+        Err(DocumentOwnershipError::AlreadyOpen { owner, .. }) => {
+            activate_document_owner(&app, &owner);
+            return Ok(owner.window_label);
+        }
+        Err(error) => return Err(error.to_string()),
+    };
+    let allow_missing = allow_missing.unwrap_or(false);
+    let result = (|| {
+        if !allow_missing && !canonical.exists() {
+            return Err(format!(
+                "The file no longer exists: {}",
+                canonical.display()
+            ));
+        }
+        let canonical = canonical
+            .to_str()
+            .ok_or("Document path is not valid Unicode")?;
+        let mut url = markdown_window_url(canonical);
+        if allow_missing {
+            url.push_str("&allowMissing=1");
+        }
+        build_editor_window(&app, &label, url)
+            .map_err(|error| format!("Failed to open '{path}' in a new window: {error}"))
+    })();
+    if result.is_err() {
+        let _ = owners.release(&label, None);
+    }
+    result.map(|()| label)
 }
 
 fn menu_command_payload(menu_id: &str) -> Option<&'static str> {
     match menu_id {
         MENU_NEW_ID => Some("new"),
+        MENU_CLOSE_ID => Some("close"),
         MENU_OPEN_ID => Some("open"),
+        MENU_OPEN_RECENT_ID => Some("open-recent"),
+        MENU_MODE_LIVE_ID => Some("mode-live"),
+        MENU_MODE_MARKDOWN_ID => Some("mode-markdown"),
+        MENU_MODE_PREVIEW_ID => Some("mode-preview"),
         MENU_SAVE_ID => Some("save"),
         MENU_SAVE_AS_ID => Some("save-as"),
         MENU_FIND_ID => Some("find"),
         MENU_TOGGLE_TOOLBAR_ID => Some("toggle-toolbar"),
+        MENU_TOGGLE_OUTLINE_ID => Some("toggle-outline"),
         MENU_WORD_WRAP_ID => Some("toggle-word-wrap"),
         MENU_SETTINGS_ID => Some("settings"),
         _ => None,
     }
 }
 
-fn queue_pending_markdown_file_open<R: tauri::Runtime>(
-    app: &tauri::AppHandle<R>,
-    path: String,
-) -> Result<(), String> {
-    let state = app
-        .try_state::<PendingMarkdownFileOpen>()
-        .ok_or_else(|| "Pending Markdown file state is not available".to_string())?;
-    state
-        .0
-        .lock()
-        .map_err(|_| "Pending Markdown file state is unavailable".to_string())?
-        .push(path);
-    Ok(())
-}
-
 fn emit_or_queue_markdown_file_open<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
-    path: String,
+    request: MarkdownFileOpen,
 ) -> Result<(), String> {
+    let state = app.state::<PendingMarkdownFileOpen>();
     let windows = app.webview_windows();
-    let target = windows
-        .get(MAIN_WINDOW_LABEL)
-        .or_else(|| windows.values().next());
-
+    let mut queue = state
+        .0
+        .lock()
+        .map_err(|_| "Pending Markdown file state is unavailable")?;
+    queue.pending.push(request);
+    let target = match windows.get(MAIN_WINDOW_LABEL) {
+        Some(main) => queue
+            .ready_windows
+            .contains(MAIN_WINDOW_LABEL)
+            .then_some(main),
+        None => windows
+            .values()
+            .find(|window| queue.ready_windows.contains(window.label())),
+    };
+    drop(queue);
     if let Some(window) = target {
-        if let Err(error) = window.emit(MARKDOWN_FILE_OPENED_EVENT, path.clone()) {
-            let emit_error = format!("Failed to emit Markdown file open event: {error}");
-            queue_pending_markdown_file_open(app, path)
-                .map_err(|queue_error| format!("{emit_error}; {queue_error}"))?;
-            Err(emit_error)
-        } else {
-            Ok(())
-        }
-    } else {
-        queue_pending_markdown_file_open(app, path)
+        window
+            .emit(MARKDOWN_FILE_OPENED_EVENT, ())
+            .map_err(|error| format!("Failed to signal pending Markdown file open: {error}"))?;
     }
+    Ok(())
 }
 
 fn emit_app_menu_command<R: tauri::Runtime>(
@@ -657,13 +691,34 @@ pub fn set_word_wrap_menu_checked_for_app<R: tauri::Runtime>(
     }
 }
 
+#[tauri::command]
+fn set_file_menu_busy(window: tauri::WebviewWindow, busy: bool) -> Result<(), String> {
+    if !window.is_focused().unwrap_or(false) {
+        return Ok(());
+    }
+    let app = window.app_handle();
+    let Some(MenuItemKind::Submenu(file)) = app.menu().and_then(|menu| menu.get(MENU_FILE_ID))
+    else {
+        return Ok(());
+    };
+    for id in [
+        MENU_NEW_ID,
+        MENU_OPEN_ID,
+        MENU_OPEN_RECENT_ID,
+        MENU_SAVE_ID,
+        MENU_SAVE_AS_ID,
+    ] {
+        if let Some(MenuItemKind::MenuItem(item)) = file.get(id) {
+            item.set_enabled(!busy).map_err(|error| error.to_string())?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(desktop)]
 fn build_native_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<Menu<R>> {
-    #[cfg(target_os = "macos")]
     let pkg_info = app.package_info();
-    #[cfg(target_os = "macos")]
     let config = app.config();
-    #[cfg(target_os = "macos")]
     let about_metadata = AboutMetadata {
         name: Some(pkg_info.name.clone()),
         version: Some(pkg_info.version.to_string()),
@@ -693,16 +748,30 @@ fn build_native_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Res
                     &PredefinedMenuItem::hide_others(app, None)?,
                     &PredefinedMenuItem::show_all(app, None)?,
                     &PredefinedMenuItem::separator(app)?,
-                    &PredefinedMenuItem::quit(app, None)?,
+                    &MenuItem::with_id(
+                        app,
+                        MENU_QUIT_ID,
+                        format!("Quit {}", app_title()),
+                        true,
+                        Some("CmdOrCtrl+Q"),
+                    )?,
                 ],
             )?,
-            &Submenu::with_items(
+            &Submenu::with_id_and_items(
                 app,
+                MENU_FILE_ID,
                 "File",
                 true,
                 &[
                     &MenuItem::with_id(app, MENU_NEW_ID, "New", true, Some("CmdOrCtrl+N"))?,
                     &MenuItem::with_id(app, MENU_OPEN_ID, "Open...", true, Some("CmdOrCtrl+O"))?,
+                    &MenuItem::with_id(
+                        app,
+                        MENU_OPEN_RECENT_ID,
+                        "Open Recent...",
+                        true,
+                        None::<&str>,
+                    )?,
                     &PredefinedMenuItem::separator(app)?,
                     &MenuItem::with_id(app, MENU_SAVE_ID, "Save", true, Some("CmdOrCtrl+S"))?,
                     &MenuItem::with_id(
@@ -712,6 +781,10 @@ fn build_native_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Res
                         true,
                         Some("CmdOrCtrl+Shift+S"),
                     )?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &MenuItem::with_id(app, MENU_CLOSE_ID, "Close", true, Some("CmdOrCtrl+W"))?,
+                    #[cfg(not(target_os = "macos"))]
+                    &MenuItem::with_id(app, MENU_QUIT_ID, "Quit", true, Some("CmdOrCtrl+Q"))?,
                 ],
             )?,
             &Submenu::with_items(
@@ -744,7 +817,36 @@ fn build_native_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Res
                         MENU_TOGGLE_TOOLBAR_ID,
                         "Toggle Editor Toolbar",
                         true,
-                        Some("CmdOrCtrl+Shift+T"),
+                        Some("CmdOrCtrl+Shift+L"),
+                    )?,
+                    &MenuItem::with_id(
+                        app,
+                        MENU_TOGGLE_OUTLINE_ID,
+                        "Table of Contents",
+                        true,
+                        Some("CmdOrCtrl+Shift+O"),
+                    )?,
+                    &Submenu::with_items(
+                        app,
+                        "Editor Mode",
+                        true,
+                        &[
+                            &MenuItem::with_id(app, MENU_MODE_LIVE_ID, "Live", true, None::<&str>)?,
+                            &MenuItem::with_id(
+                                app,
+                                MENU_MODE_MARKDOWN_ID,
+                                "Markdown",
+                                true,
+                                None::<&str>,
+                            )?,
+                            &MenuItem::with_id(
+                                app,
+                                MENU_MODE_PREVIEW_ID,
+                                "Preview",
+                                true,
+                                None::<&str>,
+                            )?,
+                        ],
                     )?,
                     &{
                         let spec = word_wrap_menu_item_spec();
@@ -766,6 +868,13 @@ fn build_native_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Res
                         Some("CmdOrCtrl+,"),
                     )?,
                 ],
+            )?,
+            #[cfg(not(target_os = "macos"))]
+            &Submenu::with_items(
+                app,
+                "Help",
+                true,
+                &[&PredefinedMenuItem::about(app, None, Some(about_metadata))?],
             )?,
         ],
     )
@@ -993,22 +1102,69 @@ pub fn run() {
 
     let args = std::env::args_os().collect::<Vec<_>>();
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let pending_markdown_file_open =
-        PendingMarkdownFileOpen(Mutex::new(markdown_paths_from_os_args(&args, &cwd)));
+    let allow_missing = !args.iter().any(|arg| arg == "--open-existing");
+    let pending_markdown_file_open = PendingMarkdownFileOpen(Mutex::new(MarkdownOpenQueue {
+        pending: markdown_paths_from_os_args(&args, &cwd)
+            .into_iter()
+            .map(|path| MarkdownFileOpen {
+                path,
+                allow_missing,
+            })
+            .collect(),
+        ..Default::default()
+    }));
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(pending_markdown_file_open)
+        .manage(DocumentOwners::default())
+        .manage(SettingsWriteLock::default())
+        .manage(app_quit::AppQuit::default())
+        .manage(active_file_watch::ActiveFileWatches::default())
+        .manage(recent_files::RecentFiles::default())
+        .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                app_quit::handle_window_destroyed(window.app_handle(), window.label());
+                window
+                    .state::<active_file_watch::ActiveFileWatches>()
+                    .remove(window.label());
+                let _ = window
+                    .state::<DocumentOwners>()
+                    .release(window.label(), None);
+                let state = window.state::<PendingMarkdownFileOpen>();
+                if let Ok(mut queue) = state.0.lock() {
+                    queue.ready_windows.remove(window.label());
+                };
+            }
+        })
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+            let allow_missing = !args.iter().any(|arg| arg == "--open-existing");
             for path in markdown_paths_from_args(&args, Path::new(&cwd)) {
-                if let Err(error) = emit_or_queue_markdown_file_open(app, path) {
+                if let Err(error) = emit_or_queue_markdown_file_open(
+                    app,
+                    MarkdownFileOpen {
+                        path,
+                        allow_missing,
+                    },
+                ) {
                     eprintln!("{error}");
+                }
+            }
+            #[cfg(target_os = "macos")]
+            if app.webview_windows().is_empty() {
+                if let Err(error) = build_editor_window(app, MAIN_WINDOW_LABEL, "index.html".into())
+                {
+                    eprintln!("Failed to reopen Galley Pad: {error}");
                 }
             }
         }))
         .plugin(tauri_plugin_dialog::init())
         .menu(build_native_menu)
         .on_menu_event(|app, event| {
+            if event.id().as_ref() == MENU_QUIT_ID {
+                app.exit(0);
+                return;
+            }
             if let Some(command) = menu_command_payload(event.id().as_ref()) {
                 if let Err(error) = emit_app_menu_command(app, command) {
                     eprintln!("{error}");
@@ -1016,16 +1172,26 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            read_text_file,
-            write_text_file,
+            document_file::read_text_file,
+            document_file::write_text_file,
             take_pending_markdown_file_opens,
             open_markdown_file_window,
+            open_draft_window,
+            document_ownership::claim_document_path,
+            document_ownership::release_document_tab,
+            app_quit::answer_app_quit_check,
+            app_quit::finish_app_quit_clear,
+            active_file_watch::watch_active_document,
+            recent_files::read_recent_files,
+            recent_files::update_recent_file,
             list_system_fonts,
+            document_assets::resolve_document_reference,
             read_app_settings,
             write_app_settings,
             read_swap_state,
             write_swap_state,
             clear_swap_state,
+            set_file_menu_busy,
             set_word_wrap_menu_checked
         ])
         .build(tauri::generate_context!())
@@ -1035,6 +1201,42 @@ pub fn run() {
     let mut linux_display_ready_signaled = false;
 
     app.run(move |app, event| {
+        if let tauri::RunEvent::ExitRequested { code, api, .. } = &event {
+            app_quit::guard_exit(app, *code, api);
+        }
+
+        #[cfg(target_os = "macos")]
+        if matches!(
+            &event,
+            tauri::RunEvent::Reopen {
+                has_visible_windows: false,
+                ..
+            }
+        ) {
+            if let Some(window) = app.webview_windows().into_values().next() {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            } else if let Err(error) =
+                build_editor_window(app, MAIN_WINDOW_LABEL, "index.html".into())
+            {
+                eprintln!("Failed to reopen Galley Pad: {error}");
+            }
+        }
+
+        #[cfg(desktop)]
+        if matches!(&event, tauri::RunEvent::Ready) {
+            match window_recovery::recovery_window_labels(app) {
+                Ok(labels) => {
+                    for label in labels {
+                        if let Err(error) = build_editor_window(app, &label, "index.html".into()) {
+                            eprintln!("Failed to restore window {label}: {error}");
+                        }
+                    }
+                }
+                Err(error) => eprintln!("{error}"),
+            }
+        }
         #[cfg(target_os = "linux")]
         let _ = &app;
 
@@ -1045,8 +1247,21 @@ pub fn run() {
 
         #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
         if let tauri::RunEvent::Opened { urls } = event {
+            #[cfg(target_os = "macos")]
+            if app.webview_windows().is_empty() {
+                if let Err(error) = build_editor_window(app, MAIN_WINDOW_LABEL, "index.html".into())
+                {
+                    eprintln!("Failed to reopen Galley Pad: {error}");
+                }
+            }
             for path in markdown_paths_from_urls(&urls) {
-                if let Err(error) = emit_or_queue_markdown_file_open(app, path) {
+                if let Err(error) = emit_or_queue_markdown_file_open(
+                    app,
+                    MarkdownFileOpen {
+                        path,
+                        allow_missing: false,
+                    },
+                ) {
                     eprintln!("{error}");
                 }
             }
@@ -1065,6 +1280,31 @@ mod tests {
     #[test]
     fn app_title_matches_product_name() {
         assert_eq!(app_title(), "Galley Pad");
+    }
+
+    #[test]
+    fn startup_requests_wait_for_primary_and_are_drained_once() {
+        let mut queue = super::MarkdownOpenQueue::default();
+        queue.pending.push(super::MarkdownFileOpen {
+            path: "/first.md".into(),
+            allow_missing: false,
+        });
+        queue.pending.push(super::MarkdownFileOpen {
+            path: "/second.md".into(),
+            allow_missing: true,
+        });
+
+        assert!(queue.register("markdown-file-1", true).is_empty());
+        let routing = queue.register(super::MAIN_WINDOW_LABEL, true);
+        assert_eq!(
+            routing
+                .iter()
+                .map(|entry| entry.path.as_str())
+                .collect::<Vec<_>>(),
+            ["/first.md", "/second.md"]
+        );
+        assert!(routing[1].allow_missing);
+        assert!(queue.register(super::MAIN_WINDOW_LABEL, true).is_empty());
     }
 
     #[test]
@@ -1393,6 +1633,25 @@ mod tests {
                 .expect("deserialize malformed word wrap as raw value");
 
         assert_eq!(settings.word_wrap, Some(serde_json::json!("broken")));
+    }
+
+    #[test]
+    fn settings_patches_from_different_windows_keep_unrelated_fields() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("settings.json");
+        fs::write(&path, r#"{"openMode":"tabs","otherField":"preserved"}"#).unwrap();
+        let wrap = serde_json::from_str(r#"{"wordWrap":false}"#).unwrap();
+        let image = serde_json::from_str(r#"{"allowRemoteImages":true}"#).unwrap();
+        assert_eq!(
+            super::merge_app_settings(&path, wrap).unwrap()["wordWrap"],
+            false
+        );
+        super::merge_app_settings(&path, image).unwrap();
+        let settings: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+        assert_eq!(settings["wordWrap"], false);
+        assert_eq!(settings["allowRemoteImages"], true);
+        assert_eq!(settings["openMode"], "tabs");
+        assert_eq!(settings["otherField"], "preserved");
     }
 
     #[test]

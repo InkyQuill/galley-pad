@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test("explains a failed application import instead of leaving an empty window", async ({ page }) => {
-  await page.route("**/src/renderApp.tsx", (route) => route.abort());
+  await page.route((url) => url.pathname === "/src/renderApp.tsx", (route) => route.abort());
   await page.goto("/");
   await expect(page.getByRole("alert")).toContainText("Galley Pad could not start");
 });

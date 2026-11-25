@@ -1,6 +1,5 @@
 import { expect, test } from "@playwright/test";
 
-const THEME_SETTINGS_STORAGE_KEY = "galley-pad.themeSettings";
 const EDITOR_FONT_FAMILY_STORAGE_KEY = "galley-pad.editorFontFamily";
 const EDITOR_FONT_SIZE_STORAGE_KEY = "galley-pad.editorFontSize";
 const MONO_EDITOR_FONT_STACK =

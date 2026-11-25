@@ -8,6 +8,7 @@ import {
 import {
   checkExternalFileChange,
   ExternalFileChangedError,
+  FileNotFoundError,
   createLifecycleDependencies,
   newDocument,
   openDocument,
@@ -64,7 +65,7 @@ describe("document lifecycle commands", () => {
     expect(deps.readTextFile).not.toHaveBeenCalled();
   });
 
-  it("opens a missing file path as an empty clean file-backed session", async () => {
+  it("only allows missing paths as new documents for explicit creation", async () => {
     const deps = createLifecycleDependencies({
       pickOpenFile: vi.fn(),
       pickSaveFile: vi.fn(),
@@ -77,10 +78,12 @@ describe("document lifecycle commands", () => {
       writeTextFile: vi.fn(),
     });
 
-    await expect(openDocumentPath("/tmp/new-draft.md", deps)).resolves.toMatchObject({
+    await expect(openDocumentPath("/tmp/new-draft.md", deps)).rejects.toBeInstanceOf(FileNotFoundError);
+    await expect(openDocumentPath("/tmp/new-draft.md", deps, { allowMissing: true })).resolves.toMatchObject({
       id: "file:/tmp/new-draft.md",
       path: "/tmp/new-draft.md",
       displayName: "new-draft.md",
+      fileExists: false,
       content: "",
       savedContent: "",
       dirty: false,
@@ -124,6 +127,7 @@ describe("document lifecycle commands", () => {
     expect(deps.writeTextFile).toHaveBeenCalledWith(
       "/tmp/draft.md",
       "# Draft\n\nUpdated.\n",
+      { encoding: "utf8", expected: { kind: "present", content: "# Draft\n", encoding: "utf8" } },
     );
   });
 
@@ -132,7 +136,9 @@ describe("document lifecycle commands", () => {
     const deps = createLifecycleDependencies({
       pickOpenFile: vi.fn(),
       pickSaveFile: vi.fn().mockResolvedValue("/tmp/new.md"),
-      readTextFile: vi.fn(),
+      readTextFile: vi.fn().mockResolvedValue({
+        path: "/tmp/new.md", content: "", exists: false, lineEnding: "lf", lastModifiedAt: null,
+      }),
       writeTextFile: vi.fn().mockResolvedValue({
         path: "/tmp/new.md",
         lineEnding: "lf",
@@ -187,6 +193,50 @@ describe("document lifecycle commands", () => {
       ExternalFileChangedError,
     );
     expect(deps.writeTextFile).not.toHaveBeenCalled();
+  });
+
+  it("detects and refuses to overwrite different disk content at the same mtime", async () => {
+    const session = updateSessionContent(createSessionFromFile({
+      path: "/tmp/same-time.md", content: "Base", lineEnding: "lf", lastModifiedAt: 10,
+    }), "Local");
+    const deps = createLifecycleDependencies({
+      pickOpenFile: vi.fn(),
+      pickSaveFile: vi.fn(),
+      readTextFile: vi.fn().mockResolvedValue({
+        path: "/tmp/same-time.md", content: "External", lineEnding: "lf", lastModifiedAt: 10,
+      }),
+      writeTextFile: vi.fn(),
+    });
+
+    await expect(checkExternalFileChange(session, deps)).resolves.toMatchObject({
+      kind: "conflict", base: "Base", local: "Local",
+    });
+    await expect(saveDocument(session, deps)).rejects.toBeInstanceOf(ExternalFileChangedError);
+    expect(deps.writeTextFile).not.toHaveBeenCalled();
+  });
+
+  it("preserves the original encoding and line endings when saving", async () => {
+    const original = {
+      path: "/tmp/utf16.md", content: "Base\r\n", exists: true,
+      lineEnding: "crlf", encoding: "utf16Le", lastModifiedAt: null,
+    } as const;
+    const session = updateSessionContent(createSessionFromFile(original), "Local\n");
+    const deps = createLifecycleDependencies({
+      pickOpenFile: vi.fn(),
+      pickSaveFile: vi.fn(),
+      readTextFile: vi.fn().mockResolvedValue(original),
+      writeTextFile: vi.fn().mockResolvedValue({
+        path: original.path, lineEnding: "crlf", encoding: "utf16Le", lastModifiedAt: null,
+      }),
+    });
+
+    await expect(saveDocument(session, deps, "tab-1")).resolves.toMatchObject({
+      dirty: false, fileExists: true, savedContent: "Local\n", savedDiskContent: "Local\r\n", encoding: "utf16Le",
+    });
+    expect(deps.writeTextFile).toHaveBeenCalledWith(original.path, "Local\r\n", {
+      tabId: "tab-1", encoding: "utf16Le",
+      expected: { kind: "present", content: "Base\r\n", encoding: "utf16Le" },
+    });
   });
 
   it("blocks Save when the file was deleted on disk after it was opened", async () => {
@@ -285,6 +335,7 @@ describe("document lifecycle commands", () => {
     expect(deps.writeTextFile).toHaveBeenCalledWith(
       "/tmp/acknowledged-deleted-save.md",
       "# Local edit\n",
+      { encoding: "utf8", expected: { kind: "missing" } },
     );
   });
 
@@ -323,6 +374,7 @@ describe("document lifecycle commands", () => {
     expect(deps.writeTextFile).toHaveBeenCalledWith(
       "/tmp/metadata-save.md",
       "# Draft\n\nUpdated.\n",
+      { encoding: "utf8", expected: { kind: "present", content: "# Draft\n", encoding: "utf8" } },
     );
   });
 
@@ -700,7 +752,7 @@ describe("document lifecycle commands", () => {
     });
   });
 
-  it("ignores a previously noticed external modified time", async () => {
+  it("ignores the noticed content, but detects different content with the same mtime", async () => {
     const session = {
       ...createSessionFromFile({
         path: "/tmp/noticed.md",
@@ -709,6 +761,7 @@ describe("document lifecycle commands", () => {
         lastModifiedAt: 10,
       }),
       lastNoticedExternalModifiedAt: 12,
+      lastNoticedExternalContent: { content: "External\n" },
     };
     const deps = createLifecycleDependencies({
       pickOpenFile: vi.fn(),
@@ -724,6 +777,12 @@ describe("document lifecycle commands", () => {
 
     await expect(checkExternalFileChange(session, deps)).resolves.toEqual({
       kind: "unchanged",
+    });
+    vi.mocked(deps.readTextFile).mockResolvedValue({
+      path: "/tmp/noticed.md", content: "External again\n", lineEnding: "lf", lastModifiedAt: 12,
+    });
+    await expect(checkExternalFileChange(session, deps)).resolves.toMatchObject({
+      kind: "clean-update",
     });
   });
 

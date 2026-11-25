@@ -38,7 +38,8 @@ Exit criteria:
 
 ## Stage 2: File Lifecycle
 
-Goal: make Galley Pad a real single-document file editor.
+Galley Pad opens documents in tabs or separate windows. Saves are atomic and
+check for external edits before writing.
 
 Deliverables:
 
@@ -59,7 +60,9 @@ Exit criteria:
 
 ## Stage 3: Desktop Integration
 
-Goal: make the app feel like a normal desktop application.
+The desktop app provides Open Recent, Markdown file drops, native menus,
+and command-line or file-manager opening. The native startup queue keeps
+file-open requests until the webview can read them.
 
 Deliverables:
 
@@ -83,13 +86,14 @@ Goal: improve daily-use editing ergonomics without expanding product scope.
 
 Deliverables:
 
-- source/live mode toggle if supported by Galley Editor
+- live preview, source, and preview modes in the editor footer
+- document table of contents
 - find
 - font size controls
 - readable line width setting
 - relative image path handling
 - focus restoration
-- basic reload detection for external file changes
+- live external-change detection for the active document and focus checks
 
 Exit criteria:
 
@@ -119,13 +123,11 @@ Exit criteria:
 
 These are explicitly outside v1, but may be worth revisiting:
 
-- tabs
-- single-instance multi-window coordination
 - distraction-free fullscreen
 - print
 - export to PDF
 - optional auto-save
-- more complete external file conflict handling
+- external-change detection on network mounts without native notifications
 - richer settings
 
 These should remain document-focused. If a feature turns Galley Pad into a workspace, it should be rejected or moved to a different product.

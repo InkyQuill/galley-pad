@@ -1,9 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { openMarkdownFileWindow } from "./windows";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { openDraftWindow, openMarkdownFileWindow, setCurrentWindowTitle } from "./windows";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
+}));
+
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: vi.fn(),
 }));
 
 const invokeMock = vi.mocked(invoke);
@@ -16,6 +21,8 @@ describe("Tauri windows", () => {
 
   it("does nothing outside Tauri", async () => {
     await openMarkdownFileWindow("/tmp/opened.md");
+    await openDraftWindow();
+    await setCurrentWindowTitle("* Untitled.md - Galley Pad");
 
     expect(invokeMock).not.toHaveBeenCalled();
   });
@@ -32,4 +39,17 @@ describe("Tauri windows", () => {
       path: "/tmp/opened.md",
     });
   });
+  it("creates a draft window and updates a dirty document's native title", async () => {
+    (globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
+    invokeMock.mockResolvedValue("markdown-file-2");
+    const setTitle = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(getCurrentWindow, { partial: true }).mockReturnValue({ setTitle });
+
+    await expect(openDraftWindow()).resolves.toBe("markdown-file-2");
+    expect(invokeMock).toHaveBeenCalledWith("open_draft_window");
+    await setCurrentWindowTitle("* Draft.md - Galley Pad");
+    expect(setTitle).toHaveBeenCalledWith("* Draft.md - Galley Pad");
+    delete (globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+  });
+
 });

@@ -1,0 +1,131 @@
+.document-view[hidden] {
+  display: none;
+}
+
+.document-view {
+  position: relative;
+}
+
+.document-view > .document-editor {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.document-editor > * {
+  height: 100%;
+  min-height: 0;
+}
+
+.document-editor[data-line-width] .cm-content {
+  max-inline-size: var(--document-line-width);
+  margin-inline: auto;
+}
+
+.document-view > .document-outline {
+  display: flex;
+  flex: 0 0 clamp(190px, 24vw, 300px);
+  flex-direction: column;
+  width: auto;
+  border-inline-start: 1px solid var(--app-border);
+  background: var(--app-panel);
+  color: var(--app-text);
+}
+
+.document-outline-header {
+  display: flex;
+  flex: none;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+}
+
+.document-outline-header h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.document-outline button {
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.document-outline button:hover,
+.document-outline button[aria-current] {
+  background: color-mix(in srgb, var(--app-focus) 15%, var(--app-panel));
+}
+
+.document-outline button:focus-visible,
+.document-footer-outline:focus-visible {
+  outline: 2px solid var(--app-focus);
+  outline-offset: -2px;
+}
+
+.document-outline-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 0 8px 12px;
+}
+
+.document-outline-list button {
+  display: block;
+  width: 100%;
+  overflow-wrap: anywhere;
+  text-align: start;
+}
+
+.document-outline-list button[aria-current] {
+  font-weight: 600;
+}
+
+.document-outline-empty {
+  margin: 8px 12px;
+  color: var(--app-text-muted);
+  font-size: 13px;
+}
+
+.document-footer-outline {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 5px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.document-footer-outline:hover,
+.document-footer-outline[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--app-focus) 15%, var(--app-panel));
+}
+
+.document-footer-mode {
+  max-width: 9rem;
+  background: var(--app-panel);
+  color: var(--app-text);
+  border: 1px solid var(--app-border);
+  border-radius: 4px;
+  font: inherit;
+}
+
+@media (max-width: 720px) {
+  .document-view > .document-outline {
+    position: absolute;
+    z-index: 4;
+    inset: 0 0 30px auto;
+    width: min(300px, 80%);
+    height: auto;
+    box-shadow: -6px 0 24px rgb(0 0 0 / 16%);
+  }
+}

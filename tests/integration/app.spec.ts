@@ -348,7 +348,7 @@ test("hides the Galley toolbar by default and shows it with the toolbar shortcut
   await expect(page.locator(".ge-toolbar")).not.toBeVisible();
 
   await page.locator("body").click();
-  await page.keyboard.press("Control+Shift+T");
+  await page.keyboard.press("Control+Shift+L");
 
   await expect(page.locator(".ge-toolbar")).toBeVisible();
   await expect(page.locator(".ge-toolbar svg").first()).toBeVisible();
@@ -363,7 +363,7 @@ test.describe("Linux Wayland footer menu", () => {
   test(
     "runs commands and restores trigger focus on Escape",
     async ({ page }, testInfo) => {
-      expect(testInfo.project.name).toBe("chromium");
+      expect(["chromium", "webkit"]).toContain(testInfo.project.name);
       await page.goto("/");
 
       const menuTrigger = page.getByRole("button", {
@@ -383,10 +383,10 @@ test.describe("Linux Wayland footer menu", () => {
         .getByRole("menuitem", { name: "Toggle Editor Toolbar" })
         .click();
       await expect(
-        page.locator('.ge-toolbar[aria-label="Editor toolbar"]'),
+        page.getByRole("tabpanel").locator('.ge-toolbar[aria-label="Editor toolbar"]'),
       ).toBeVisible();
 
-      const editor = page.locator(".cm-editor");
+      const editor = page.getByRole("tabpanel").locator(".cm-editor");
       await expect(editor).toHaveClass(/ge-width-constrained/);
       await menuTrigger.click();
       await expect(page.getByText("View", { exact: true })).toBeVisible();

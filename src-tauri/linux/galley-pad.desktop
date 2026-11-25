@@ -2,7 +2,7 @@
 Type=Application
 Name=Galley Pad
 Comment=A simple desktop Markdown editor powered by Galley.
-Exec=/usr/bin/gpad %F
+Exec=/usr/bin/gpad --open-existing %F
 Icon=gpad
 Terminal=false
 Categories=Utility;TextEditor;

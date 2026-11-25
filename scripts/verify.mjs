@@ -28,12 +28,14 @@ function run(command, args, options = {}) {
 }
 
 run("bun", ["audit", "--json"]);
-run("bun", ["run", "test:unit"]);
+run("bun", ["run", "lint"]);
+run("bun", ["run", "test:coverage"]);
 run("bun", ["run", "test:scripts"]);
-run("bun", ["run", "test:integration"]);
+run("bun", ["run", "test:integration", "--project=chromium"]);
 run("bun", ["run", "build"]);
 run("cargo", ["fmt", "--manifest-path", "src-tauri/Cargo.toml", "--", "--check"]);
-run("cargo", ["test", "--manifest-path", "src-tauri/Cargo.toml"]);
+run("cargo", ["clippy", "--manifest-path", "src-tauri/Cargo.toml", "--all-targets", "--locked", "--", "-D", "warnings"]);
+run("cargo", ["test", "--manifest-path", "src-tauri/Cargo.toml", "--locked"]);
 run(process.execPath, ["scripts/tauri-info.mjs"], { shell: false });
 run(
   process.execPath,

@@ -128,7 +128,7 @@ fn linux_desktop_template_launches_packaged_gpad_with_markdown_files() {
     assert!(
         desktop_entry
             .lines()
-            .any(|line| line == "Exec=/usr/bin/gpad %F"),
+            .any(|line| line == "Exec=/usr/bin/gpad --open-existing %F"),
         "KDE should launch the packaged gpad binary and pass selected files"
     );
     assert!(

@@ -6,8 +6,10 @@ import type { AppMenuCommand } from "../tauri/menuEvents";
 const MENU_ITEMS = [
   { label: "New", command: "new" },
   { label: "Open...", command: "open" },
+  { label: "Open Recent...", command: "open-recent" },
   { label: "Save", command: "save" },
   { label: "Save As...", command: "save-as" },
+  { label: "Close", command: "close" },
   {
     label: "Toggle Editor Toolbar",
     command: "toggle-toolbar",
@@ -18,6 +20,7 @@ const MENU_ITEMS = [
     command: "toggle-word-wrap",
     shortcut: "Alt+Z",
   },
+  { label: "Table of contents", command: "toggle-outline", shortcut: "Ctrl+Shift+O" },
   { label: "Settings...", command: "settings" },
 ] as const satisfies ReadonlyArray<{
   label: string;
@@ -28,11 +31,13 @@ const MENU_ITEMS = [
 
 type FooterMenuButtonProps = {
   wordWrap: boolean;
+  outlineOpen?: boolean;
   onCommand(command: AppMenuCommand): void;
 };
 
 export function FooterMenuButton({
   wordWrap,
+  outlineOpen = false,
   onCommand,
 }: FooterMenuButtonProps) {
   const [open, setOpen] = useState(false);
@@ -154,18 +159,19 @@ export function FooterMenuButton({
                 type="button"
                 className="footer-menu-item"
                 role={
-                  item.command === "toggle-word-wrap"
+                  item.command === "toggle-word-wrap" || item.command === "toggle-outline"
                     ? "menuitemcheckbox"
                     : "menuitem"
                 }
                 aria-checked={
-                  item.command === "toggle-word-wrap" ? wordWrap : undefined
+                  item.command === "toggle-word-wrap" ? wordWrap
+                    : item.command === "toggle-outline" ? outlineOpen : undefined
                 }
                 onClick={() => selectCommand(item.command)}
               >
-                {item.command === "toggle-word-wrap" ? (
+                {item.command === "toggle-word-wrap" || item.command === "toggle-outline" ? (
                   <span className="footer-menu-check" aria-hidden="true">
-                    {wordWrap ? <TbCheck /> : null}
+                    {(item.command === "toggle-word-wrap" ? wordWrap : outlineOpen) ? <TbCheck /> : null}
                   </span>
                 ) : null}
                 <span className="footer-menu-item-label">{item.label}</span>

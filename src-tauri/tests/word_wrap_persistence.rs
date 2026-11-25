@@ -15,6 +15,9 @@ fn word_wrap_persistence_preserves_raw_values_and_writes_booleans() {
         editor_font_size: None,
         open_mode: None,
         word_wrap: Some(false),
+        editor_line_width: None,
+        spellcheck: None,
+        allow_remote_images: None,
     };
 
     assert_eq!(

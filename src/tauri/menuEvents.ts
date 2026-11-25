@@ -4,12 +4,18 @@ export const APP_MENU_COMMAND_EVENT = "app-menu-command";
 
 export type AppMenuCommand =
   | "new"
+  | "close"
   | "open"
+  | "open-recent"
+  | "mode-live"
+  | "mode-markdown"
+  | "mode-preview"
   | "save"
   | "save-as"
   | "find"
   | "settings"
   | "toggle-toolbar"
+  | "toggle-outline"
   | "toggle-word-wrap";
 
 export function listenForAppMenuCommand(
