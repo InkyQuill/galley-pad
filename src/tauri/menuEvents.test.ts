@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
   APP_MENU_COMMAND_EVENT,
   listenForAppMenuCommand,
 } from "./menuEvents";
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn(),
@@ -14,6 +17,7 @@ const listenMock = vi.mocked(listen);
 describe("native menu events", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(invoke).mockResolvedValue([]);
     delete (globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
   });
 
@@ -24,8 +28,20 @@ describe("native menu events", () => {
     expect(() => unlisten()).not.toThrow();
   });
 
+  it("receives menu commands queued before listener readiness", async () => {
+    (globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = { metadata: { currentWindow: { label: "main" } } };
+    listenMock.mockResolvedValue(() => undefined);
+    vi.mocked(invoke).mockResolvedValue(["open-recent", "settings"]);
+    const handler = vi.fn();
+
+    await listenForAppMenuCommand(handler);
+
+    expect(handler.mock.calls).toEqual([["open-recent", true], ["settings", true]]);
+    expect(listenMock.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(invoke).mock.invocationCallOrder[0]);
+  });
+
   it("listens for app menu command events inside Tauri", async () => {
-    (globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
+    (globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = { metadata: { currentWindow: { label: "main" } } };
     listenMock.mockResolvedValue(() => undefined);
     const handler = vi.fn();
 
@@ -34,6 +50,7 @@ describe("native menu events", () => {
     expect(listenMock).toHaveBeenCalledWith(
       APP_MENU_COMMAND_EVENT,
       expect.any(Function),
+      { target: "main" },
     );
 
     const listener = listenMock.mock.calls[0]?.[1];

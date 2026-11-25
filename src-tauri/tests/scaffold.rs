@@ -134,7 +134,7 @@ fn linux_desktop_template_launches_packaged_gpad_with_markdown_files() {
     assert!(
         desktop_entry
             .lines()
-            .any(|line| line == "MimeType=text/markdown;text/x-markdown;"),
+            .any(|line| line == "MimeType=text/markdown;text/x-markdown;text/plain;"),
         "desktop entry should cover common Markdown MIME types"
     );
 }

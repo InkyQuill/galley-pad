@@ -22,6 +22,7 @@ export type PersistedAppSettings = {
   editorLineWidth?: number | null;
   spellcheck?: boolean | null;
   allowRemoteImages?: boolean | null;
+  checkForUpdates?: boolean | null;
 };
 
 export type RawPersistedAppSettings = Omit<

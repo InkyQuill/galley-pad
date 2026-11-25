@@ -15,7 +15,7 @@ import { claimDocumentPath, listenForDocumentActivation, releaseDocumentTab } fr
 import { listenForAppSettingsUpdates } from "./tauri/settingsEvents";
 import { APP_BRAND_LABEL, APP_VERSION } from "./appInfo";
 import { UnsupportedFileEncodingError } from "./document/lifecycle";
-import { mockGalleyOpenSearch } from "./test/galley-editor.mock";
+import { mockGalleyGetHeadings, mockGalleyOpenSearch, mockGalleyRender, mockGalleyRevealPosition } from "./test/galley-editor.mock";
 import { openReleasePage } from "./tauri/opener";
 import { checkForGitHubUpdate } from "./updates/githubRelease";
 import {
@@ -137,6 +137,7 @@ describe("App", () => {
     vi.mocked(listenForDocumentActivation).mockResolvedValue(() => undefined);
     vi.mocked(releaseDocumentTab).mockResolvedValue();
     vi.mocked(listenForAppSettingsUpdates).mockResolvedValue(() => undefined);
+    mockGalleyGetHeadings.mockReset();
     mockGalleyOpenSearch.mockReset();
     mockGalleyOpenSearch.mockReturnValue(true);
     vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -179,6 +180,16 @@ describe("App", () => {
     });
     localStorage.clear();
     window.history.replaceState(null, "", "/");
+  });
+
+  it("waits for settings and skips update requests when the preference is disabled", async () => {
+    readAppSettingsMock.mockResolvedValue({ checkForUpdates: false });
+    render(<App />);
+    fireEvent.keyDown(window, { key: ",", ctrlKey: true });
+    await waitFor(() =>
+      expect(screen.getByRole("checkbox", { name: "Automatically check for updates" })).not.toBeChecked(),
+    );
+    expect(checkForGitHubUpdateMock).not.toHaveBeenCalled();
   });
 
   it("checks once under StrictMode and shows an available GitHub release", async () => {
@@ -1011,6 +1022,41 @@ describe("App", () => {
     expect(clearSwapStateMock).not.toHaveBeenCalled();
   });
 
+  it("evaluates a new quit request independently while the cancelled request waits for a save", async () => {
+    let handlers: Parameters<typeof listenForAppQuit>[0] | undefined;
+    vi.mocked(listenForAppQuit).mockImplementation(async (nextHandlers) => {
+      handlers = nextHandlers;
+      return () => undefined;
+    });
+    let command: ((command: AppMenuCommand) => void) | undefined;
+    listenForAppMenuCommandMock.mockImplementation(async (handler) => { command = handler; return () => undefined; });
+    const path = "/tmp/quit-save.md";
+    getPendingMarkdownFileOpensMock.mockResolvedValue([path]);
+    readTextFileMock.mockResolvedValue({ path, content: "Original", lineEnding: "lf", lastModifiedAt: 10 });
+    const write = deferred<Awaited<ReturnType<typeof writeTextFile>>>();
+    writeTextFileMock.mockReturnValue(write.promise);
+    render(<App />);
+    await screen.findByRole("tab", { name: "quit-save.md" });
+    fireEvent.change(screen.getByRole("textbox", { name: "Mock Galley Editor" }), { target: { value: "Saved change" } });
+    act(() => command?.("save"));
+    await waitFor(() => expect(writeTextFileMock).toHaveBeenCalled());
+
+    const first = new AbortController();
+    const second = new AbortController();
+    let firstApproval: Promise<boolean> | undefined;
+    let secondApproval: Promise<boolean> | undefined;
+    act(() => {
+      firstApproval = handlers?.confirm(first.signal);
+      first.abort();
+      secondApproval = handlers?.confirm(second.signal);
+    });
+    await act(async () => {
+      write.resolve({ path, lineEnding: "lf", lastModifiedAt: 11 });
+      await expect(firstApproval).resolves.toBe(false);
+      await expect(secondApproval).resolves.toBe(true);
+    });
+  });
+
   it("does not read a document if another window already owns its canonical path", async () => {
     getPendingMarkdownFileOpensMock.mockResolvedValue([
       { path: "/tmp/alias.md", allowMissing: false },
@@ -1049,6 +1095,27 @@ describe("App", () => {
     const writtenSession = lastWrite?.[0].tabs[0]?.session;
     expect(writtenSession).not.toHaveProperty("externalUpdatePolicy");
     expect(writtenSession).not.toHaveProperty("lastNoticedExternalModifiedAt");
+  });
+
+  it("keeps the restored dirty tab when a startup close targeted the placeholder", async () => {
+    const pendingSwap = deferred<Awaited<ReturnType<typeof readSwapState>>>();
+    readSwapStateMock.mockReturnValue(pendingSwap.promise);
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Close Untitled.md" }));
+    await act(async () => pendingSwap.resolve({
+      version: 1, savedAt: 1, activeTabId: "recovered", openMode: "tabs",
+      tabs: [{
+        id: "recovered",
+        session: {
+          id: "recovered", path: null, displayName: "Recovered.md", content: "Recovered draft",
+          savedContent: "", dirty: true, lineEnding: "lf", lastKnownModifiedAt: null,
+        },
+      }],
+    }));
+
+    expect(screen.getByRole("textbox", { name: "Mock Galley Editor" })).toHaveValue("Recovered draft");
+    expect(clearSwapStateMock).not.toHaveBeenCalled();
+    expect(closeCurrentWindowMock).not.toHaveBeenCalled();
   });
 
   it("waits for swap restoration before applying pending file opens", async () => {
@@ -1171,13 +1238,14 @@ describe("App", () => {
     expect(screen.getByRole("textbox", { name: "Mock Galley Editor" })).toHaveValue("# Launch\n");
   });
 
-  it("creates a new tab without replacing the dirty active tab", () => {
+  it("creates a new tab without replacing the dirty active tab", async () => {
     let menuHandler: ((command: AppMenuCommand) => void) | null = null;
     listenForAppMenuCommandMock.mockImplementation(async (handler) => {
       menuHandler = handler;
       return () => undefined;
     });
-    render(<App />);
+    await act(async () => render(<App />));
+    expect(menuHandler).not.toBeNull();
     fireEvent.change(screen.getByRole("textbox", { name: "Mock Galley Editor" }), {
       target: { value: "Dirty draft" },
     });
@@ -1249,6 +1317,51 @@ describe("App", () => {
       expect(closeCurrentWindowMock).toHaveBeenCalledOnce();
     });
     expect(clearSwapStateMock).toHaveBeenCalledOnce();
+  });
+
+  it("keeps retained editors from rerendering when the active editor changes", async () => {
+    await act(async () => render(<App />));
+    fireEvent.click(screen.getByRole("button", { name: "New tab" }));
+    expect(screen.getAllByRole("tabpanel", { hidden: true })).toHaveLength(2);
+    mockGalleyRender.mockClear();
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Mock Galley Editor" }), {
+      target: { value: "Typed into the active document" },
+    });
+
+    expect(new Set(mockGalleyRender.mock.calls.map(([key]) => key)).size).toBe(1);
+  });
+
+  it("waits for a running save before closing a tab", async () => {
+    let menuHandler: ((command: AppMenuCommand) => void) | null = null;
+    listenForAppMenuCommandMock.mockImplementation(async (handler) => {
+      menuHandler = handler;
+      return () => undefined;
+    });
+    window.history.replaceState(null, "", "/?open=/tmp/saving.md");
+    readTextFileMock.mockResolvedValue({
+      path: "/tmp/saving.md", content: "Original", lineEnding: "lf", lastModifiedAt: 10,
+    });
+    const write = deferred<Awaited<ReturnType<typeof writeTextFile>>>();
+    writeTextFileMock.mockReturnValue(write.promise);
+    const prompt = vi.fn().mockResolvedValue("cancel");
+    render(<App onUnsavedPrompt={prompt} />);
+
+    await screen.findByRole("button", { name: "Close saving.md" });
+    fireEvent.change(screen.getByRole("textbox", { name: "Mock Galley Editor" }), {
+      target: { value: "Saved before close" },
+    });
+    act(() => menuHandler?.("save"));
+    await waitFor(() => expect(writeTextFileMock).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: "Close saving.md" }));
+    expect(prompt).not.toHaveBeenCalled();
+    expect(closeCurrentWindowMock).not.toHaveBeenCalled();
+
+    await act(async () => write.resolve({
+      path: "/tmp/saving.md", lineEnding: "lf", lastModifiedAt: 11,
+    }));
+    await waitFor(() => expect(closeCurrentWindowMock).toHaveBeenCalledOnce());
+    expect(writeTextFileMock).toHaveBeenCalledOnce();
   });
 
   it("saves a dirty file-backed document when window close is requested", async () => {
@@ -1845,7 +1958,7 @@ describe("App", () => {
       screen.getByRole("toolbar", { name: "Mock Galley Toolbar" }),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Mock toolbar icon count")).toHaveTextContent(
-      "15",
+      "16",
     );
   });
 
@@ -1889,6 +2002,46 @@ describe("App", () => {
     expect(await screen.findByRole("tab", { name: "legacy.md" })).toBeInTheDocument();
     expect(readTextFileMock).toHaveBeenCalledWith(path, "windows1251");
     expect(screen.getByRole("textbox", { name: "Mock Galley Editor" })).toHaveValue("# Привет");
+  });
+
+  it("prefers the latest heading activation received while reading a reserved document", async () => {
+    const path = "/tmp/activation-order.md";
+    const content = "# First\n# Latest";
+    const read = deferred<Awaited<ReturnType<typeof readTextFile>>>();
+    let activate: Parameters<typeof listenForDocumentActivation>[0] | undefined;
+    vi.mocked(listenForDocumentActivation).mockImplementation(async (callback) => {
+      activate = callback;
+      return () => undefined;
+    });
+    getPendingMarkdownFileOpensMock.mockResolvedValue([path]);
+    vi.mocked(claimDocumentPath).mockResolvedValueOnce({ path, fragment: "first" });
+    readTextFileMock.mockReturnValue(read.promise);
+    mockGalleyGetHeadings.mockReturnValue([
+      { level: 1, text: "First", from: 0, to: 7, slug: "first" },
+      { level: 1, text: "Latest", from: 8, to: content.length, slug: "latest" },
+    ]);
+
+    render(<App />);
+    await waitFor(() => expect(readTextFileMock).toHaveBeenCalledWith(path));
+    const tabId = vi.mocked(claimDocumentPath).mock.calls[0][1];
+    act(() => activate?.(tabId, "latest"));
+    await act(async () => read.resolve({ path, content, lineEnding: "lf", lastModifiedAt: 30 }));
+
+    await waitFor(() => expect(mockGalleyRevealPosition).toHaveBeenCalledWith(8, expect.objectContaining({ focus: true })));
+    expect(mockGalleyRevealPosition).not.toHaveBeenCalledWith(0, expect.anything());
+  });
+
+  it("retains a pending heading fragment when retrying a legacy-encoded file", async () => {
+    const path = "/tmp/legacy-heading.md";
+    getPendingMarkdownFileOpensMock.mockResolvedValue([path]);
+    vi.mocked(claimDocumentPath).mockResolvedValueOnce({ path, fragment: "привет" });
+    readTextFileMock.mockRejectedValueOnce(new UnsupportedFileEncodingError(path, "Unsupported encoding"))
+      .mockResolvedValue({ path, content: "# Привет", encoding: "windows1251", lineEnding: "lf", lastModifiedAt: 30 });
+    mockGalleyGetHeadings.mockReturnValue([{ level: 1, text: "Привет", from: 0, to: 8, slug: "привет" }]);
+
+    render(<App />);
+    await userEvent.click(await screen.findByRole("button", { name: "Open as Windows-1251" }));
+    await waitFor(() => expect(mockGalleyRevealPosition).toHaveBeenCalledWith(0, expect.objectContaining({ focus: true })));
   });
 
   it("opens a pending missing Markdown file as an empty file-backed tab", async () => {
@@ -2582,6 +2735,28 @@ describe("App", () => {
     ).toHaveTextContent("deleted.md was deleted on disk.");
   });
 
+  it("ignores a pending delete check after acknowledging the deletion", async () => {
+    const path = "/tmp/pending-delete.md";
+    const deleted = { path, content: "", lineEnding: "lf" as const, lastModifiedAt: null };
+    const pending = deferred<Awaited<ReturnType<typeof readTextFile>>>();
+    window.history.replaceState(null, "", "/?open=" + path);
+    readTextFileMock
+      .mockResolvedValueOnce({ path, content: "Loaded", lineEnding: "lf", lastModifiedAt: 10 })
+      .mockResolvedValueOnce(deleted)
+      .mockReturnValueOnce(pending.promise);
+    render(<App />);
+    await screen.findByRole("button", { name: "Close pending-delete.md" });
+
+    act(() => window.dispatchEvent(new Event("focus")));
+    await screen.findByRole("status", { name: "External file deletion" });
+    act(() => window.dispatchEvent(new Event("focus")));
+    await waitFor(() => expect(readTextFileMock).toHaveBeenCalledTimes(3));
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+
+    await act(async () => pending.resolve(deleted));
+    expect(screen.queryByRole("status", { name: "External file deletion" })).not.toBeInTheDocument();
+  });
+
   it("does not repeat a deleted-file banner after keep editing", async () => {
     window.history.replaceState(null, "", "/?open=/tmp/deleted.md");
     readTextFileMock
@@ -2705,6 +2880,78 @@ describe("App", () => {
       screen.findByRole("alert", { name: "File command error" }),
     ).resolves.toHaveTextContent("Use Save As to preserve your changes");
     expect(writeTextFileMock).not.toHaveBeenCalled();
+  });
+
+  it("lets a dirty editor compare an external encoding change without losing edits", async () => {
+    const path = "/tmp/reencoded.md";
+    window.history.replaceState(null, "", "/?open=" + path);
+    readTextFileMock
+      .mockResolvedValueOnce({ path, content: "Original", lineEnding: "lf", lastModifiedAt: 10 })
+      .mockRejectedValueOnce(new UnsupportedFileEncodingError(path, "Unsupported file encoding"))
+      .mockResolvedValueOnce({
+        path, content: "Привет", encoding: "windows1251", lineEnding: "lf", lastModifiedAt: 11,
+      });
+    render(<App />);
+
+    await screen.findByRole("button", { name: "Close reencoded.md" });
+    const editor = screen.getByRole("textbox", { name: "Mock Galley Editor" });
+    expect(editor).toHaveValue("Original");
+    fireEvent.change(editor, { target: { value: "Local draft" } });
+    act(() => window.dispatchEvent(new Event("focus")));
+
+    await screen.findByRole("status", { name: "External file encoding" });
+    fireEvent.click(screen.getByRole("button", { name: "Read as Windows-1251" }));
+    await screen.findByRole("status", { name: "External file conflict" });
+    expect(readTextFileMock).toHaveBeenLastCalledWith(path, "windows1251");
+    expect(editor).toHaveValue("Local draft");
+    fireEvent.click(screen.getByRole("button", { name: "Reconcile" }));
+    expect(await screen.findByRole("region", { name: "Incoming from disk" })).toHaveTextContent("Привет");
+  });
+
+  it("navigates to an activated heading after the reconciliation pane closes", async () => {
+    const path = "/tmp/heading-conflict.md";
+    let activate: Parameters<typeof listenForDocumentActivation>[0] | undefined;
+    vi.mocked(listenForDocumentActivation).mockImplementation(async (callback) => {
+      activate = callback;
+      return () => undefined;
+    });
+    getPendingMarkdownFileOpensMock.mockResolvedValue([path]);
+    readTextFileMock
+      .mockResolvedValueOnce({ path, content: "# Heading", lineEnding: "lf", lastModifiedAt: 10 })
+      .mockResolvedValue({ path, content: "# Disk", lineEnding: "lf", lastModifiedAt: 11 });
+    mockGalleyGetHeadings.mockReturnValue([{ level: 1, text: "Heading", from: 0, to: 9, slug: "heading" }]);
+    render(<App />);
+    await screen.findByRole("tab", { name: "heading-conflict.md" });
+    fireEvent.change(screen.getByRole("textbox", { name: "Mock Galley Editor" }), { target: { value: "# Heading\nEdited" } });
+    act(() => window.dispatchEvent(new Event("focus")));
+    await screen.findByRole("status", { name: "External file conflict" });
+    fireEvent.click(screen.getByRole("button", { name: "Reconcile" }));
+    await screen.findByRole("region", { name: "Incoming from disk" });
+    const tabId = vi.mocked(claimDocumentPath).mock.calls[0][1];
+    act(() => activate?.(tabId, "heading"));
+    await act(async () => { await new Promise(requestAnimationFrame); });
+    expect(mockGalleyRevealPosition).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alert", { name: "File command error" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Back to editor" }));
+    await waitFor(() => expect(mockGalleyRevealPosition).toHaveBeenCalledWith(0, expect.objectContaining({ focus: true })));
+  });
+
+  it("clears an encoding warning when the original disk content returns with new metadata", async () => {
+    const path = "/tmp/restored-encoding.md";
+    window.history.replaceState(null, "", "/?open=" + path);
+    readTextFileMock
+      .mockResolvedValueOnce({ path, content: "Original", lineEnding: "lf", lastModifiedAt: 10 })
+      .mockRejectedValueOnce(new UnsupportedFileEncodingError(path, "Unsupported file encoding"))
+      .mockResolvedValue({ path, content: "Original", lineEnding: "lf", lastModifiedAt: 11 });
+
+    render(<App />);
+    await screen.findByRole("button", { name: "Close restored-encoding.md" });
+    act(() => window.dispatchEvent(new Event("focus")));
+    await screen.findByRole("status", { name: "External file encoding" });
+
+    act(() => window.dispatchEvent(new Event("focus")));
+
+    await waitFor(() => expect(screen.queryByRole("status", { name: "External file encoding" })).not.toBeInTheDocument());
   });
 
   it("does not show command errors for background external check failures", async () => {

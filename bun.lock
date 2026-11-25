@@ -11,8 +11,8 @@
         "@codemirror/search": "^6.7.3",
         "@codemirror/state": "^6.7.6",
         "@codemirror/view": "^6.44.0",
-        "@inkyquill/galley-editor": "0.18.0",
-        "@inkyquill/galley-themes": "0.18.0",
+        "@inkyquill/galley-editor": "0.18.1",
+        "@inkyquill/galley-themes": "0.18.1",
         "@lezer/highlight": "^1.2.5",
         "@lezer/markdown": "^1.8.2",
         "@tauri-apps/api": "^2.12.5",
@@ -175,9 +175,9 @@
 
     "@humanwhocodes/retry": ["@humanwhocodes/retry@0.4.3", "", {}, "sha512-bV0Tgo9K4hfPCek+aMAn81RppFKv2ySDQeMoSZuvTASywNTnVJCArCZE2FWqpvIatKu7VMRLWlR1EazvVhDyhQ=="],
 
-    "@inkyquill/galley-editor": ["@inkyquill/galley-editor@0.18.0", "", { "peerDependencies": { "@codemirror/commands": ">=6.10.0", "@codemirror/lang-markdown": ">=6.5.0", "@codemirror/language": ">=6.12.0", "@codemirror/search": ">=6.5.0", "@codemirror/state": ">=6.6.0", "@codemirror/view": ">=6.41.0", "@lezer/highlight": ">=1.2.0", "@lezer/markdown": ">=1.6.0", "react": ">=18", "react-dom": ">=18" } }, "sha512-CN3PbcuZDAUV9y7abO01Z0DL9GCYMDYBoYriDhavCB7hdoxiyceBMw/k4u+LokXWhsZq7ZICPO8mQHZ2ZDLEAw=="],
+    "@inkyquill/galley-editor": ["@inkyquill/galley-editor@0.18.1", "", { "peerDependencies": { "@codemirror/commands": ">=6.10.0", "@codemirror/lang-markdown": ">=6.5.0", "@codemirror/language": ">=6.12.0", "@codemirror/search": ">=6.5.0", "@codemirror/state": ">=6.6.0", "@codemirror/view": ">=6.41.0", "@lezer/highlight": ">=1.2.0", "@lezer/markdown": ">=1.6.0", "react": ">=18", "react-dom": ">=18" } }, "sha512-1UWAzbI5A+yKSzFcclzkGvSOzO3iJhty9x4Z5YJo80oi6qGk1SBQVKjiLrr+pwv73aJY2ub0PvM7AXuUcC04Iw=="],
 
-    "@inkyquill/galley-themes": ["@inkyquill/galley-themes@0.18.0", "", {}, "sha512-VqYi4BXXJm44/BMskYm3BG4xOXzBQpQnHwtS8DtYk2Ou3/uQg7hcY7EK9gixGiyhU0h/K7YiSiakfY19djMcGg=="],
+    "@inkyquill/galley-themes": ["@inkyquill/galley-themes@0.18.1", "", {}, "sha512-yw8tKj57QhpnUbZGSq7GkOycufoj9b6LpbxFXZ6MfhiCFSbdL/up35VImQ/43/II5nF8RzaYw0uEj3WRI1znew=="],
 
     "@isaacs/nonrecursive-glob-match": ["@isaacs/nonrecursive-glob-match@1.1.0", "", {}, "sha512-GPm/Dbvk5RLmhRnxXIa7nTpK0xtl4E0wj0MslsuNiJ1FIROU+2+9lgUC/dgF7Ey4QCWhfEsgxilMRMCdHPfDfw=="],
 

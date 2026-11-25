@@ -165,7 +165,7 @@ export function FontPicker({
       const spaceAbove = rect.top - viewportPadding;
       const placeAbove = spaceBelow < 280 && spaceAbove > spaceBelow;
       const maxHeight = Math.max(
-        220,
+        0,
         Math.min(420, placeAbove ? spaceAbove - 8 : spaceBelow - 8),
       );
 

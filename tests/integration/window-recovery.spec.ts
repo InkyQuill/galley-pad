@@ -6,7 +6,9 @@ type DesktopTestBridge = {
   files: Record<string, string>;
   pending: Array<{ path: string; allowMissing: boolean }>;
   recent: string[];
+  pendingMenu: string[];
   swap?: PersistedSwapState;
+  finishWrite?: () => void;
   calls: Array<{ command: string; args: Record<string, unknown> }>;
 };
 
@@ -18,7 +20,7 @@ declare global {
 
 async function installDesktopTestBridge(
   page: Page,
-  initial: Pick<DesktopTestBridge, "files" | "pending" | "swap"> = { files: {}, pending: [] },
+  initial: Pick<DesktopTestBridge, "files" | "pending" | "swap"> & { pendingMenu?: string[]; reservedFragment?: string } = { files: {}, pending: [] },
 ) {
   await page.addInitScript((startup) => {
     const callbacks = new Map<number, (event: unknown) => void>();
@@ -30,6 +32,7 @@ async function installDesktopTestBridge(
         files: startup.files,
         pending: startup.pending,
         recent: [],
+        pendingMenu: startup.pendingMenu ?? [],
         swap: startup.swap,
         emit(event: string, payload: unknown) {
           const handler = callbacks.get(listeners.get(event) ?? 0);
@@ -52,14 +55,26 @@ async function installDesktopTestBridge(
             return args.handler;
           }
           const bridge = window.desktopTestBridge;
+          if (command === "take_pending_menu_commands") return bridge.pendingMenu.splice(0);
           if (command === "take_pending_markdown_file_opens") return bridge.pending.splice(0);
-          if (command === "claim_document_path") return args.path;
+          if (command === "resolve_document_reference") return "/drafts/" + args.relativePath;
+          if (command === "claim_document_path") {
+            return startup.reservedFragment ? {path: args.path, fragment: startup.reservedFragment} : args.path;
+          }
           if (command === "read_swap_state") return bridge.swap ?? null;
           if (command === "read_recent_files") return bridge.recent;
           if (command === "update_recent_file") {
             const path = String(args.path);
             bridge.recent = bridge.recent.filter((entry) => entry !== path);
             if (args.remember) bridge.recent.unshift(path);
+          }
+          if (command === "write_text_file") {
+            const path = String(args.path);
+            const content = String(args.content);
+            await new Promise<void>((resolve) => { bridge.finishWrite = resolve; });
+            delete bridge.finishWrite;
+            bridge.files[path] = content;
+            return { path, content, lineEnding: "lf", lastModifiedAt: 2, exists: true };
           }
           if (command === "read_text_file") {
             const path = String(args.path);
@@ -127,18 +142,18 @@ test("opens a dropped Markdown file and warns after an active-file watcher notif
 
   await page.evaluate(() => {
     const bridge = window.desktopTestBridge;
-    bridge.files["/drafts/dropped.md"] = "Before disk edit";
-    bridge.emit("tauri://drag-drop", { paths: ["/drafts/ignore.png", "/drafts/dropped.md"], position: { x: 1, y: 1 } });
+    bridge.files["/drafts/dropped.txt"] = "Before disk edit";
+    bridge.emit("tauri://drag-drop", { paths: ["/drafts/ignore.png", "/drafts/dropped.txt"], position: { x: 1, y: 1 } });
   });
   await expect(page.getByRole("tabpanel").locator(".cm-content")).toHaveText("Before disk edit");
   await expect.poll(() => page.evaluate(() => window.desktopTestBridge.calls.some(
-    ({ command, args }) => command === "watch_active_document" && args.path === "/drafts/dropped.md",
+    ({ command, args }) => command === "watch_active_document" && args.path === "/drafts/dropped.txt",
   ))).toBe(true);
 
   await page.evaluate(() => {
     const bridge = window.desktopTestBridge;
-    bridge.files["/drafts/dropped.md"] = "After disk edit";
-    bridge.emit("active-document-changed", "/drafts/dropped.md");
+    bridge.files["/drafts/dropped.txt"] = "After disk edit";
+    bridge.emit("active-document-changed", "/drafts/dropped.txt");
   });
   await expect(page.getByRole("status", { name: "External file update" })).toBeVisible();
   await page.getByRole("button", { name: "Reload", exact: true }).click();
@@ -189,4 +204,147 @@ test("announces recovered unsaved changes and reopens saved tabs from disk", asy
   await expect(page.getByRole("status", { name: "Editor recovery" })).toHaveText(/Recovered unsaved changes/);
   await page.getByRole("tab", { name: "saved.md" }).click();
   await expect(editor).toHaveText("Latest saved text");
+});
+
+test("can reach the last recent file at the minimum window size", async ({ page }) => {
+  await installDesktopTestBridge(page);
+  await page.setViewportSize({ width: 640, height: 420 });
+  await page.goto("/");
+  await expect.poll(() => page.evaluate(() => window.desktopTestBridge.calls.some(
+    ({ command, args }) => command === "plugin:event|listen" && args.event === "app-menu-command",
+  ))).toBe(true);
+  await page.evaluate(() => {
+    const bridge = window.desktopTestBridge;
+    bridge.recent = Array.from({ length: 12 }, (_, index) => `/drafts/note-${index + 1}.md`);
+    bridge.files["/drafts/note-12.md"] = "Last file";
+    bridge.emit("app-menu-command", "open-recent");
+  });
+  const dialog = page.getByRole("dialog", { name: "Open Recent" });
+  await expect(dialog).toBeVisible();
+  const box = await dialog.boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.move(box!.x + 100, box!.y + 100);
+  await page.mouse.wheel(0, 1000);
+  const last = dialog.getByRole("button", { name: /^note-12\.md/ });
+  await expect(last).toBeInViewport({ ratio: 1 });
+  await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeInViewport();
+  await last.click();
+  await expect(page.getByRole("tabpanel").locator(".cm-content")).toHaveText("Last file");
+});
+
+test("a relative link opens its target document at the requested heading", async ({ page }) => {
+  await installDesktopTestBridge(page, {
+    files: { "/drafts/index.md": "[Read notes](notes.md#part-two)", "/drafts/notes.md": "# Start\n\n## Part two\n\nEnd" },
+    pending: [{ path: "/drafts/index.md", allowMissing: false }],
+  });
+  await page.addInitScript(() => { Object.assign(window, { isTauri: true }); });
+  await page.goto("/");
+  const editor = page.getByRole("tabpanel").locator(".cm-content");
+  await expect(editor).toContainText("Read notes");
+  await page.getByRole("combobox", {name: "Editor mode"}).selectOption("preview");
+  await editor.getByText("Read notes").click({modifiers: ["ControlOrMeta"]});
+  await expect(editor).toContainText("Part two");
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.anchorNode?.parentElement?.closest(".cm-line")?.textContent)).toContain("Part two");
+});
+
+
+test("delivers Settings queued before the desktop window is ready", async ({ page }) => {
+  await installDesktopTestBridge(page, { files: {}, pending: [], pendingMenu: ["settings"] });
+  await page.goto("/");
+  await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
+});
+
+test("applies a queued preview command to the newly created tab", async ({ page }) => {
+  await installDesktopTestBridge(page, { files: {}, pending: [], pendingMenu: ["new", "mode-preview"] });
+  await page.goto("/");
+  await expect(page.getByRole("tab")).toHaveCount(2);
+  await expect(page.getByRole("tabpanel").getByRole("combobox", { name: "Editor mode" })).toHaveValue("preview");
+});
+
+test("cancels an expired quit prompt without clearing the dirty workspace", async ({ page }) => {
+  await installDesktopTestBridge(page);
+  await page.goto("/");
+  const editor = page.getByRole("tabpanel").locator(".cm-content");
+  await editor.click();
+  await page.keyboard.insertText("Unsaved while waiting");
+  await expect.poll(() => page.evaluate(() => window.desktopTestBridge.calls.some(
+    ({ command }) => command === "register_app_quit_window",
+  ))).toBe(true);
+  await page.evaluate(() => window.desktopTestBridge.emit("app-quit-check", 10));
+  await expect(page.getByRole("button", { name: "Discard" })).toBeVisible();
+  await page.evaluate(() => window.desktopTestBridge.emit("app-quit-cancelled", 10));
+  await expect(page.getByRole("button", { name: "Discard" })).toHaveCount(0);
+  await expect(editor).toHaveText("Unsaved while waiting");
+  await expect(editor).toBeEditable();
+});
+
+
+test("finishes the current save before closing a tab and preserves mixed line endings", async ({ page }) => {
+  const path = "/drafts/mixed.md";
+  await installDesktopTestBridge(page, {
+    files: { [path]: "First\r\nSecond\nThird\r\n" },
+    pending: [{ path, allowMissing: false }],
+  });
+  await page.goto("/");
+  const editor = page.getByRole("tabpanel").locator(".cm-content");
+  await expect(editor).toContainText("Second");
+  await page.getByRole("button", { name: "New tab" }).click();
+  await page.getByRole("tab", { name: "mixed.md" }).click();
+  await editor.press("Control+Home");
+  await editor.press("ArrowDown");
+  await editor.press("Home");
+  await page.keyboard.insertText("Edited ");
+  await expect(editor).toContainText("Edited Second");
+
+  expect(await page.evaluate(() => window.desktopTestBridge.emit("app-menu-command", "save"))).toBe(true);
+  await expect.poll(() => page.evaluate(() => Boolean(window.desktopTestBridge.finishWrite))).toBe(true);
+  await page.getByRole("button", { name: "Close mixed.md" }).click();
+  await expect(page.getByRole("tab", { name: /mixed.md/ })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Save changes?" })).toHaveCount(0);
+
+  await page.evaluate(() => window.desktopTestBridge.finishWrite?.());
+  await expect(page.getByRole("tab", { name: /mixed.md/ })).toHaveCount(0);
+  expect(await page.evaluate((file) => window.desktopTestBridge.files[file], path))
+    .toBe("First\r\nEdited Second\nThird\r\n");
+});
+
+test("answers coordinated quit only after the running save finishes", async ({ page }) => {
+  const path = "/drafts/saving.md";
+  await installDesktopTestBridge(page, {
+    files: { [path]: "Original" },
+    pending: [{ path, allowMissing: false }],
+  });
+  await page.goto("/");
+  const editor = page.getByRole("tabpanel").locator(".cm-content");
+  await expect(editor).toHaveText("Original");
+  await editor.press("End");
+  await page.keyboard.insertText(" saved");
+
+  expect(await page.evaluate(() => window.desktopTestBridge.emit("app-menu-command", "save"))).toBe(true);
+  await expect.poll(() => page.evaluate(() => Boolean(window.desktopTestBridge.finishWrite))).toBe(true);
+  expect(await page.evaluate(() => window.desktopTestBridge.emit("app-quit-check", 11))).toBe(true);
+  await expect(page.getByRole("dialog", { name: "Save changes?" })).toHaveCount(0);
+  const answers = () => page.evaluate(() =>
+    window.desktopTestBridge.calls.filter(({ command }) => command === "answer_app_quit_check"),
+  );
+  expect(await answers()).toEqual([]);
+
+  await page.evaluate(() => window.desktopTestBridge.finishWrite?.());
+  await expect.poll(answers).toEqual([
+    { command: "answer_app_quit_check", args: { requestId: 11, approved: true } },
+  ]);
+  expect(await page.evaluate((file) => window.desktopTestBridge.files[file], path)).toBe("Original saved");
+});
+
+
+test("a starting window reveals a heading requested during its document reservation", async ({ page }) => {
+  const path = "/drafts/reserved.md";
+  await installDesktopTestBridge(page, {
+    files: { [path]: "# First\n\n## Queued heading" },
+    pending: [{ path, allowMissing: false }],
+    reservedFragment: "queued-heading",
+  });
+  await page.goto("/");
+  await expect(page.getByRole("tab", {name: "reserved.md"})).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.anchorNode?.parentElement?.closest(".cm-line")?.textContent)).toContain("Queued heading");
 });

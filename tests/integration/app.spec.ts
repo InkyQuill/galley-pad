@@ -352,6 +352,10 @@ test("hides the Galley toolbar by default and shows it with the toolbar shortcut
 
   await expect(page.locator(".ge-toolbar")).toBeVisible();
   await expect(page.locator(".ge-toolbar svg").first()).toBeVisible();
+  await page.locator(".cm-content").click();
+  await page.keyboard.type("Chapter");
+  await page.getByRole("combobox", { name: "Text style" }).selectOption({ label: "Heading 2" });
+  await expect(page.locator(".cm-line.ge-h2")).toContainText("Chapter");
 });
 
 test.describe("Linux Wayland footer menu", () => {

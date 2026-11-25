@@ -1,38 +1,66 @@
-import { useCallback, useRef, useState } from "react";
+import { useEffect, useMemo, useReducer } from "react";
 import type { GalleyImageInfo } from "@inkyquill/galley-editor";
-import {
-  relativeDocumentReference,
-  resolveDocumentReference,
-} from "../tauri/documentAssets";
+import { relativeDocumentReference, resolveDocumentReference, watchDocumentImages } from "../tauri/documentAssets";
 
-export function useDocumentImages(
-  documentPath: string | null,
-  allowRemoteImages: boolean,
-) {
-  const pending = useRef(new Set<string>());
-  const [sources, setSources] = useState<ReadonlyMap<string, string | null>>(
-    () => new Map(),
-  );
+export function useDocumentImages(documentPath: string | null, allowRemoteImages: boolean, active = true) {
+  const [revision, refresh] = useReducer((n: number) => n + 1, 0);
+  const [resolved, notify] = useReducer((n: number) => n + 1, 0);
+  // A retained tab can miss file events while inactive. Give each activation
+  // and filesystem refresh its own asset URLs, including after reopening a tab.
+  const { sources, version } = useMemo(() => ({
+    sources: new Map<string, string | null>(),
+    version: crypto.randomUUID(),
+  }), [documentPath, revision, active]);
+  const references = useMemo(() => new Map<string, string | null>(), [documentPath, active]);
+  const watchList = useMemo(() => JSON.stringify(
+    [...references].sort(([left], [right]) => left.localeCompare(right)),
+  ), [references, resolved]);
 
-  return useCallback(({ url }: GalleyImageInfo) => {
-    if (/^data:image\/(?:png|jpeg|gif|webp|avif|bmp|svg\+xml)[;,]/i.test(url)) {
-      return undefined;
-    }
-    if (/^https:\/\//i.test(url)) return allowRemoteImages ? undefined : null;
-    if (!documentPath || !relativeDocumentReference(url)) return null;
+  useEffect(() => {
+    if (!documentPath || !active || watchList === "[]") return;
+    const paths = (JSON.parse(watchList) as [string, string | null][]).map(([path]) => path);
+    let disposed = false;
+    let timer: number | undefined;
+    let unlisten: (() => void) | undefined;
+    const changed = () => {
+      if (disposed) return;
+      window.clearTimeout(timer);
+      timer = window.setTimeout(refresh, 80);
+    };
+    void watchDocumentImages(documentPath, paths, changed).then(stop => {
+      if (disposed) {
+        stop();
+      } else {
+        unlisten = stop;
+        // Recheck changes between the first lookup and native registration.
+        refresh();
+      }
+    }).catch(() => {});
+    window.addEventListener("focus", changed);
+    return () => {
+      disposed = true;
+      window.clearTimeout(timer);
+      window.removeEventListener("focus", changed);
+      unlisten?.();
+    };
+  }, [documentPath, active, watchList]);
 
-    const key = `${documentPath}\0${url}`;
-    if (sources.has(key)) return sources.get(key) ?? null;
-    if (!pending.current.has(key)) {
-      pending.current.add(key);
-      void resolveDocumentReference(documentPath, url, "image")
-        .catch(() => null)
-        .then((source) => {
-          setSources((previous) => new Map(previous).set(key, source));
-        })
-        .finally(() => pending.current.delete(key));
-    }
-
-    return null;
-  }, [documentPath, allowRemoteImages, sources]);
+  return useMemo(() => {
+    const resolve = ({ url }: GalleyImageInfo) => {
+      if (/^data:image\/(?:png|jpeg|gif|webp|avif|bmp|svg\+xml)[;,]/i.test(url)) return undefined;
+      if (/^https:\/\//i.test(url)) return allowRemoteImages ? undefined : null;
+      const relativePath = relativeDocumentReference(url);
+      if (!active || !documentPath || !relativePath) return null;
+      if (!sources.has(url)) {
+        sources.set(url, null);
+        void resolveDocumentReference(documentPath, url, "image").catch(() => null).then(source => {
+          sources.set(url, source ? `${source}?v=${version}` : null);
+          references.set(relativePath, source);
+          notify();
+        });
+      }
+      return sources.get(url) ?? null;
+    };
+    return resolve;
+  }, [sources, version, documentPath, allowRemoteImages, active, references, resolved]);
 }

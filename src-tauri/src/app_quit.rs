@@ -1,11 +1,15 @@
 use std::{
     collections::{HashSet, VecDeque},
     sync::Mutex,
+    thread,
+    time::Duration,
 };
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 
 const CHECK_EVENT: &str = "app-quit-check";
 const CLEAR_EVENT: &str = "app-quit-clear";
+const CHECK_TIMEOUT: Duration = Duration::from_secs(120);
+const CLEAR_TIMEOUT: Duration = Duration::from_secs(10);
 const CANCEL_EVENT: &str = "app-quit-cancelled";
 
 #[derive(Default)]
@@ -13,6 +17,8 @@ pub(super) struct AppQuit(Mutex<QuitState>);
 
 #[derive(Default)]
 struct QuitState {
+    ready: HashSet<String>,
+    deferred: Option<(Vec<String>, i32)>,
     next_id: u64,
     request: Option<QuitRequest>,
     exit_approved: bool,
@@ -43,6 +49,34 @@ enum Step {
 }
 
 impl QuitState {
+    fn register(&mut self, label: &str) -> Step {
+        self.ready.insert(label.to_owned());
+        self.resume_deferred()
+    }
+
+    fn request_exit(&mut self, windows: Vec<String>, code: i32) -> Step {
+        if self.request.is_some() {
+            return Step::Wait;
+        }
+        self.deferred.get_or_insert((windows, code));
+        self.resume_deferred()
+    }
+
+    fn resume_deferred(&mut self) -> Step {
+        let Some((windows, _)) = &self.deferred else {
+            return Step::Wait;
+        };
+        if windows.iter().any(|label| !self.ready.contains(label)) {
+            return Step::Wait;
+        }
+        let (windows, code) = self.deferred.take().unwrap();
+        if windows.is_empty() {
+            self.exit_approved = true;
+            return Step::Exit(code);
+        }
+        self.begin(windows, code)
+    }
+
     fn begin(&mut self, windows: Vec<String>, code: i32) -> Step {
         if self.request.is_some() {
             return Step::Wait;
@@ -91,7 +125,27 @@ impl QuitState {
         Step::Clear(participants, id)
     }
 
+    fn expire_check(&mut self, id: u64, label: &str) -> Step {
+        self.checked(id, label, false)
+    }
+
+    fn expire_clear(&mut self, id: u64) -> Step {
+        if !self.request.as_ref().is_some_and(|request| {
+            request.id == id && matches!(request.phase, Phase::Clearing { .. })
+        }) {
+            return Step::Wait;
+        }
+        let code = self.request.take().expect("active clear phase").code;
+        self.exit_approved = true;
+        Step::Exit(code)
+    }
+
     fn window_destroyed(&mut self, label: &str) -> Step {
+        self.ready.remove(label);
+        if let Some((windows, _)) = &mut self.deferred {
+            windows.retain(|window| window != label);
+            return self.resume_deferred();
+        }
         let Some(request) = &self.request else {
             return Step::Wait;
         };
@@ -133,9 +187,22 @@ fn advance(app: &AppHandle, step: Step) {
             let delivered = app.get_webview_window(&label).is_some_and(|window| {
                 let _ = window.unminimize();
                 let _ = window.set_focus();
-                window.emit(CHECK_EVENT, id).is_ok()
+                super::window_events::emit_editor_event(&window, CHECK_EVENT, id).is_ok()
             });
-            if !delivered {
+            if delivered {
+                let app = app.clone();
+                thread::spawn(move || {
+                    thread::sleep(CHECK_TIMEOUT);
+                    let state = app.state::<AppQuit>();
+                    let step = state
+                        .0
+                        .lock()
+                        .map(|mut state| state.expire_check(id, &label));
+                    if let Ok(step) = step {
+                        advance(&app, step);
+                    }
+                });
+            } else {
                 let state = app.state::<AppQuit>();
                 let next = state
                     .0
@@ -147,11 +214,19 @@ fn advance(app: &AppHandle, step: Step) {
             }
         }
         Step::Clear(labels, id) => {
+            let deadline_app = app.clone();
+            thread::spawn(move || {
+                thread::sleep(CLEAR_TIMEOUT);
+                let state = deadline_app.state::<AppQuit>();
+                let step = state.0.lock().map(|mut state| state.expire_clear(id));
+                if let Ok(step) = step {
+                    advance(&deadline_app, step);
+                }
+            });
             for label in labels {
-                if !app
-                    .get_webview_window(&label)
-                    .is_some_and(|window| window.emit(CLEAR_EVENT, id).is_ok())
-                {
+                if !app.get_webview_window(&label).is_some_and(|window| {
+                    super::window_events::emit_editor_event(&window, CLEAR_EVENT, id).is_ok()
+                }) {
                     let state = app.state::<AppQuit>();
                     let next = state.0.lock().map(|mut state| state.cleared(id, &label));
                     if let Ok(next) = next {
@@ -179,7 +254,7 @@ pub(super) fn in_progress(app: &AppHandle) -> bool {
     app.state::<AppQuit>()
         .0
         .lock()
-        .map(|state| state.request.is_some())
+        .map(|state| state.deferred.is_some() || state.request.is_some())
         .unwrap_or(true)
 }
 
@@ -208,7 +283,7 @@ pub(super) fn guard_exit(app: &AppHandle, code: Option<i32>, api: &tauri::ExitRe
             window.label().to_owned(),
         )
     });
-    let step = state.begin(
+    let step = state.request_exit(
         windows
             .iter()
             .map(|window| window.label().to_owned())
@@ -217,6 +292,24 @@ pub(super) fn guard_exit(app: &AppHandle, code: Option<i32>, api: &tauri::ExitRe
     );
     drop(state);
     advance(app, step);
+}
+
+#[tauri::command]
+pub(super) fn register_app_quit_window(
+    window: WebviewWindow,
+    quit: State<'_, AppQuit>,
+) -> Result<(), String> {
+    let step = quit
+        .0
+        .lock()
+        .map_err(|_| "Quit request is unavailable")?
+        .register(window.label());
+    advance(window.app_handle(), step);
+    #[cfg(target_os = "linux")]
+    if window.label() == super::MAIN_WINDOW_LABEL {
+        super::signal_linux_display_ready_once();
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -257,6 +350,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn startup_quit_resumes_when_last_window_registers_or_closes() {
+        for closed in [false, true] {
+            let mut state = QuitState::default();
+            state.register("main");
+            assert!(matches!(
+                state.request_exit(vec!["main".into(), "starting".into()], 7),
+                Step::Wait
+            ));
+            let step = if closed {
+                state.window_destroyed("starting")
+            } else {
+                state.register("starting")
+            };
+            assert!(matches!(step, Step::Check(label, _) if label == "main"));
+            assert_eq!(state.request.as_ref().unwrap().code, 7);
+        }
+    }
+
+    #[test]
     fn cancelled_quit_keeps_all_window_recovery_snapshots() {
         let mut state = QuitState::default();
         let windows = vec!["main".into(), "secondary".into()];
@@ -283,5 +395,36 @@ mod tests {
         assert!(matches!(state.cleared(1, "main"), Step::Wait));
         assert!(matches!(state.cleared(1, "secondary"), Step::Exit(0)));
         assert!(state.exit_approved);
+    }
+}
+
+#[cfg(test)]
+mod deadline_tests {
+    use super::*;
+
+    #[test]
+    fn an_expired_check_cancels_only_the_current_window() {
+        let mut state = QuitState::default();
+        state.begin(vec!["main".into(), "secondary".into()], 0);
+        state.checked(1, "main", true);
+        assert!(matches!(state.expire_check(1, "main"), Step::Wait));
+        assert!(matches!(
+            state.expire_check(1, "secondary"),
+            Step::Cancel(1)
+        ));
+        assert!(matches!(state.checked(1, "secondary", true), Step::Wait));
+        assert!(matches!(
+            state.begin(vec!["main".into()], 0),
+            Step::Check(_, 2)
+        ));
+    }
+
+    #[test]
+    fn cleanup_timeout_exits_only_after_every_window_approved() {
+        let mut state = QuitState::default();
+        state.begin(vec!["main".into()], 0);
+        assert!(matches!(state.expire_clear(1), Step::Wait));
+        state.checked(1, "main", true);
+        assert!(matches!(state.expire_clear(1), Step::Exit(0)));
     }
 }

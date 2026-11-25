@@ -16,9 +16,38 @@ type DeletedProps = {
   onKeepEditing: () => void;
 };
 
-export type ExternalFileBannerProps = UpdateProps | DeletedProps;
+type EncodingProps = {
+  kind: "encoding";
+  displayName: string;
+  onDecode: () => void;
+  onSaveAs: () => void;
+};
+
+export type ExternalFileBannerProps = UpdateProps | DeletedProps | EncodingProps;
 
 export function ExternalFileBanner(props: ExternalFileBannerProps) {
+  if (props.kind === "encoding") {
+    return (
+      <section
+        className="external-file-banner external-file-banner-warning"
+        role="status"
+        aria-label="External file encoding"
+      >
+        <div>
+          <strong>{props.displayName} has an unrecognized encoding on disk.</strong>
+          <p>The editor still has your current content.</p>
+        </div>
+        <div className="external-file-banner-actions">
+          <button type="button" className="button-secondary" onClick={props.onSaveAs}>
+            Save As
+          </button>
+          <button type="button" className="button-primary" onClick={props.onDecode}>
+            Read as Windows-1251
+          </button>
+        </div>
+      </section>
+    );
+  }
   if (props.kind === "deleted") {
     return (
       <section

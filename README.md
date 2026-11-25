@@ -16,7 +16,7 @@ It is not a notes workspace, not a second brain, and not an IDE. It is a documen
 
 ## What It Does
 
-- Opens `.md` and `.markdown` files from the file manager, desktop launcher, command line, or a file drop. Reopen a recent document from **File → Open Recent**.
+- Opens `.md`, `.markdown`, and `.txt` files from the file manager, desktop launcher, command line, or a file drop. Reopen a recent document from **File → Open Recent**.
 - Provides a focused Markdown editing surface powered by Galley Editor.
 - Saves normal files on disk instead of hiding content in a workspace database.
 - Opens multiple documents in tabs or separate windows and switches to the existing tab when the same file is requested again.
@@ -53,7 +53,7 @@ Create a new file by opening a path that does not exist yet:
 gpad new-draft.md
 ```
 
-Relative paths are resolved from the directory where `gpad` is run. Absolute paths stay absolute. The file is created on disk when it is saved.
+Relative paths are resolved from the directory where `gpad` is run. Absolute paths stay absolute. The file is created on disk when it is saved. Paths that cannot be represented as UTF-8 are reported and skipped.
 
 File-manager opens require an existing file. Use `gpad --open-existing file.md`
 when launching from scripts that should treat a missing path as an error.
@@ -61,7 +61,9 @@ Each open window has its own crash-recovery snapshot. It stores text for
 unsaved edits and reloads saved tabs from disk. Galley Pad displays a notice
 when it restores unsaved edits. Closing a window clears its snapshot, and
 quitting asks about unsaved work in every open window.
-Changes to application settings are shared across windows.
+Changes to application settings are shared across windows. If a settings or
+recent-files JSON file is damaged, Galley Pad keeps it beside the new file
+with a `.corrupt-` suffix and starts from defaults.
 
 Galley Pad opens UTF-8 files and UTF-16 files with a byte-order mark. If Galley Pad
 reports an unsupported encoding for a legacy Cyrillic file, choose **Open as
@@ -72,10 +74,12 @@ and line endings.
 
 Use the editor footer to switch between **Live Preview**, **Source**, and
 **Preview**. Open the table of contents from the footer or press
-**Ctrl+Shift+O** (**Cmd+Shift+O** on macOS). Choose a heading to jump to it.
+**Ctrl+Shift+O** (**Cmd+Shift+O** on macOS). The outline becomes available when the document has at least two headings.
+Use the arrow keys to choose a heading and Enter to jump to it.
 Settings controls reading width, spellcheck, and whether HTTPS images load.
-Relative raster images and links to Markdown or text files resolve within the
-document's directory. Hold Ctrl or Cmd when activating a link in the editor.
+Relative raster and SVG images refresh when their files change. Local images
+and links must resolve inside the document’s directory or its subdirectories.
+Links such as `notes.md#next-steps` open the target at the named heading. Hold Ctrl or Cmd when activating a link in the editor.
 
 Use **Ctrl+Tab** to switch tabs and **Ctrl+W** (**Cmd+W** on macOS) to close
 the current tab. **Ctrl+Shift+T** (**Cmd+Shift+T** on macOS) reopens the
@@ -112,6 +116,9 @@ bun run test:scripts
 cargo test --manifest-path src-tauri/Cargo.toml
 bun run build
 ```
+
+The coverage thresholds apply to the five document modules listed in
+`vite.config.ts`. Component tests and browser tests run separately from those thresholds.
 
 Run the local verification suite:
 
@@ -160,7 +167,7 @@ Icon=gpad
 Terminal=false
 StartupWMClass=gpad
 Categories=Utility;TextEditor;
-MimeType=text/markdown;text/x-markdown;
+MimeType=text/markdown;text/x-markdown;text/plain;
 Keywords=markdown;editor;text;
 ```
 

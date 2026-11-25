@@ -28,3 +28,8 @@ notify = "9.0.0"
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }
+
+# Cocoa menus must be created on the process main thread.
+[[test]]
+name = "native_menu"
+harness = false

@@ -1,5 +1,6 @@
+import { listenForCurrentWindow } from "./windowEvents";
 import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 
 function isTauriRuntime() {
@@ -18,7 +19,7 @@ export function listenForMarkdownDrop(handler: (paths: string[]) => void): Promi
   if (!isTauriRuntime()) return Promise.resolve(() => undefined);
   return getCurrentWebview().onDragDropEvent(({ payload }) => {
     if (payload.type !== "drop") return;
-    const markdown = payload.paths.filter((path) => /\.(?:md|markdown)$/i.test(path));
+    const markdown = payload.paths.filter((path) => /\.(?:md|markdown|txt)$/i.test(path));
     if (markdown.length) handler(markdown);
   });
 }
@@ -29,5 +30,5 @@ export function setActiveDocumentWatch(path: string | null): Promise<void> {
 
 export function listenForActiveDocumentChanges(handler: (path: string) => void): Promise<UnlistenFn> {
   if (!isTauriRuntime()) return Promise.resolve(() => undefined);
-  return listen<string>("active-document-changed", ({ payload }) => handler(payload));
+  return listenForCurrentWindow<string>("active-document-changed", ({ payload }) => handler(payload));
 }

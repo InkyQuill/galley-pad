@@ -167,7 +167,7 @@ pub(crate) async fn write_text_file<R: Runtime>(
             owner, ..
         })) = &result
         {
-            activate_document_owner(window.app_handle(), owner);
+            activate_document_owner(window.app_handle(), owner, None);
         }
         result
     })

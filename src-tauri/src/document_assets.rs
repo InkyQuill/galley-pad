@@ -34,7 +34,7 @@ fn local_reference(
     let supported = match kind {
         ReferenceKind::Image => matches!(
             extension.as_str(),
-            "png" | "jpg" | "jpeg" | "gif" | "webp" | "avif" | "bmp" | "ico"
+            "png" | "jpg" | "jpeg" | "gif" | "webp" | "avif" | "bmp" | "ico" | "svg"
         ),
         ReferenceKind::Document => matches!(extension.as_str(), "md" | "markdown" | "txt"),
     };
@@ -94,6 +94,12 @@ mod tests {
             resolve("note.md", ReferenceKind::Document),
             Some(note.canonicalize().unwrap())
         );
+        let svg = images.join("chart.svg");
+        fs::write(&svg, "<svg/>").unwrap();
+        assert_eq!(
+            resolve("images/chart.svg", ReferenceKind::Image),
+            Some(svg.canonicalize().unwrap())
+        );
         assert!(resolve("note.md", ReferenceKind::Image).is_none());
         assert!(resolve("../outside.png", ReferenceKind::Image).is_none());
         assert!(resolve("images/missing.png", ReferenceKind::Image).is_none());
@@ -104,4 +110,154 @@ mod tests {
             assert!(resolve("link.png", ReferenceKind::Image).is_none());
         }
     }
+}
+
+#[cfg(test)]
+mod watch_tests {
+    use super::*;
+    use std::{fs, sync::mpsc, time::Duration};
+
+    #[cfg(unix)]
+    #[test]
+    fn observes_changes_to_a_symlink_image_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("images");
+        fs::create_dir(&folder).unwrap();
+        let target = folder.join("chart.svg");
+        fs::write(&target, "<svg/>").unwrap();
+        std::os::unix::fs::symlink(&target, dir.path().join("chart.svg")).unwrap();
+        let document = dir.path().join("draft.md");
+        let (sender, receiver) = mpsc::channel();
+        let _watch = watch_images(&document, &["chart.svg".into()], move || {
+            let _ = sender.send(());
+        })
+        .unwrap();
+        fs::write(target, "<svg>updated</svg>").unwrap();
+        receiver.recv_timeout(Duration::from_secs(3)).unwrap();
+    }
+
+    #[test]
+    fn observes_creation_of_a_missing_image_in_a_nested_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("images");
+        fs::create_dir(&folder).unwrap();
+        let document = dir.path().join("draft.md");
+        let (sender, receiver) = mpsc::channel();
+        let _watch = watch_images(&document, &["images/chart.svg".into()], move || {
+            let _ = sender.send(());
+        })
+        .unwrap();
+        fs::write(folder.join("chart.svg"), "<svg/>").unwrap();
+        receiver.recv_timeout(Duration::from_secs(3)).unwrap();
+    }
+}
+
+use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use std::collections::{HashMap, HashSet};
+use std::sync::Mutex;
+use tauri::{State, WebviewWindow};
+
+#[derive(Default)]
+pub(crate) struct ImageWatches(Mutex<HashMap<(String, String), RecommendedWatcher>>);
+
+impl ImageWatches {
+    pub(crate) fn remove_window(&self, label: &str) {
+        if let Ok(mut entries) = self.0.lock() {
+            entries.retain(|(window, _), _| window != label);
+        }
+    }
+}
+
+fn watch_images(
+    document: &Path,
+    paths: &[String],
+    changed: impl Fn() + Send + 'static,
+) -> Result<RecommendedWatcher, String> {
+    let root = document
+        .parent()
+        .ok_or("Missing document directory")?
+        .canonicalize()
+        .map_err(|e| e.to_string())?;
+    let mut targets = HashSet::new();
+    let mut directories = HashSet::new();
+    for relative in paths {
+        let relative = Path::new(relative);
+        if relative.is_absolute() {
+            continue;
+        }
+        let path = root.join(relative);
+        // Watch the nearest existing parent so creating a missing subdirectory
+        // can refresh its references. Resolve symlinks before authorizing it.
+        if let Some(parent) = path.ancestors().skip(1).find(|p| p.is_dir()) {
+            let Ok(directory) = parent.canonicalize() else {
+                continue;
+            };
+            if !directory.starts_with(&root) {
+                continue;
+            }
+            let Ok(rest) = path.strip_prefix(parent) else {
+                continue;
+            };
+            if rest
+                .components()
+                .any(|part| !matches!(part, Component::Normal(_)))
+            {
+                continue;
+            }
+            targets.insert(directory.join(rest));
+            directories.insert(directory);
+            if let Ok(target) = path.canonicalize() {
+                if target.starts_with(&root) {
+                    if let Some(parent) = target.parent() {
+                        directories.insert(parent.to_path_buf());
+                        targets.insert(target);
+                    }
+                }
+            }
+        }
+    }
+    let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+        if event.as_ref().map_or(true, |event| {
+            !matches!(event.kind, EventKind::Access(_))
+                && (event.need_rescan()
+                    || event
+                        .paths
+                        .iter()
+                        .any(|p| targets.iter().any(|target| target.starts_with(p))))
+        }) {
+            changed();
+        }
+    })
+    .map_err(|e| e.to_string())?;
+    for dir in directories {
+        watcher
+            .watch(&dir, RecursiveMode::NonRecursive)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(watcher)
+}
+
+#[tauri::command]
+pub(crate) fn watch_document_images(
+    window: WebviewWindow,
+    watches: State<'_, ImageWatches>,
+    subscription: String,
+    document_path: String,
+    paths: Vec<String>,
+) -> Result<(), String> {
+    let key = (window.label().to_owned(), subscription.clone());
+    let mut entries = watches.0.lock().map_err(|_| "Image watcher unavailable")?;
+    if paths.is_empty() {
+        entries.remove(&key);
+    } else {
+        let watcher = watch_images(Path::new(&document_path), &paths, move || {
+            let _ = super::window_events::emit_editor_event(
+                &window,
+                "document-images-changed",
+                &subscription,
+            );
+        })?;
+        entries.insert(key, watcher);
+    }
+    Ok(())
 }
