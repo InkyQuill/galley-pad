@@ -18,7 +18,7 @@ test("release-please owns version PRs and explicitly checks the synchronized bra
   assert.match(workflow, /gh api --method POST .*git\/refs/);
   assert.match(workflow, /FETCH_HEAD\^\{commit\}/);
   assert.match(workflow, /gh workflow run ci\.yml --ref "\$head"/);
-  assert.match(workflow, /gh workflow run build-release\.yml .* -f tag="\$TAG" -f sha="\$RELEASE_SHA"/);
+  assert.match(workflow, /gh workflow run build-release\.yml .* -f tag="\$TAG" -f sha="\$RELEASE_SHA" -f release_id="\$release_id"/);
   assert.doesNotMatch(workflow, /semantic-release|--admin|gh pr merge/);
 });
 
@@ -122,11 +122,12 @@ test("installers use the validated SHA and publish only after all platforms succ
   assert.match(workflow, /test "\$\(git rev-parse HEAD\)" = "\$EXPECTED_SHA"/);
   assert.equal(workflow.match(/ref: \$\{\{ inputs.sha \}\}/g)?.length, 4);
   assert.match(workflow, /needs: \[validate, linux, windows, macos\]/);
-  assert.match(workflow, /gh release edit "\$TAG" --draft=false/);
+  assert.match(workflow, /node \.release-workflow\/scripts\/release-installers\.mjs validate/);
+  assert.match(workflow, /node \.release-workflow\/scripts\/release-installers\.mjs publish/);
+  assert.equal(workflow.match(/ref: \$\{\{ github.workflow_sha \}\}/g)?.length, 5);
+  assert.equal(workflow.match(/RELEASE_ID: \$\{\{ needs.validate.outputs.release_id \}\}/g)?.length, 4);
   assert.match(workflow, /AUR_SSH_PRIVATE_KEY is not configured/);
-  for (const family of ["deb/*.deb", "rpm/*.rpm", "appimage/*.AppImage", "nsis/*.exe", "pkg/*.pkg"]) {
-    assert.ok(workflow.includes(family));
-  }
+  assert.doesNotMatch(workflow, /softprops|gh release (create|edit|upload)/);
   assert.doesNotMatch(workflow, /uses: [^\n]+@(v\d+|stable|main|master)\b/);
 });
 

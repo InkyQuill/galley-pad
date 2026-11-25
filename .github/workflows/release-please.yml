@@ -18,7 +18,7 @@ jobs:
       issues: write
       actions: write
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -36,7 +36,7 @@ jobs:
             echo "tag_exists=false" >> "$GITHUB_OUTPUT"
           fi
       - id: release
-        uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
           target-branch: main
           # A draft may have no Git tag yet. Create the release and pin its tag
@@ -75,6 +75,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.release.outputs.tag_name }}
           RELEASE_SHA: ${{ steps.release.outputs.sha }}
+          RELEASE_UPLOAD_URL: ${{ steps.release.outputs.upload_url }}
         run: |
           # GitHub drafts may not create a tag until publication. Pin it before builds.
           if ! git ls-remote --exit-code origin "refs/tags/$TAG" >/dev/null; then
@@ -82,4 +83,10 @@ jobs:
           fi
           git fetch origin "refs/tags/$TAG"
           test "$(git rev-parse 'FETCH_HEAD^{commit}')" = "$RELEASE_SHA"
-          gh workflow run build-release.yml --ref main -f tag="$TAG" -f sha="$RELEASE_SHA"
+          release_url_prefix="https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/"
+          case "$RELEASE_UPLOAD_URL" in "$release_url_prefix"*) ;; *) exit 1;; esac
+          release_id="${RELEASE_UPLOAD_URL#"$release_url_prefix"}"
+          release_id="${release_id%%/*}"
+          [[ "$RELEASE_UPLOAD_URL" = "${release_url_prefix}${release_id}/assets{?name,label}" ]]
+          [[ "$release_id" =~ ^[1-9][0-9]*$ ]]
+          gh workflow run build-release.yml --ref main -f tag="$TAG" -f sha="$RELEASE_SHA" -f release_id="$release_id"
