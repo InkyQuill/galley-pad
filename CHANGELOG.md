@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.9.1](https://github.com/InkyQuill/galley-pad/compare/v1.9.0...v1.9.1) (2026-11-25)
+
+
+### Bug Fixes
+
+* **desktop:** address document lifecycle review findings ([e2d499f](https://github.com/InkyQuill/galley-pad/commit/e2d499f3ee8bbb961696a4e3686856630683fee6))
+* **desktop:** harden document workflows and compact dialogs ([4ff0944](https://github.com/InkyQuill/galley-pad/commit/4ff09442058def03d3aefb6377f009e7f23849cc))
+* **desktop:** harden document workflows and compact dialogs ([b003df0](https://github.com/InkyQuill/galley-pad/commit/b003df02ce4167e3306c7d8517ef115eb6e5c267))
+* **editor:** integrate Galley Editor 0.18.1 ([33cde45](https://github.com/InkyQuill/galley-pad/commit/33cde45abe09cfe6b6031768071ff7a6e60ebc0a))
+* **editor:** keep the latest heading activation during file open ([459c4d7](https://github.com/InkyQuill/galley-pad/commit/459c4d7b0b9836b30031db6fd8c86e997490f780))
+
 ## [1.9.0](https://github.com/InkyQuill/galley-pad/compare/v1.8.0...v1.9.0) (2026-11-25)
 
 ### Saving and recovery
