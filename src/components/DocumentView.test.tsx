@@ -120,7 +120,7 @@ describe("DocumentView", () => {
       screen.getByRole("toolbar", { name: "Mock Galley Toolbar" }),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Mock toolbar icon count")).toHaveTextContent(
-      "15",
+      "16",
     );
     expect(
       screen.getByLabelText("Mock table control icon count"),

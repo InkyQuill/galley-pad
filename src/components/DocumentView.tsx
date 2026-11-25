@@ -31,6 +31,7 @@ import {
   TbBold,
   TbCode,
   TbCodeblock,
+  TbHeading,
   TbLayoutSidebarRight,
   TbListDetails,
   TbLink,
@@ -339,6 +340,7 @@ function suppressMiddleButton(event: ReactMouseEvent<HTMLElement>): void {
 }
 
 const GALLEY_TOOLBAR_ICONS: Record<ToolbarIconName, ReactNode> = {
+  heading: toolbarIcon(TbHeading),
   bold: toolbarIcon(TbBold),
   italic: toolbarIcon(TbItalic),
   strikethrough: toolbarIcon(TbStrikethrough),

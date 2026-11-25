@@ -1958,7 +1958,7 @@ describe("App", () => {
       screen.getByRole("toolbar", { name: "Mock Galley Toolbar" }),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Mock toolbar icon count")).toHaveTextContent(
-      "15",
+      "16",
     );
   });
 
