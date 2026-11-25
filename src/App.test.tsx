@@ -2004,6 +2004,33 @@ describe("App", () => {
     expect(screen.getByRole("textbox", { name: "Mock Galley Editor" })).toHaveValue("# Привет");
   });
 
+  it("prefers the latest heading activation received while reading a reserved document", async () => {
+    const path = "/tmp/activation-order.md";
+    const content = "# First\n# Latest";
+    const read = deferred<Awaited<ReturnType<typeof readTextFile>>>();
+    let activate: Parameters<typeof listenForDocumentActivation>[0] | undefined;
+    vi.mocked(listenForDocumentActivation).mockImplementation(async (callback) => {
+      activate = callback;
+      return () => undefined;
+    });
+    getPendingMarkdownFileOpensMock.mockResolvedValue([path]);
+    vi.mocked(claimDocumentPath).mockResolvedValueOnce({ path, fragment: "first" });
+    readTextFileMock.mockReturnValue(read.promise);
+    mockGalleyGetHeadings.mockReturnValue([
+      { level: 1, text: "First", from: 0, to: 7, slug: "first" },
+      { level: 1, text: "Latest", from: 8, to: content.length, slug: "latest" },
+    ]);
+
+    render(<App />);
+    await waitFor(() => expect(readTextFileMock).toHaveBeenCalledWith(path));
+    const tabId = vi.mocked(claimDocumentPath).mock.calls[0][1];
+    act(() => activate?.(tabId, "latest"));
+    await act(async () => read.resolve({ path, content, lineEnding: "lf", lastModifiedAt: 30 }));
+
+    await waitFor(() => expect(mockGalleyRevealPosition).toHaveBeenCalledWith(8, expect.objectContaining({ focus: true })));
+    expect(mockGalleyRevealPosition).not.toHaveBeenCalledWith(0, expect.anything());
+  });
+
   it("retains a pending heading fragment when retrying a legacy-encoded file", async () => {
     const path = "/tmp/legacy-heading.md";
     getPendingMarkdownFileOpensMock.mockResolvedValue([path]);

@@ -798,7 +798,10 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
       claimed = true;
       const next = await openDocumentPath(path, dependencies, { allowMissing, encoding });
       updateWorkspaceNow((current) => openDocumentTab(current, next, tabId));
-      if (targetFragment) setFragmentRequest({ tabId, fragment: targetFragment });
+      if (targetFragment) {
+        const initialRequest = { tabId, fragment: targetFragment };
+        setFragmentRequest((current) => current?.tabId === tabId ? current : initialRequest);
+      }
       if (next.path && next.fileExists !== false) rememberRecentDocument(next.path);
     } catch (error: unknown) {
       if (claimed) await releaseDocumentTab(tabId).catch(() => undefined);
