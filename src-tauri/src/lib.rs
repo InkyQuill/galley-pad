@@ -616,8 +616,8 @@ fn open_markdown_file_window(
         return Err("Wait for the quit confirmation before opening a new window".into());
     }
     let label = next_document_window_label(&app)?;
-    let canonical = match owners.claim(&label, None, Path::new(&path)) {
-        Ok(path) => path,
+    let canonical = match owners.claim_open(&label, None, Path::new(&path), fragment.as_deref()) {
+        Ok((path, _)) => path,
         Err(DocumentOwnershipError::AlreadyOpen { owner, .. }) => {
             activate_document_owner(&app, &owner, fragment.as_deref());
             return Ok(owner.window_label);

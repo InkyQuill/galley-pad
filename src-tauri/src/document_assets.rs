@@ -117,6 +117,25 @@ mod watch_tests {
     use super::*;
     use std::{fs, sync::mpsc, time::Duration};
 
+    #[cfg(unix)]
+    #[test]
+    fn observes_changes_to_a_symlink_image_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("images");
+        fs::create_dir(&folder).unwrap();
+        let target = folder.join("chart.svg");
+        fs::write(&target, "<svg/>").unwrap();
+        std::os::unix::fs::symlink(&target, dir.path().join("chart.svg")).unwrap();
+        let document = dir.path().join("draft.md");
+        let (sender, receiver) = mpsc::channel();
+        let _watch = watch_images(&document, &["chart.svg".into()], move || {
+            let _ = sender.send(());
+        })
+        .unwrap();
+        fs::write(target, "<svg>updated</svg>").unwrap();
+        receiver.recv_timeout(Duration::from_secs(3)).unwrap();
+    }
+
     #[test]
     fn observes_creation_of_a_missing_image_in_a_nested_directory() {
         let dir = tempfile::tempdir().unwrap();
@@ -187,6 +206,14 @@ fn watch_images(
             }
             targets.insert(directory.join(rest));
             directories.insert(directory);
+            if let Ok(target) = path.canonicalize() {
+                if target.starts_with(&root) {
+                    if let Some(parent) = target.parent() {
+                        directories.insert(parent.to_path_buf());
+                        targets.insert(target);
+                    }
+                }
+            }
         }
     }
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {

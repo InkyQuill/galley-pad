@@ -116,6 +116,8 @@ jobs:
   native-desktop:
     name: Native desktop (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    env:
+      CARGO_INCREMENTAL: "0"
     strategy:
       fail-fast: false
       matrix:

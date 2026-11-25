@@ -9,10 +9,10 @@ const headings = [
 ];
 
 describe("DocumentOutline", () => {
-  it("focuses and distinguishes repeated outline entries", () => {
+  it("distinguishes repeated outline entries without moving focus on mount", () => {
     render(<DocumentOutline id="toc" headings={[headings[1], { ...headings[1], from: 61, slug: "details-2" }]}
       viewportStart={0} onNavigate={vi.fn()} onClose={vi.fn()} />);
-    expect(screen.getByRole("button", {name: "Details (1 of 2)"})).toHaveFocus();
+    expect(screen.getByRole("button", {name: "Details (1 of 2)"})).not.toHaveFocus();
     expect(screen.getByRole("button", {name: "Details (2 of 2)"})).toBeVisible();
   });
 
@@ -45,7 +45,7 @@ describe("DocumentOutline", () => {
     const details = screen.getByRole("button", { name: "Details" });
     const closing = screen.getByRole("button", { name: "Closing" });
     expect(details).toHaveAttribute("aria-current", "location");
-    expect(screen.getByRole("button", { name: "Opening" })).toHaveFocus();
+    expect(details).toHaveAttribute("tabindex", "0");
     act(() => details.focus());
     expect(details).toHaveAttribute("tabindex", "0");
     fireEvent.keyDown(details, { key: "ArrowDown" });

@@ -11,11 +11,14 @@ export function useDocumentImages(documentPath: string | null, allowRemoteImages
     sources: new Map<string, string | null>(),
     version: crypto.randomUUID(),
   }), [documentPath, revision, active]);
-  const paths = useMemo(() => [...sources.keys()].map(relativeDocumentReference).filter((p): p is string => !!p).sort(), [sources, resolved]);
-  const list = JSON.stringify(paths);
+  const references = useMemo(() => new Map<string, string | null>(), [documentPath, active]);
+  const watchList = useMemo(() => JSON.stringify(
+    [...references].sort(([left], [right]) => left.localeCompare(right)),
+  ), [references, resolved]);
 
   useEffect(() => {
-    if (!documentPath || !active || list === "[]") return;
+    if (!documentPath || !active || watchList === "[]") return;
+    const paths = (JSON.parse(watchList) as [string, string | null][]).map(([path]) => path);
     let disposed = false;
     let timer: number | undefined;
     let unlisten: (() => void) | undefined;
@@ -24,9 +27,14 @@ export function useDocumentImages(documentPath: string | null, allowRemoteImages
       window.clearTimeout(timer);
       timer = window.setTimeout(refresh, 80);
     };
-    void watchDocumentImages(documentPath, JSON.parse(list) as string[], changed).then(stop => {
-      if (disposed) stop();
-      else unlisten = stop;
+    void watchDocumentImages(documentPath, paths, changed).then(stop => {
+      if (disposed) {
+        stop();
+      } else {
+        unlisten = stop;
+        // Recheck changes between the first lookup and native registration.
+        refresh();
+      }
     }).catch(() => {});
     window.addEventListener("focus", changed);
     return () => {
@@ -35,22 +43,24 @@ export function useDocumentImages(documentPath: string | null, allowRemoteImages
       window.removeEventListener("focus", changed);
       unlisten?.();
     };
-  }, [documentPath, active, list, revision]);
+  }, [documentPath, active, watchList]);
 
   return useMemo(() => {
     const resolve = ({ url }: GalleyImageInfo) => {
       if (/^data:image\/(?:png|jpeg|gif|webp|avif|bmp|svg\+xml)[;,]/i.test(url)) return undefined;
       if (/^https:\/\//i.test(url)) return allowRemoteImages ? undefined : null;
-      if (!active || !documentPath || !relativeDocumentReference(url)) return null;
+      const relativePath = relativeDocumentReference(url);
+      if (!active || !documentPath || !relativePath) return null;
       if (!sources.has(url)) {
         sources.set(url, null);
         void resolveDocumentReference(documentPath, url, "image").catch(() => null).then(source => {
           sources.set(url, source ? `${source}?v=${version}` : null);
+          references.set(relativePath, source);
           notify();
         });
       }
       return sources.get(url) ?? null;
     };
     return resolve;
-  }, [sources, version, documentPath, allowRemoteImages, active, resolved]);
+  }, [sources, version, documentPath, allowRemoteImages, active, references, resolved]);
 }

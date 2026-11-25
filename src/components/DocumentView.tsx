@@ -123,6 +123,10 @@ export const DocumentView = forwardRef<DocumentViewHandle, DocumentViewProps>(
     const editorRef = useRef<GalleyHandle>(null);
     const linkRouting = useRef({ path, onOpenDocument, onLinkError });
     const outlineId = useId();
+    const outlineRef = useRef<HTMLElement>(null);
+    useLayoutEffect(() => {
+      if (outlineOpen) outlineRef.current?.querySelector<HTMLButtonElement>("li button")?.focus();
+    }, [outlineOpen]);
     const [mode, setMode] = useState<GalleyMode>("live");
     const [headings, setHeadings] = useState<readonly GalleyHeading[]>([]);
     const [viewport, setViewport] = useState<GalleyViewport>({ from: 0, to: 0 });
@@ -313,6 +317,7 @@ export const DocumentView = forwardRef<DocumentViewHandle, DocumentViewProps>(
         {outlineOpen && active && headings.length >= 2 ? (
           <DocumentOutline
             id={outlineId}
+            outlineRef={outlineRef}
             headings={headings}
             viewportStart={outlinePosition}
             onNavigate={navigateToHeading}

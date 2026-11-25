@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type Ref } from "react";
 import { TbX } from "react-icons/tb";
 import type { GalleyHeading, GalleyViewport } from "@inkyquill/galley-editor";
 
@@ -39,12 +39,14 @@ export function DocumentOutline({
   id,
   headings,
   viewportStart,
+  outlineRef,
   onNavigate,
   onClose,
 }: {
   id: string;
   headings: readonly GalleyHeading[];
   viewportStart: number;
+  outlineRef?: Ref<HTMLElement>;
   onNavigate: (position: number) => void;
   onClose: () => void;
 }) {
@@ -67,8 +69,6 @@ export function DocumentOutline({
       return total === 1 ? undefined : `${label} (${index} of ${total})`;
     });
   }, [headings]);
-
-  useLayoutEffect(() => { items.current[0]?.focus(); }, []);
 
   useEffect(() => {
     const item = items.current[current];
@@ -103,6 +103,7 @@ export function DocumentOutline({
 
   return (
     <nav
+      ref={outlineRef}
       id={id}
       className="document-outline"
       aria-labelledby={`${id}-title`}

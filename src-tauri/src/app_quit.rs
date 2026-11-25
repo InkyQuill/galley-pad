@@ -18,6 +18,7 @@ pub(super) struct AppQuit(Mutex<QuitState>);
 #[derive(Default)]
 struct QuitState {
     ready: HashSet<String>,
+    deferred: Option<(Vec<String>, i32)>,
     next_id: u64,
     request: Option<QuitRequest>,
     exit_approved: bool,
@@ -48,6 +49,34 @@ enum Step {
 }
 
 impl QuitState {
+    fn register(&mut self, label: &str) -> Step {
+        self.ready.insert(label.to_owned());
+        self.resume_deferred()
+    }
+
+    fn request_exit(&mut self, windows: Vec<String>, code: i32) -> Step {
+        if self.request.is_some() {
+            return Step::Wait;
+        }
+        self.deferred.get_or_insert((windows, code));
+        self.resume_deferred()
+    }
+
+    fn resume_deferred(&mut self) -> Step {
+        let Some((windows, _)) = &self.deferred else {
+            return Step::Wait;
+        };
+        if windows.iter().any(|label| !self.ready.contains(label)) {
+            return Step::Wait;
+        }
+        let (windows, code) = self.deferred.take().unwrap();
+        if windows.is_empty() {
+            self.exit_approved = true;
+            return Step::Exit(code);
+        }
+        self.begin(windows, code)
+    }
+
     fn begin(&mut self, windows: Vec<String>, code: i32) -> Step {
         if self.request.is_some() {
             return Step::Wait;
@@ -113,6 +142,10 @@ impl QuitState {
 
     fn window_destroyed(&mut self, label: &str) -> Step {
         self.ready.remove(label);
+        if let Some((windows, _)) = &mut self.deferred {
+            windows.retain(|window| window != label);
+            return self.resume_deferred();
+        }
         let Some(request) = &self.request else {
             return Step::Wait;
         };
@@ -221,7 +254,7 @@ pub(super) fn in_progress(app: &AppHandle) -> bool {
     app.state::<AppQuit>()
         .0
         .lock()
-        .map(|state| state.request.is_some())
+        .map(|state| state.deferred.is_some() || state.request.is_some())
         .unwrap_or(true)
 }
 
@@ -244,20 +277,13 @@ pub(super) fn guard_exit(app: &AppHandle, code: Option<i32>, api: &tauri::ExitRe
         return;
     }
     api.prevent_exit();
-    if windows
-        .iter()
-        .any(|window| !state.ready.contains(window.label()))
-    {
-        eprintln!("Quit deferred until all Galley Pad windows finish starting up");
-        return;
-    }
     windows.sort_by_key(|window| {
         (
             !window.is_focused().unwrap_or(false),
             window.label().to_owned(),
         )
     });
-    let step = state.begin(
+    let step = state.request_exit(
         windows
             .iter()
             .map(|window| window.label().to_owned())
@@ -273,11 +299,12 @@ pub(super) fn register_app_quit_window(
     window: WebviewWindow,
     quit: State<'_, AppQuit>,
 ) -> Result<(), String> {
-    quit.0
+    let step = quit
+        .0
         .lock()
         .map_err(|_| "Quit request is unavailable")?
-        .ready
-        .insert(window.label().to_owned());
+        .register(window.label());
+    advance(window.app_handle(), step);
     #[cfg(target_os = "linux")]
     if window.label() == super::MAIN_WINDOW_LABEL {
         super::signal_linux_display_ready_once();
@@ -321,6 +348,25 @@ pub(super) fn finish_app_quit_clear(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn startup_quit_resumes_when_last_window_registers_or_closes() {
+        for closed in [false, true] {
+            let mut state = QuitState::default();
+            state.register("main");
+            assert!(matches!(
+                state.request_exit(vec!["main".into(), "starting".into()], 7),
+                Step::Wait
+            ));
+            let step = if closed {
+                state.window_destroyed("starting")
+            } else {
+                state.register("starting")
+            };
+            assert!(matches!(step, Step::Check(label, _) if label == "main"));
+            assert_eq!(state.request.as_ref().unwrap().code, 7);
+        }
+    }
 
     #[test]
     fn cancelled_quit_keeps_all_window_recovery_snapshots() {

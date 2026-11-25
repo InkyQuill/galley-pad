@@ -1,3 +1,4 @@
+import { flushSync } from "react-dom";
 import {
   useCallback,
   useEffect,
@@ -157,15 +158,14 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
   const [workspace, setWorkspace] = useState(() =>
     createDocumentWorkspace(loadOpenMode()),
   );
-  const closeConfirmation = useRef<Promise<boolean> | null>(null);
+  const closeConfirmation = useRef<{ promise: Promise<boolean>; signal?: AbortSignal } | null>(null);
   const [pendingCommand, setPendingCommand] = useState<CommandName | null>(null);
   const [commandError, setCommandError] = useState<string | null>(null);
-  const [encodingRetry, setEncodingRetry] = useState<UnsupportedFileEncodingError | null>(null);
+  const [encodingRetry, setEncodingRetry] = useState<{ error: UnsupportedFileEncodingError; fragment?: string } | null>(null);
   const [availableUpdate, setAvailableUpdate] =
     useState<AvailableUpdate | null>(null);
   const [toolbarVisible, setToolbarVisible] = useState(false);
   const [outlineTabId, setOutlineTabId] = useState<string | null>(null);
-  const outlineOpen = outlineTabId === workspace.activeTabId;
   const [editorLineWidth, setEditorLineWidth] = useState(() => normalizeEditorLineWidth(null));
   const [spellcheck, setSpellcheck] = useState(false);
   const [allowRemoteImages, setAllowRemoteImages] = useState(false);
@@ -423,7 +423,10 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
       .then(async (swap) => {
         if (disposed || !swap || getWindowMarkdownFileOpen()) return;
         const restored = await restoreWorkspaceFromSwap(swap, {
-          claim: claimDocumentPath,
+          claim: async (path, id) => {
+            const claim = await claimDocumentPath(path, id);
+            return typeof claim === "object" && claim ? claim.path : claim;
+          },
           release: releaseDocumentTab,
           read: readTextFile,
         });
@@ -621,8 +624,9 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
     let unlisten: (() => void) | null = null;
     let disposed = false;
 
-    void listenForAppMenuCommand((command) => {
-      runMenuCommand(command);
+    void listenForAppMenuCommand((command, replaying) => {
+      if (replaying) flushSync(() => runMenuCommand(command));
+      else runMenuCommand(command);
     }).then((nextUnlisten) => {
       if (disposed) {
         nextUnlisten();
@@ -776,6 +780,7 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
     setPendingCommand(name);
     const tabId = crypto.randomUUID();
     let claimed = false;
+    let targetFragment = fragment;
     try {
       const requestedPath = await pickPath();
       if (!requestedPath || quitApprovedRef.current) return;
@@ -786,17 +791,19 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
         if (alreadyOpen.session.fileExists !== false) rememberRecentDocument(requestedPath);
         return;
       }
-      const path = fragment ? await claimDocumentPath(requestedPath, tabId, fragment) : await claimDocumentPath(requestedPath, tabId);
-      if (!path) return;
+      const claim = fragment ? await claimDocumentPath(requestedPath, tabId, fragment) : await claimDocumentPath(requestedPath, tabId);
+      if (!claim) return;
+      const path = typeof claim === "string" ? claim : claim.path;
+      targetFragment = typeof claim === "string" ? fragment : claim.fragment;
       claimed = true;
       const next = await openDocumentPath(path, dependencies, { allowMissing, encoding });
       updateWorkspaceNow((current) => openDocumentTab(current, next, tabId));
-      if (fragment) setFragmentRequest({ tabId, fragment });
+      if (targetFragment) setFragmentRequest({ tabId, fragment: targetFragment });
       if (next.path && next.fileExists !== false) rememberRecentDocument(next.path);
     } catch (error: unknown) {
       if (claimed) await releaseDocumentTab(tabId).catch(() => undefined);
       if (!encoding && error instanceof UnsupportedFileEncodingError) {
-        setEncodingRetry(error);
+        setEncodingRetry({ error, fragment: targetFragment });
       }
       setCommandError(errorMessage(error));
     } finally {
@@ -847,7 +854,7 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
       return;
     }
 
-    if (closeTabInFlight.current || closeConfirmation.current) return;
+    if (closeTabInFlight.current || activeCloseConfirmation()) return;
     void saveTab(tabId, name, commandSnapshot, command);
   }
 
@@ -893,18 +900,6 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
       console.warn("Could not update recent files", error);
     });
   }
-
-  useEffect(() => {
-    if (!fragmentRequest || workspace.activeTabId !== fragmentRequest.tabId) return;
-    // Apply navigation after the newly active CodeMirror view has laid out.
-    const frame = requestAnimationFrame(() => {
-      if (!documentViewRef.current?.revealFragment(fragmentRequest.fragment)) {
-        setCommandError(`Heading “${fragmentRequest.fragment}” was not found in this document.`);
-      }
-      setFragmentRequest(null);
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [fragmentRequest, workspace.activeTabId]);
 
   function openLinkedDocument(path: string, fragment?: string) {
     return openExternalFile(path, false, fragment);
@@ -988,7 +983,7 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
 
   async function requestCloseTab(tabId: string): Promise<boolean> {
     if (
-      closeTabInFlight.current || closingRef.current || closeConfirmation.current ||
+      closeTabInFlight.current || closingRef.current || activeCloseConfirmation() ||
       !latestWorkspace.current.tabs.some((tab) => tab.id === tabId)
     ) {
       return false;
@@ -998,18 +993,20 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
     try {
       if (swapRecovery.current) await swapRecovery.current;
       if (saveInFlight.current) await saveInFlight.current;
+      if (!latestWorkspace.current.tabs.some((tab) => tab.id === tabId)) return false;
       if (!(await resolveDirtyTabForClose(tabId))) return false;
+      const closedTab = latestWorkspace.current.tabs.find((candidate) => candidate.id === tabId);
+      if (!closedTab) return false;
       if (latestWorkspace.current.tabs.length === 1) {
         await prepareApprovedClose();
         closeCurrentWindow();
         return true;
       }
 
-      const closedTab = latestWorkspace.current.tabs.find((candidate) => candidate.id === tabId);
       const result = closeDocumentTab(latestWorkspace.current, tabId, true);
       if (result.closed) {
         updateWorkspaceNow(() => result.workspace);
-        if (closedTab?.session.path && closedTab.session.fileExists !== false) {
+        if (closedTab.session.path && closedTab.session.fileExists !== false) {
           recentlyClosedPaths.current.push(closedTab.session.path);
         }
         await releaseDocumentTab(tabId).catch((error: unknown) => setCommandError(errorMessage(error)));
@@ -1170,14 +1167,20 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
     }
   }
 
+  function activeCloseConfirmation() {
+    const current = closeConfirmation.current;
+    return current?.signal?.aborted ? null : current;
+  }
+
   function confirmClosingAllTabs(signal?: AbortSignal) {
     if (closeTabInFlight.current || signal?.aborted) return Promise.resolve(false);
-    if (closeConfirmation.current) return closeConfirmation.current;
-    const confirmation = resolveAllDirtyTabsForClose(signal).finally(() => {
-      if (closeConfirmation.current === confirmation) closeConfirmation.current = null;
+    const existing = activeCloseConfirmation();
+    if (existing) return existing.promise;
+    const promise = resolveAllDirtyTabsForClose(signal).finally(() => {
+      if (closeConfirmation.current?.promise === promise) closeConfirmation.current = null;
     });
-    closeConfirmation.current = confirmation;
-    return confirmation;
+    closeConfirmation.current = { promise, signal };
+    return promise;
   }
 
   async function resolveAllDirtyTabsForClose(signal?: AbortSignal): Promise<boolean> {
@@ -1246,11 +1249,6 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
 
     try {
       const result = await checkExternalFileChange(checkedSession, dependencies, encoding);
-      if (result.kind === "unchanged") {
-        if (latestExternalFileWarning.current?.kind === "encoding") clearExternalWarningForTab(tabId);
-        return;
-      }
-
       const currentTab = latestWorkspace.current.tabs.find(
         (candidate) => candidate.id === tabId,
       );
@@ -1260,11 +1258,15 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
       const currentSession = currentTab.session;
       if (externalCheckPolicyChanged(currentSession, checkedSession)) return;
 
-      if (result.kind === "metadata-refresh") {
+      if (result.kind === "unchanged" || result.kind === "metadata-refresh") {
         if (sessionStillMatches(currentSession, checkedSession)) {
-          updateWorkspaceNow((current) =>
-            updateDocumentTab(current, tabId, () => result.session),
-          );
+          if (result.kind === "metadata-refresh") {
+            updateWorkspaceNow((current) =>
+              updateDocumentTab(current, tabId, () => result.session),
+            );
+          }
+          const warning = latestExternalFileWarning.current;
+          if (warning?.tabId === tabId && warning.kind === "encoding") clearExternalWarningForTab(tabId);
         }
         return;
       }
@@ -1378,7 +1380,7 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
       return;
     }
 
-    if (closeTabInFlight.current || closeConfirmation.current) return;
+    if (closeTabInFlight.current || activeCloseConfirmation()) return;
     void saveTab(tabId, "Save As", commandSnapshot, (session, id) =>
       saveDocumentAs(session, dependencies, id),
     );
@@ -1618,6 +1620,22 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
       ? activeExternalFileWarning.result
       : null;
 
+  const showReconciliation = reconcileOpen && reconcileResult !== null;
+
+  useEffect(() => {
+    if (!fragmentRequest || workspace.activeTabId !== fragmentRequest.tabId || showReconciliation) return;
+    // Apply navigation after the newly active CodeMirror view has laid out.
+    const frame = requestAnimationFrame(() => {
+      const editor = documentViewRef.current;
+      if (!editor) return;
+      if (!editor.revealFragment(fragmentRequest.fragment)) {
+        setCommandError(`Heading “${fragmentRequest.fragment}” was not found in this document.`);
+      }
+      setFragmentRequest(null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [fragmentRequest, showReconciliation, workspace.activeTabId]);
+
   return (
     <div
       inert={quitApproved}
@@ -1647,15 +1665,16 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
             aria-label="File command error"
           >
             <span>{commandError}</span>
-            {encodingRetry && encodingRetry.message === commandError ? (
+            {encodingRetry && encodingRetry.error.message === commandError ? (
               <button
                 className="command-error-retry"
                 type="button"
                 onClick={() => void runOpenCommand(
                   "Open File",
-                  async () => encodingRetry.path,
+                  async () => encodingRetry.error.path,
                   false,
                   "windows1251",
+                  encodingRetry.fragment,
                 )}
               >
                 Open as Windows-1251
@@ -1773,7 +1792,7 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
 
         {workspace.tabs.map((tab) => {
           const selected = tab.id === workspace.activeTabId;
-          const visible = selected && !(reconcileOpen && activeExternalFileWarning && reconcileResult);
+          const visible = selected && !showReconciliation;
           const session = tab.session;
 
           return (
@@ -1794,7 +1813,7 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
               lineWidth={editorLineWidth}
               spellcheck={spellcheck}
               allowRemoteImages={allowRemoteImages}
-              outlineOpen={visible && outlineOpen}
+              outlineOpen={outlineTabId === tab.id}
               onToggleOutline={toggleEditorOutline}
               onOpenDocument={editorOpenDocument}
               onLinkError={setCommandError}

@@ -6,7 +6,7 @@ function isTauriRuntime() {
   return "__TAURI_INTERNALS__" in globalThis;
 }
 
-export function claimDocumentPath(path: string, tabId: string, fragment?: string): Promise<string | null> {
+export function claimDocumentPath(path: string, tabId: string, fragment?: string): Promise<string | { path: string; fragment: string } | null> {
   if (!isTauriRuntime()) return Promise.resolve(path);
   return invoke("claim_document_path", { path, tabId, ...(fragment && {fragment}) });
 }

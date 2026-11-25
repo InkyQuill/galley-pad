@@ -206,3 +206,17 @@ test("keeps the outline closed when a new tab grows a second heading", async ({ 
   await expect(page.getByRole("button", { name: "Table of contents", exact: true })).toHaveAttribute("aria-expanded", "false");
   await expect(outline).toHaveCount(0);
 });
+
+
+test("keeps the editor focused when an already-open outline remounts", async ({ page }) => {
+  await page.goto("/");
+  await replaceContent(page, "# One\n\n## Two");
+  await page.getByRole("button", { name: "Table of contents", exact: true }).click();
+  const outline = page.getByRole("navigation", { name: "Table of contents" });
+  await expect(outline.getByRole("button", { name: "One" })).toBeFocused();
+  await replaceContent(page, "# One");
+  await expect(outline).toHaveCount(0);
+  await replaceContent(page, "# One\n\n## Restored");
+  await expect(outline.getByRole("button", { name: "Restored" })).toBeVisible();
+  await expect(activeEditor(page)).toBeFocused();
+});

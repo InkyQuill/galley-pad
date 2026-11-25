@@ -21,7 +21,7 @@ export type AppMenuCommand =
   | "toggle-word-wrap";
 
 export async function listenForAppMenuCommand(
-  handler: (command: AppMenuCommand) => void,
+  handler: (command: AppMenuCommand, replaying?: true) => void,
 ): Promise<UnlistenFn> {
   if (!("__TAURI_INTERNALS__" in globalThis)) return () => undefined;
 
@@ -30,7 +30,7 @@ export async function listenForAppMenuCommand(
   const takeCommands = () => {
     const read = async () => {
       const pending = await invoke<AppMenuCommand[]>("take_pending_menu_commands");
-      if (!disposed) pending?.forEach((command) => handler(command));
+      if (!disposed) pending?.forEach((command) => handler(command, true));
     };
     drain = drain.then(read, read);
     return drain;

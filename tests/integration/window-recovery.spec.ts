@@ -20,7 +20,7 @@ declare global {
 
 async function installDesktopTestBridge(
   page: Page,
-  initial: Pick<DesktopTestBridge, "files" | "pending" | "swap"> & { pendingMenu?: string[] } = { files: {}, pending: [] },
+  initial: Pick<DesktopTestBridge, "files" | "pending" | "swap"> & { pendingMenu?: string[]; reservedFragment?: string } = { files: {}, pending: [] },
 ) {
   await page.addInitScript((startup) => {
     const callbacks = new Map<number, (event: unknown) => void>();
@@ -58,7 +58,9 @@ async function installDesktopTestBridge(
           if (command === "take_pending_menu_commands") return bridge.pendingMenu.splice(0);
           if (command === "take_pending_markdown_file_opens") return bridge.pending.splice(0);
           if (command === "resolve_document_reference") return "/drafts/" + args.relativePath;
-          if (command === "claim_document_path") return args.path;
+          if (command === "claim_document_path") {
+            return startup.reservedFragment ? {path: args.path, fragment: startup.reservedFragment} : args.path;
+          }
           if (command === "read_swap_state") return bridge.swap ?? null;
           if (command === "read_recent_files") return bridge.recent;
           if (command === "update_recent_file") {
@@ -252,6 +254,13 @@ test("delivers Settings queued before the desktop window is ready", async ({ pag
   await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
 });
 
+test("applies a queued preview command to the newly created tab", async ({ page }) => {
+  await installDesktopTestBridge(page, { files: {}, pending: [], pendingMenu: ["new", "mode-preview"] });
+  await page.goto("/");
+  await expect(page.getByRole("tab")).toHaveCount(2);
+  await expect(page.getByRole("tabpanel").getByRole("combobox", { name: "Editor mode" })).toHaveValue("preview");
+});
+
 test("cancels an expired quit prompt without clearing the dirty workspace", async ({ page }) => {
   await installDesktopTestBridge(page);
   await page.goto("/");
@@ -290,6 +299,7 @@ test("finishes the current save before closing a tab and preserves mixed line en
   expect(await page.evaluate(() => window.desktopTestBridge.emit("app-menu-command", "save"))).toBe(true);
   await expect.poll(() => page.evaluate(() => Boolean(window.desktopTestBridge.finishWrite))).toBe(true);
   await page.getByRole("button", { name: "Close mixed.md" }).click();
+  await expect(page.getByRole("tab", { name: /mixed.md/ })).toBeVisible();
   await expect(page.getByRole("dialog", { name: "Save changes?" })).toHaveCount(0);
 
   await page.evaluate(() => window.desktopTestBridge.finishWrite?.());
@@ -324,4 +334,17 @@ test("answers coordinated quit only after the running save finishes", async ({ p
     { command: "answer_app_quit_check", args: { requestId: 11, approved: true } },
   ]);
   expect(await page.evaluate((file) => window.desktopTestBridge.files[file], path)).toBe("Original saved");
+});
+
+
+test("a starting window reveals a heading requested during its document reservation", async ({ page }) => {
+  const path = "/drafts/reserved.md";
+  await installDesktopTestBridge(page, {
+    files: { [path]: "# First\n\n## Queued heading" },
+    pending: [{ path, allowMissing: false }],
+    reservedFragment: "queued-heading",
+  });
+  await page.goto("/");
+  await expect(page.getByRole("tab", {name: "reserved.md"})).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.anchorNode?.parentElement?.closest(".cm-line")?.textContent)).toContain("Queued heading");
 });

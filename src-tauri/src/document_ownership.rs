@@ -14,6 +14,8 @@ const ACTIVATE_DOCUMENT_EVENT: &str = "activate-document-tab";
 pub(crate) struct DocumentOwner {
     pub window_label: String,
     pub tab_id: Option<String>,
+    #[serde(skip)]
+    pending_fragment: Option<String>,
 }
 
 #[derive(Debug)]
@@ -55,32 +57,42 @@ impl DocumentOwners {
             .map_err(|_| DocumentOwnershipError::RegistryUnavailable)
     }
 
-    pub(crate) fn claim(
+    pub(crate) fn claim_open(
         &self,
         window_label: &str,
         tab_id: Option<&str>,
         path: &Path,
-    ) -> Result<PathBuf, DocumentOwnershipError> {
+        fragment: Option<&str>,
+    ) -> Result<(PathBuf, Option<String>), DocumentOwnershipError> {
         let path = canonical_document_path(path)?;
         let mut owners = self.lock()?;
-        if let Some(owner) = owners.get(&path) {
+        if let Some(owner) = owners.get_mut(&path) {
             if owner.window_label != window_label
                 || (owner.tab_id.is_some() && owner.tab_id.as_deref() != tab_id)
             {
+                if owner.tab_id.is_none() && fragment.is_some() {
+                    owner.pending_fragment = fragment.map(str::to_owned);
+                }
                 return Err(DocumentOwnershipError::AlreadyOpen {
                     path,
                     owner: owner.clone(),
                 });
             }
+            if tab_id.is_some() {
+                owner.tab_id = tab_id.map(str::to_owned);
+                return Ok((path, owner.pending_fragment.take()));
+            }
+            return Ok((path, None));
         }
         owners.insert(
             path.clone(),
             DocumentOwner {
                 window_label: window_label.to_owned(),
                 tab_id: tab_id.map(str::to_owned),
+                pending_fragment: None,
             },
         );
-        Ok(path)
+        Ok((path, None))
     }
 
     pub(crate) fn with_write_target<T, E: From<DocumentOwnershipError>>(
@@ -116,6 +128,7 @@ impl DocumentOwners {
                 DocumentOwner {
                     window_label: window_label.to_owned(),
                     tab_id: Some(tab_id.to_owned()),
+                    pending_fragment: None,
                 },
             );
         }
@@ -181,6 +194,13 @@ pub(crate) fn activate_document_owner<R: tauri::Runtime>(
     }
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
+pub(crate) enum ClaimedPath {
+    Path(String),
+    WithFragment { path: String, fragment: String },
+}
+
 #[tauri::command]
 pub(crate) fn claim_document_path(
     window: WebviewWindow,
@@ -188,12 +208,22 @@ pub(crate) fn claim_document_path(
     path: String,
     tab_id: String,
     fragment: Option<String>,
-) -> Result<Option<String>, String> {
-    match owners.claim(window.label(), Some(&tab_id), Path::new(&path)) {
-        Ok(path) => path
+) -> Result<Option<ClaimedPath>, String> {
+    match owners.claim_open(
+        window.label(),
+        Some(&tab_id),
+        Path::new(&path),
+        fragment.as_deref(),
+    ) {
+        Ok((path, pending)) => path
             .into_os_string()
             .into_string()
-            .map(Some)
+            .map(|path| {
+                Some(match pending {
+                    Some(fragment) => ClaimedPath::WithFragment { path, fragment },
+                    None => ClaimedPath::Path(path),
+                })
+            })
             .map_err(|_| "Document path is not valid Unicode".into()),
         Err(DocumentOwnershipError::AlreadyOpen { owner, .. }) => {
             activate_document_owner(window.app_handle(), &owner, fragment.as_deref());
@@ -219,19 +249,45 @@ mod tests {
     use super::*;
 
     #[test]
+    fn reservation_delivers_the_latest_requested_fragment_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("notes.md");
+        let owners = DocumentOwners::default();
+        owners.claim_open("target", None, &path, None).unwrap();
+        for fragment in ["first", "last"] {
+            assert!(owners
+                .claim_open("source", None, &path, Some(fragment))
+                .is_err());
+        }
+        let (_, pending) = owners
+            .claim_open("target", Some("tab"), &path, None)
+            .unwrap();
+        assert_eq!(pending.as_deref(), Some("last"));
+        assert_eq!(
+            owners
+                .claim_open("target", Some("tab"), &path, None)
+                .unwrap()
+                .1,
+            None
+        );
+    }
+
+    #[test]
     fn claims_are_shared_and_released_per_window_and_tab() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("draft.md");
         let owners = DocumentOwners::default();
-        owners.claim("main", Some("one"), &path).unwrap();
+        owners.claim_open("main", Some("one"), &path, None).unwrap();
         assert!(matches!(
-            owners.claim("other", Some("two"), &path),
+            owners.claim_open("other", Some("two"), &path, None),
             Err(DocumentOwnershipError::AlreadyOpen { owner, .. }) if owner.window_label == "main"
         ));
         owners.release("other", None).unwrap();
-        assert!(owners.claim("other", Some("two"), &path).is_err());
+        assert!(owners
+            .claim_open("other", Some("two"), &path, None)
+            .is_err());
         owners.release("main", Some("one")).unwrap();
-        assert!(owners.claim("other", Some("two"), &path).is_ok());
+        assert!(owners.claim_open("other", Some("two"), &path, None).is_ok());
     }
 
     #[test]
@@ -241,8 +297,10 @@ mod tests {
         let target = temp.path().join("other.md");
         let fresh = temp.path().join("copy.md");
         let owners = DocumentOwners::default();
-        owners.claim("main", Some("one"), &path).unwrap();
-        owners.claim("main", Some("two"), &target).unwrap();
+        owners.claim_open("main", Some("one"), &path, None).unwrap();
+        owners
+            .claim_open("main", Some("two"), &target, None)
+            .unwrap();
         let blocked: Result<(), DocumentOwnershipError> =
             owners.with_write_target("main", Some("one"), &target, |_| {
                 panic!("must not write an open document")
@@ -256,14 +314,18 @@ mod tests {
                 Err(io::Error::other("disk full").into())
             });
         assert!(failed.is_err());
-        assert!(owners.claim("other", Some("two"), &path).is_err());
+        assert!(owners
+            .claim_open("other", Some("two"), &path, None)
+            .is_err());
         owners
             .with_write_target("main", Some("one"), &fresh, |_| {
                 Ok::<_, DocumentOwnershipError>(())
             })
             .unwrap();
-        assert!(owners.claim("other", Some("two"), &path).is_ok());
-        assert!(owners.claim("other", Some("three"), &fresh).is_err());
+        assert!(owners.claim_open("other", Some("two"), &path, None).is_ok());
+        assert!(owners
+            .claim_open("other", Some("three"), &fresh, None)
+            .is_err());
     }
 
     #[cfg(unix)]

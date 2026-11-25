@@ -36,7 +36,7 @@ describe("native menu events", () => {
 
     await listenForAppMenuCommand(handler);
 
-    expect(handler.mock.calls).toEqual([["open-recent"], ["settings"]]);
+    expect(handler.mock.calls).toEqual([["open-recent", true], ["settings", true]]);
     expect(listenMock.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(invoke).mock.invocationCallOrder[0]);
   });
 
