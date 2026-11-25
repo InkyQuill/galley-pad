@@ -32,15 +32,18 @@ const MENU_ITEMS = [
 type FooterMenuButtonProps = {
   wordWrap: boolean;
   outlineOpen?: boolean;
+  outlineAvailable?: boolean;
   onCommand(command: AppMenuCommand): void;
 };
 
 export function FooterMenuButton({
   wordWrap,
   outlineOpen = false,
+  outlineAvailable = true,
   onCommand,
 }: FooterMenuButtonProps) {
   const [open, setOpen] = useState(false);
+  const items = outlineAvailable ? MENU_ITEMS : MENU_ITEMS.filter(item => item.command !== "toggle-outline");
   const menuId = useId();
   const wrapperRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -90,17 +93,17 @@ export function FooterMenuButton({
 
     switch (event.key) {
       case "ArrowDown":
-        nextIndex = (currentIndex + 1) % MENU_ITEMS.length;
+        nextIndex = (currentIndex + 1) % items.length;
         break;
       case "ArrowUp":
         nextIndex =
-          (currentIndex - 1 + MENU_ITEMS.length) % MENU_ITEMS.length;
+          (currentIndex - 1 + items.length) % items.length;
         break;
       case "Home":
         nextIndex = 0;
         break;
       case "End":
-        nextIndex = MENU_ITEMS.length - 1;
+        nextIndex = items.length - 1;
         break;
       case "Escape":
         event.preventDefault();
@@ -142,7 +145,7 @@ export function FooterMenuButton({
           role="menu"
           onKeyDown={handleMenuKeyDown}
         >
-          {MENU_ITEMS.map((item, index) => (
+          {items.map((item, index) => (
             <div key={item.command}>
               {"section" in item ? (
                 <>

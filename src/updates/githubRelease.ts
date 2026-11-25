@@ -6,16 +6,75 @@ const RELEASE_TAG_PATH = "/InkyQuill/galley-pad/releases/tag/";
 
 export type AvailableUpdate = { version: string; releaseUrl: string };
 
+const UPDATE_CACHE_KEY = "galley-pad.release-check.v1";
+const UPDATE_CACHE_DURATION = 6 * 60 * 60 * 1000;
+
+type UpdateCheckOptions = {
+  timeoutMs?: number;
+  storage?: Pick<Storage, "getItem" | "setItem">;
+  now?: () => number;
+};
+
 export async function checkForGitHubUpdate(
   currentVersion: string,
   fetchImpl: typeof fetch = globalThis.fetch,
+  { timeoutMs = 4_000, storage = fetchImpl === globalThis.fetch ? browserStorage() : undefined, now = Date.now }: UpdateCheckOptions = {},
 ): Promise<AvailableUpdate | null> {
+  const cached = readCachedRelease(storage, now());
+  if (cached) return parseAvailableUpdate(cached, currentVersion);
+
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const result = await fetchImpl(LATEST_RELEASE_URL, {
-      headers: { Accept: "application/vnd.github+json" },
+    const request = async () => {
+      const result = await fetchImpl(LATEST_RELEASE_URL, {
+        headers: { Accept: "application/vnd.github+json" },
+        signal: controller.signal,
+      });
+      return result.ok ? (await result.json()) as unknown : null;
+    };
+    const timeout = new Promise<null>((resolve) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        resolve(null);
+      }, timeoutMs);
     });
-    if (!result.ok) return null;
-    return parseAvailableUpdate(await result.json(), currentVersion);
+    const release = await Promise.race([request(), timeout]);
+    if (storage && isRelease(release) && isReleaseUrl(release.html_url, release.tag_name)) {
+      try {
+        const { draft, prerelease, tag_name, html_url } = release;
+        storage.setItem(UPDATE_CACHE_KEY, JSON.stringify({
+          checkedAt: now(), release: { draft, prerelease, tag_name, html_url },
+        }));
+      } catch {
+        // Storage availability does not affect the result of this check.
+      }
+    }
+    return parseAvailableUpdate(release, currentVersion);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function browserStorage(): Storage | undefined {
+  try {
+    return globalThis.localStorage;
+  } catch {
+    return undefined;
+  }
+}
+
+function readCachedRelease(storage: UpdateCheckOptions["storage"], now: number): unknown {
+  try {
+    const stored = storage?.getItem(UPDATE_CACHE_KEY);
+    if (!stored) return null;
+    const parsed = JSON.parse(stored) as { checkedAt?: unknown; release?: unknown } | null;
+    if (typeof parsed?.checkedAt !== "number" || parsed.checkedAt > now ||
+        now - parsed.checkedAt >= UPDATE_CACHE_DURATION || !isRelease(parsed.release) ||
+        !isReleaseUrl(parsed.release.html_url, parsed.release.tag_name)) return null;
+    return parsed.release;
   } catch {
     return null;
   }

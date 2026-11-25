@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { DocumentOutline, headingAtPosition, outlinePositionAtViewport } from "./DocumentOutline";
 
@@ -9,6 +9,13 @@ const headings = [
 ];
 
 describe("DocumentOutline", () => {
+  it("focuses and distinguishes repeated outline entries", () => {
+    render(<DocumentOutline id="toc" headings={[headings[1], { ...headings[1], from: 61, slug: "details-2" }]}
+      viewportStart={0} onNavigate={vi.fn()} onClose={vi.fn()} />);
+    expect(screen.getByRole("button", {name: "Details (1 of 2)"})).toHaveFocus();
+    expect(screen.getByRole("button", {name: "Details (2 of 2)"})).toBeVisible();
+  });
+
   it("matches source positions to the previous heading", () => {
     expect(headingAtPosition(headings, 4)).toBe(-1);
     expect(headingAtPosition(headings, 20)).toBe(1);
@@ -38,8 +45,9 @@ describe("DocumentOutline", () => {
     const details = screen.getByRole("button", { name: "Details" });
     const closing = screen.getByRole("button", { name: "Closing" });
     expect(details).toHaveAttribute("aria-current", "location");
+    expect(screen.getByRole("button", { name: "Opening" })).toHaveFocus();
+    act(() => details.focus());
     expect(details).toHaveAttribute("tabindex", "0");
-    details.focus();
     fireEvent.keyDown(details, { key: "ArrowDown" });
     expect(closing).toHaveFocus();
     fireEvent.click(closing);

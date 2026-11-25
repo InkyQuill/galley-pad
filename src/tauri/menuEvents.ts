@@ -1,4 +1,6 @@
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { listenForCurrentWindow } from "./windowEvents";
+import { invoke } from "@tauri-apps/api/core";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 
 export const APP_MENU_COMMAND_EVENT = "app-menu-command";
 
@@ -18,14 +20,37 @@ export type AppMenuCommand =
   | "toggle-outline"
   | "toggle-word-wrap";
 
-export function listenForAppMenuCommand(
+export async function listenForAppMenuCommand(
   handler: (command: AppMenuCommand) => void,
 ): Promise<UnlistenFn> {
-  if (!("__TAURI_INTERNALS__" in globalThis)) {
-    return Promise.resolve(() => undefined);
-  }
+  if (!("__TAURI_INTERNALS__" in globalThis)) return () => undefined;
 
-  return listen<AppMenuCommand>(APP_MENU_COMMAND_EVENT, (event) => {
-    handler(event.payload);
+  let disposed = false;
+  let drain = Promise.resolve();
+  const takeCommands = () => {
+    const read = async () => {
+      const pending = await invoke<AppMenuCommand[]>("take_pending_menu_commands");
+      if (!disposed) pending?.forEach((command) => handler(command));
+    };
+    drain = drain.then(read, read);
+    return drain;
+  };
+  const unlisten = await listenForCurrentWindow<AppMenuCommand | null>(APP_MENU_COMMAND_EVENT, (event) => {
+    if (event.payload === null) {
+      void takeCommands().catch((error: unknown) => console.error("Could not read pending Galley Pad menu commands", error));
+    } else {
+      handler(event.payload);
+    }
   });
+
+  try {
+    await takeCommands();
+  } catch (error) {
+    unlisten();
+    throw error;
+  }
+  return () => {
+    disposed = true;
+    unlisten();
+  };
 }

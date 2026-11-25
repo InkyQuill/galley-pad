@@ -1,7 +1,7 @@
-use std::{fs, io, path::Path, sync::Mutex};
+use std::{path::Path, sync::Mutex};
 use tauri::{AppHandle, State};
 
-use super::{app_config_file, write_json_file};
+use super::{app_config_file, read_json_or_quarantine, write_json_file};
 
 const MAX_RECENT_FILES: usize = 12;
 
@@ -9,11 +9,7 @@ const MAX_RECENT_FILES: usize = 12;
 pub(super) struct RecentFiles(Mutex<()>);
 
 fn read(path: &Path) -> Result<Vec<String>, String> {
-    match fs::read_to_string(path) {
-        Ok(content) => serde_json::from_str(&content).map_err(|error| error.to_string()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Vec::new()),
-        Err(error) => Err(error.to_string()),
-    }
+    Ok(read_json_or_quarantine(path)?.unwrap_or_default())
 }
 
 fn update(mut recent: Vec<String>, path: String, remember: bool) -> Vec<String> {
@@ -26,7 +22,11 @@ fn update(mut recent: Vec<String>, path: String, remember: bool) -> Vec<String> 
 }
 
 #[tauri::command]
-pub(super) fn read_recent_files(app: AppHandle) -> Result<Vec<String>, String> {
+pub(super) fn read_recent_files(
+    app: AppHandle,
+    files: State<'_, RecentFiles>,
+) -> Result<Vec<String>, String> {
+    let _guard = files.0.lock().map_err(|_| "Recent files are unavailable")?;
     read(&app_config_file(&app, "recent-files.json")?)
 }
 
@@ -46,6 +46,20 @@ pub(super) fn update_recent_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+
+    #[test]
+    fn corrupt_recent_files_are_preserved_and_read_as_empty() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("recent-files.json");
+        fs::write(&path, "{broken").unwrap();
+        assert!(read(&path).unwrap().is_empty());
+        assert!(fs::read_dir(directory.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .any(|entry| entry.path() != path
+                && fs::read_to_string(entry.path()).unwrap() == "{broken"));
+    }
 
     #[test]
     fn recent_files_are_unique_bounded_and_remove_stale_entries() {

@@ -70,6 +70,18 @@
           "net.daringfireball.markdown",
           "public.plain-text"
         ]
+      },
+      {
+        "ext": [
+          "txt"
+        ],
+        "name": "Plain Text Document",
+        "description": "Plain Text Document",
+        "role": "Editor",
+        "mimeType": "text/plain",
+        "contentTypes": [
+          "public.plain-text"
+        ]
       }
     ]
   }

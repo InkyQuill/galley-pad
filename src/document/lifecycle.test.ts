@@ -18,6 +18,29 @@ import {
 } from "./lifecycle";
 
 describe("document lifecycle commands", () => {
+  it.each([
+    ["First\nEdited\nThird\n", "First\r\nEdited\nThird\r\n"],
+    ["First\nInserted\nSecond\nThird\n", "First\r\nInserted\nSecond\nThird\r\n"],
+    ["First\nSecond\nThird", "First\r\nSecond\nThird"],
+  ])("preserves mixed line endings for an edited document: %j", async (edited, expected) => {
+    const file = {
+      path: "/tmp/mixed.md", content: "First\r\nSecond\nThird\r\n",
+      lineEnding: "lf" as const, lastModifiedAt: 10,
+    };
+    const session = updateSessionContent(createSessionFromFile(file), edited);
+    const writeTextFile = vi.fn().mockResolvedValue({ ...file, lastModifiedAt: 11 });
+    const deps = createLifecycleDependencies({
+      pickOpenFile: vi.fn(), pickSaveFile: vi.fn(),
+      readTextFile: vi.fn().mockResolvedValue(file), writeTextFile,
+    });
+
+    await saveDocument(session, deps);
+
+    expect(writeTextFile).toHaveBeenCalledWith(
+      file.path, expected, expect.anything(),
+    );
+  });
+
   it("creates a fresh untitled document", () => {
     const dirty = updateSessionContent(createUntitledSession(), "Changed");
 

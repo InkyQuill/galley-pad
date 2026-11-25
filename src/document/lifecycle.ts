@@ -1,3 +1,4 @@
+import { createSideBySideLineDiff } from "./diff";
 import {
   createSessionFromFile,
   createUntitledSession,
@@ -139,10 +140,7 @@ async function writeDocument(
   dependencies: LifecycleDependencies,
   tabId?: string,
 ): Promise<DocumentSession> {
-  const normalized = session.content.replace(/\r\n/g, "\n");
-  const content = session.lineEnding === "crlf"
-    ? normalized.replace(/\n/g, "\r\n")
-    : normalized;
+  const content = contentWithSavedLineEndings(session);
   const options: FileWriteOptions = {
     encoding: session.encoding ?? "utf8",
     expected: fileExists(current)
@@ -169,15 +167,45 @@ async function writeDocument(
   }
 }
 
+function contentWithSavedLineEndings(session: DocumentSession): string {
+  const normalized = session.content.replace(/\r\n/g, "\n");
+  const snapshot = session.savedDiskContent ?? session.savedContent;
+  const originalEndings: string[] = snapshot.match(/\r?\n/g) ?? [];
+  const defaultEnding = session.lineEnding === "crlf" ? "\r\n" : "\n";
+  if (!originalEndings.includes("\r\n") || !originalEndings.includes("\n")) {
+    return normalized.replace(/\n/g, defaultEnding);
+  }
+  if (normalized === snapshot.replace(/\r\n/g, "\n")) return snapshot;
+
+  const editedLines = normalized.split("\n");
+  const editedEndings: string[] = editedLines.slice(1).map(() => defaultEnding);
+  let originalLine = 0;
+  let editedLine = 0;
+  for (const { kind } of createSideBySideLineDiff(snapshot, normalized)) {
+    if (kind === "unchanged" || kind === "changed") {
+      const originalEnding = originalEndings[originalLine];
+      if (originalEnding && editedLine < editedEndings.length) {
+        editedEndings[editedLine] = originalEnding;
+      }
+    }
+    if (kind !== "added") originalLine += 1;
+    if (kind !== "removed") editedLine += 1;
+  }
+  return editedLines.map((line, index) => line + (editedEndings[index] ?? "")).join("");
+}
+
 export async function checkExternalFileChange(
   session: DocumentSession,
   dependencies: LifecycleDependencies,
+  encoding?: "windows1251",
 ): Promise<ExternalFileChangeResult> {
   if (!session.path) {
     return { kind: "unchanged" };
   }
 
-  const external = await readSessionFile(session.path, session, dependencies);
+  const external = encoding
+    ? await dependencies.readTextFile(session.path, encoding)
+    : await readSessionFile(session.path, session, dependencies);
   if (!fileExists(external)) {
     if (
       (session.fileExists ?? (session.lastKnownModifiedAt !== null)) === false ||

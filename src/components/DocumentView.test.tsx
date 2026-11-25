@@ -107,7 +107,7 @@ describe("DocumentView", () => {
     );
   });
 
-  it("renders the Galley toolbar with icon overrides when requested", () => {
+  it("renders toolbar and fresh table icons without a runtime server renderer", () => {
     render(
       <DocumentView
         content="# Hello"
@@ -125,7 +125,7 @@ describe("DocumentView", () => {
     expect(
       screen.getByLabelText("Mock table control icon count"),
     ).toHaveTextContent("11");
-    expect(vi.mocked(renderToStaticMarkup)).toHaveBeenCalledTimes(11);
+    expect(vi.mocked(renderToStaticMarkup)).not.toHaveBeenCalled();
     expect(screen.getByLabelText("Mock table control icon 0")).toHaveAttribute(
       "data-title",
       "insertRowBefore first",

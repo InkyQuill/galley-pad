@@ -1,10 +1,10 @@
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 #[cfg(target_os = "linux")]
 use std::io::IsTerminal;
 #[cfg(target_os = "linux")]
 use std::os::unix::process::CommandExt;
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     ffi::{OsStr, OsString},
     fs,
     io::Write,
@@ -30,6 +30,7 @@ mod document_assets;
 mod document_file;
 mod document_ownership;
 mod recent_files;
+mod window_events;
 mod window_recovery;
 pub use document_file::{
     read_text_file_from_path, write_text_file_to_path, FileReadResult, FileWriteResult, LineEnding,
@@ -128,6 +129,7 @@ pub struct RawPersistedAppSettings {
     pub editor_line_width: Option<u16>,
     pub spellcheck: Option<bool>,
     pub allow_remote_images: Option<bool>,
+    pub check_for_updates: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -162,6 +164,8 @@ pub struct PersistedAppSettings {
     pub spellcheck: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub allow_remote_images: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub check_for_updates: Option<bool>,
 }
 
 #[derive(Clone, Serialize)]
@@ -207,26 +211,52 @@ fn take_pending_markdown_file_opens(
 }
 
 #[tauri::command]
-fn list_system_fonts() -> SystemFontCatalog {
-    list_system_fonts_catalog()
-}
-
-#[tauri::command]
-fn read_app_settings(app: AppHandle) -> Result<Option<RawPersistedAppSettings>, String> {
-    let path = app_config_file(&app, "settings.json")?;
-    if !path.exists() {
-        return Ok(None);
-    }
-
-    let content = fs::read_to_string(&path)
-        .map_err(|error| format!("Failed to read app settings '{}': {error}", path.display()))?;
-    serde_json::from_str(&content)
-        .map(Some)
-        .map_err(|error| format!("Failed to parse app settings '{}': {error}", path.display()))
+async fn list_system_fonts() -> Result<SystemFontCatalog, String> {
+    tauri::async_runtime::spawn_blocking(list_system_fonts_catalog)
+        .await
+        .map_err(|error| error.to_string())
 }
 
 #[derive(Default)]
 struct SettingsWriteLock(Mutex<()>);
+
+fn read_json_or_quarantine<T: DeserializeOwned>(path: &Path) -> Result<Option<T>, String> {
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("Failed to read '{}': {error}", path.display())),
+    };
+    match serde_json::from_slice(&bytes) {
+        Ok(value) => Ok(Some(value)),
+        Err(error) => {
+            let timestamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|duration| duration.as_nanos())
+                .unwrap_or_default();
+            let backup = path.with_extension(format!("json.corrupt-{timestamp}"));
+            fs::rename(path, &backup).map_err(|move_error| {
+                format!(
+                    "Failed to move corrupt '{}' aside ({error}): {move_error}",
+                    path.display()
+                )
+            })?;
+            eprintln!(
+                "Moved corrupt configuration to '{}': {error}",
+                backup.display()
+            );
+            Ok(None)
+        }
+    }
+}
+
+#[tauri::command]
+fn read_app_settings(
+    app: AppHandle,
+    lock: tauri::State<'_, SettingsWriteLock>,
+) -> Result<Option<RawPersistedAppSettings>, String> {
+    let _guard = lock.0.lock().map_err(|_| "App settings are unavailable")?;
+    read_json_or_quarantine(&app_config_file(&app, "settings.json")?)
+}
 
 fn merge_app_settings(
     path: &Path,
@@ -234,18 +264,7 @@ fn merge_app_settings(
 ) -> Result<serde_json::Map<String, serde_json::Value>, String> {
     use serde_json::{Map, Value};
 
-    let mut stored: Map<String, Value> = match fs::read_to_string(path) {
-        Ok(content) => serde_json::from_str(&content).map_err(|error| {
-            format!("Failed to parse app settings '{}': {error}", path.display())
-        })?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Map::new(),
-        Err(error) => {
-            return Err(format!(
-                "Failed to read app settings '{}': {error}",
-                path.display()
-            ))
-        }
-    };
+    let mut stored: Map<String, Value> = read_json_or_quarantine(path)?.unwrap_or_default();
     let Value::Object(mut patch) =
         serde_json::to_value(settings).map_err(|error| error.to_string())?
     else {
@@ -421,11 +440,10 @@ fn markdown_path_from_os_arg(arg: &OsStr, cwd: &Path) -> Option<String> {
 }
 
 fn markdown_path_from_path_arg(path: &Path, cwd: &Path) -> Option<String> {
-    is_markdown_path(path).then(|| {
-        absolute_path_from_arg(path, cwd)
-            .to_string_lossy()
-            .into_owned()
-    })
+    if !is_markdown_path(path) {
+        return None;
+    }
+    utf8_document_path(absolute_path_from_arg(path, cwd))
 }
 
 fn absolute_path_from_arg(path: &Path, cwd: &Path) -> PathBuf {
@@ -477,15 +495,27 @@ fn markdown_paths_from_urls(urls: &[tauri::Url]) -> Vec<String> {
             url.to_file_path().ok()
         })
         .filter(|path| is_markdown_path(path))
-        .map(|path| path.to_string_lossy().into_owned())
+        .filter_map(utf8_document_path)
         .collect()
+}
+
+fn utf8_document_path(path: PathBuf) -> Option<String> {
+    match path.into_os_string().into_string() {
+        Ok(path) => Some(path),
+        Err(path) => {
+            eprintln!("Cannot open a document whose path is not UTF-8: {path:?}");
+            None
+        }
+    }
 }
 
 fn is_markdown_path(path: &Path) -> bool {
     path.extension()
         .and_then(OsStr::to_str)
         .is_some_and(|extension| {
-            extension.eq_ignore_ascii_case("md") || extension.eq_ignore_ascii_case("markdown")
+            ["md", "markdown", "txt"]
+                .iter()
+                .any(|supported| extension.eq_ignore_ascii_case(supported))
         })
 }
 
@@ -514,14 +544,36 @@ fn percent_encode_query_value(value: &str) -> String {
     encoded
 }
 
+fn cascade_position(label: &str, origin: (f64, f64), bounds: (f64, f64)) -> Option<(f64, f64)> {
+    let index: u64 = label.strip_prefix("markdown-file-")?.parse().ok()?;
+    let offset = ((index.saturating_sub(1) % 8) + 1) as f64 * 24.0;
+    Some((
+        (origin.0 + offset).min(bounds.0),
+        (origin.1 + offset).min(bounds.1),
+    ))
+}
+
 #[cfg(desktop)]
 fn build_editor_window(app: &AppHandle, label: &str, url: String) -> tauri::Result<()> {
-    WebviewWindowBuilder::new(app, label, WebviewUrl::App(url.into()))
+    let mut builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App(url.into()))
         .title(app_title())
         .inner_size(980.0, 720.0)
         .min_inner_size(640.0, 420.0)
-        .resizable(true)
-        .build()?;
+        .resizable(true);
+    if let Ok(Some(monitor)) = app.primary_monitor() {
+        let scale = monitor.scale_factor();
+        let position = monitor.position();
+        let size = monitor.size();
+        let origin = (f64::from(position.x) / scale, f64::from(position.y) / scale);
+        let bounds = (
+            origin.0 + (f64::from(size.width) / scale - 980.0).max(0.0),
+            origin.1 + (f64::from(size.height) / scale - 720.0).max(0.0),
+        );
+        if let Some((x, y)) = cascade_position(label, origin, bounds) {
+            builder = builder.position(x, y);
+        }
+    }
+    builder.build()?;
     Ok(())
 }
 
@@ -557,6 +609,7 @@ fn open_markdown_file_window(
     owners: tauri::State<'_, DocumentOwners>,
     path: String,
     allow_missing: Option<bool>,
+    fragment: Option<String>,
 ) -> Result<String, String> {
     if app_quit::in_progress(&app) {
         return Err("Wait for the quit confirmation before opening a new window".into());
@@ -565,7 +618,7 @@ fn open_markdown_file_window(
     let canonical = match owners.claim(&label, None, Path::new(&path)) {
         Ok(path) => path,
         Err(DocumentOwnershipError::AlreadyOpen { owner, .. }) => {
-            activate_document_owner(&app, &owner);
+            activate_document_owner(&app, &owner, fragment.as_deref());
             return Ok(owner.window_label);
         }
         Err(error) => return Err(error.to_string()),
@@ -582,6 +635,10 @@ fn open_markdown_file_window(
             .to_str()
             .ok_or("Document path is not valid Unicode")?;
         let mut url = markdown_window_url(canonical);
+        if let Some(fragment) = fragment {
+            url.push_str("&fragment=");
+            url.push_str(&percent_encode_query_value(&fragment));
+        }
         if allow_missing {
             url.push_str("&allowMissing=1");
         }
@@ -636,28 +693,80 @@ fn emit_or_queue_markdown_file_open<R: tauri::Runtime>(
     };
     drop(queue);
     if let Some(window) = target {
-        window
-            .emit(MARKDOWN_FILE_OPENED_EVENT, ())
+        window_events::emit_editor_event(window, MARKDOWN_FILE_OPENED_EVENT, ())
             .map_err(|error| format!("Failed to signal pending Markdown file open: {error}"))?;
     }
     Ok(())
 }
 
-fn emit_app_menu_command<R: tauri::Runtime>(
-    app: &tauri::AppHandle<R>,
-    command: &str,
-) -> Result<(), String> {
+#[derive(Default)]
+struct MenuCommandQueue {
+    ready_windows: HashSet<String>,
+    pending: HashMap<String, Vec<&'static str>>,
+}
+
+#[derive(Default)]
+struct PendingMenuCommands(Mutex<MenuCommandQueue>);
+
+#[tauri::command]
+fn take_pending_menu_commands(
+    window: tauri::WebviewWindow,
+    commands: tauri::State<'_, PendingMenuCommands>,
+) -> Result<Vec<&'static str>, String> {
+    let mut queue = commands
+        .0
+        .lock()
+        .map_err(|_| "Menu command queue is unavailable")?;
+    queue.ready_windows.insert(window.label().to_owned());
+    Ok(queue.pending.remove(window.label()).unwrap_or_default())
+}
+
+fn emit_app_menu_command(app: &AppHandle, command: &'static str) -> Result<(), String> {
     let windows = app.webview_windows();
     let target = windows
         .values()
         .find(|window| window.is_focused().unwrap_or(false))
         .or_else(|| windows.get(MAIN_WINDOW_LABEL))
-        .or_else(|| windows.values().next())
-        .ok_or_else(|| "No window is available to receive the menu command".to_string())?;
+        .or_else(|| windows.values().next());
+    let commands = app.state::<PendingMenuCommands>();
 
-    target
-        .emit(APP_MENU_COMMAND_EVENT, command)
-        .map_err(|error| format!("Failed to emit app menu command event: {error}"))
+    if let Some(target) = target {
+        let mut queue = commands
+            .0
+            .lock()
+            .map_err(|_| "Menu command queue is unavailable")?;
+        queue
+            .pending
+            .entry(target.label().to_owned())
+            .or_default()
+            .push(command);
+        let ready = queue.ready_windows.contains(target.label());
+        drop(queue);
+        if ready {
+            window_events::emit_editor_event(target, APP_MENU_COMMAND_EVENT, ())
+                .map_err(|error| format!("Failed to signal menu command: {error}"))?;
+        }
+        return Ok(());
+    }
+
+    #[cfg(target_os = "macos")]
+    if matches!(command, "new" | "open" | "open-recent" | "settings") {
+        // Opening a fresh window already fulfills New; the other commands need
+        // delivery after the newly created webview installs its listener.
+        if command != "new" {
+            commands
+                .0
+                .lock()
+                .map_err(|_| "Menu command queue is unavailable")?
+                .pending
+                .entry(MAIN_WINDOW_LABEL.to_owned())
+                .or_default()
+                .push(command);
+        }
+        return build_editor_window(app, MAIN_WINDOW_LABEL, "index.html".into())
+            .map_err(|error| format!("Failed to open a window for {command}: {error}"));
+    }
+    Err("No window is available to receive the menu command".into())
 }
 
 #[tauri::command]
@@ -928,6 +1037,7 @@ pub fn configure_linux_display_backend() {
 enum LinuxDisplayChildStatus {
     Started(std::process::ExitStatus),
     ExitedBeforeReady(std::process::ExitStatus),
+    TimedOut,
 }
 
 #[cfg(target_os = "linux")]
@@ -978,12 +1088,28 @@ fn run_linux_display_child(gdk_backend: &str) -> Result<LinuxDisplayChildStatus,
         .spawn()
         .map_err(|error| format!("Failed to launch Galley Pad with {gdk_backend}: {error}"))?;
 
+    wait_for_linux_display_child(
+        &mut child,
+        &ready_file,
+        gdk_backend,
+        Duration::from_secs(20),
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn wait_for_linux_display_child(
+    child: &mut std::process::Child,
+    ready_file: &Path,
+    gdk_backend: &str,
+    timeout: Duration,
+) -> Result<LinuxDisplayChildStatus, String> {
+    let deadline = std::time::Instant::now() + timeout;
     loop {
         if ready_file.exists() {
             let status = child.wait().map_err(|error| {
                 format!("Failed waiting for Galley Pad with {gdk_backend}: {error}")
             })?;
-            let _ = fs::remove_file(&ready_file);
+            let _ = fs::remove_file(ready_file);
             return Ok(LinuxDisplayChildStatus::Started(status));
         }
 
@@ -991,8 +1117,23 @@ fn run_linux_display_child(gdk_backend: &str) -> Result<LinuxDisplayChildStatus,
             .try_wait()
             .map_err(|error| format!("Failed checking Galley Pad with {gdk_backend}: {error}"))?
         {
-            let _ = fs::remove_file(&ready_file);
+            let _ = fs::remove_file(ready_file);
             return Ok(LinuxDisplayChildStatus::ExitedBeforeReady(status));
+        }
+
+        if std::time::Instant::now() >= deadline {
+            if let Err(error) = child.kill() {
+                if !matches!(child.try_wait(), Ok(Some(_))) {
+                    return Err(format!(
+                        "Failed stopping stalled Galley Pad with {gdk_backend}: {error}"
+                    ));
+                }
+            }
+            child
+                .wait()
+                .map_err(|error| format!("Failed reaping stalled Galley Pad: {error}"))?;
+            let _ = fs::remove_file(ready_file);
+            return Ok(LinuxDisplayChildStatus::TimedOut);
         }
 
         thread::sleep(Duration::from_millis(50));
@@ -1012,11 +1153,11 @@ fn linux_display_ready_file(gdk_backend: &str) -> PathBuf {
 }
 
 #[cfg(target_os = "linux")]
-fn signal_linux_display_ready_once(signaled: &mut bool) {
-    if *signaled {
+fn signal_linux_display_ready_once() {
+    static SIGNALED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if SIGNALED.swap(true, Ordering::Relaxed) {
         return;
     }
-    *signaled = true;
 
     if let Some(path) = std::env::var_os("GALLEY_PAD_DISPLAY_READY_FILE") {
         if let Err(error) = fs::write(path, b"ready") {
@@ -1027,7 +1168,8 @@ fn signal_linux_display_ready_once(signaled: &mut bool) {
 
 #[cfg(target_os = "linux")]
 fn should_retry_x11_after_wayland_child(status: &LinuxDisplayChildStatus) -> bool {
-    matches!(status, LinuxDisplayChildStatus::ExitedBeforeReady(exit_status) if !exit_status.success())
+    matches!(status, LinuxDisplayChildStatus::TimedOut)
+        || matches!(status, LinuxDisplayChildStatus::ExitedBeforeReady(exit_status) if !exit_status.success())
 }
 
 #[cfg(target_os = "linux")]
@@ -1035,6 +1177,7 @@ fn exit_code_from_linux_display_child_status(status: LinuxDisplayChildStatus) ->
     match status {
         LinuxDisplayChildStatus::Started(exit_status)
         | LinuxDisplayChildStatus::ExitedBeforeReady(exit_status) => exit_code(exit_status),
+        LinuxDisplayChildStatus::TimedOut => 1,
     }
 }
 
@@ -1119,18 +1262,28 @@ pub fn run() {
         .manage(pending_markdown_file_open)
         .manage(DocumentOwners::default())
         .manage(SettingsWriteLock::default())
+        .manage(PendingMenuCommands::default())
         .manage(app_quit::AppQuit::default())
         .manage(active_file_watch::ActiveFileWatches::default())
+        .manage(document_assets::ImageWatches::default())
         .manage(recent_files::RecentFiles::default())
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
                 app_quit::handle_window_destroyed(window.app_handle(), window.label());
+                window
+                    .state::<document_assets::ImageWatches>()
+                    .remove_window(window.label());
                 window
                     .state::<active_file_watch::ActiveFileWatches>()
                     .remove(window.label());
                 let _ = window
                     .state::<DocumentOwners>()
                     .release(window.label(), None);
+                let commands = window.state::<PendingMenuCommands>();
+                if let Ok(mut queue) = commands.0.lock() {
+                    queue.ready_windows.remove(window.label());
+                    queue.pending.remove(window.label());
+                };
                 let state = window.state::<PendingMarkdownFileOpen>();
                 if let Ok(mut queue) = state.0.lock() {
                     queue.ready_windows.remove(window.label());
@@ -1175,10 +1328,12 @@ pub fn run() {
             document_file::read_text_file,
             document_file::write_text_file,
             take_pending_markdown_file_opens,
+            take_pending_menu_commands,
             open_markdown_file_window,
             open_draft_window,
             document_ownership::claim_document_path,
             document_ownership::release_document_tab,
+            app_quit::register_app_quit_window,
             app_quit::answer_app_quit_check,
             app_quit::finish_app_quit_clear,
             active_file_watch::watch_active_document,
@@ -1186,6 +1341,7 @@ pub fn run() {
             recent_files::update_recent_file,
             list_system_fonts,
             document_assets::resolve_document_reference,
+            document_assets::watch_document_images,
             read_app_settings,
             write_app_settings,
             read_swap_state,
@@ -1196,9 +1352,6 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .unwrap_or_else(|error| panic!("error while building {}: {error}", app_title()));
-
-    #[cfg(target_os = "linux")]
-    let mut linux_display_ready_signaled = false;
 
     app.run(move |app, event| {
         if let tauri::RunEvent::ExitRequested { code, api, .. } = &event {
@@ -1237,14 +1390,6 @@ pub fn run() {
                 Err(error) => eprintln!("{error}"),
             }
         }
-        #[cfg(target_os = "linux")]
-        let _ = &app;
-
-        #[cfg(target_os = "linux")]
-        if matches!(&event, tauri::RunEvent::Ready) {
-            signal_linux_display_ready_once(&mut linux_display_ready_signaled);
-        }
-
         #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
         if let tauri::RunEvent::Opened { urls } = event {
             #[cfg(target_os = "macos")]
@@ -1274,12 +1419,53 @@ mod tests {
     use super::app_title;
     use std::ffi::OsString;
     use std::fs;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use tauri::Url;
 
     #[test]
     fn app_title_matches_product_name() {
         assert_eq!(app_title(), "Galley Pad");
+    }
+
+    #[test]
+    fn accepts_text_paths_at_desktop_entry_points() {
+        let directory = tempfile::tempdir().unwrap();
+        assert_eq!(
+            super::markdown_paths_from_args(&["gpad".into(), "draft.TXT".into()], directory.path()),
+            vec![directory
+                .path()
+                .join("draft.TXT")
+                .into_os_string()
+                .into_string()
+                .unwrap()],
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_non_unicode_paths_without_substituting_another_filename() {
+        use std::os::unix::ffi::OsStringExt;
+        let argument = OsString::from_vec(b"draft-\xff.md".to_vec());
+        assert!(
+            super::markdown_paths_from_os_args(&["gpad".into(), argument], Path::new("/docs"))
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn settings_updates_preserve_corrupt_data_and_resume_from_defaults() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("settings.json");
+        fs::write(&path, "{broken").unwrap();
+        let patch = serde_json::from_str(r#"{"wordWrap":false}"#).unwrap();
+        super::merge_app_settings(&path, patch).unwrap();
+        let stored: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(stored["wordWrap"], false);
+        assert!(fs::read_dir(directory.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .any(|entry| entry.path() != path
+                && fs::read_to_string(entry.path()).unwrap() == "{broken"));
     }
 
     #[test]
@@ -1309,76 +1495,83 @@ mod tests {
 
     #[test]
     fn markdown_paths_from_os_args_accepts_all_markdown_file_args() {
-        let cwd = Path::new("/tmp/project");
+        let directory = tempfile::tempdir().unwrap();
+        let cwd = directory.path().join("project");
+        let absolute = directory.path().join("other.md");
         let args = vec![
             OsString::from("galley-pad"),
             OsString::from("--flag"),
-            OsString::from("notes.txt"),
+            OsString::from("notes.pdf"),
             OsString::from("draft.markdown"),
-            OsString::from("/tmp/other.md"),
+            absolute.clone().into_os_string(),
         ];
-
         assert_eq!(
-            super::markdown_paths_from_os_args(&args, cwd),
-            vec![
-                "/tmp/project/draft.markdown".to_string(),
-                "/tmp/other.md".to_string()
-            ]
+            super::markdown_paths_from_os_args(&args, &cwd)
+                .into_iter()
+                .map(PathBuf::from)
+                .collect::<Vec<_>>(),
+            vec![cwd.join("draft.markdown"), absolute]
         );
     }
 
     #[test]
     fn markdown_paths_from_args_accepts_all_markdown_file_args() {
-        let cwd = Path::new("/tmp/project");
+        let directory = tempfile::tempdir().unwrap();
+        let cwd = directory.path().join("project");
+        let absolute = directory.path().join("two.markdown");
         let args = vec![
             "gpad".to_string(),
             "--flag".to_string(),
             "one.md".to_string(),
-            "notes.txt".to_string(),
-            "/tmp/two.markdown".to_string(),
+            "notes.pdf".to_string(),
+            absolute.to_str().unwrap().to_owned(),
         ];
-
         assert_eq!(
-            super::markdown_paths_from_args(&args, cwd),
-            vec![
-                "/tmp/project/one.md".to_string(),
-                "/tmp/two.markdown".to_string()
-            ]
+            super::markdown_paths_from_args(&args, &cwd)
+                .into_iter()
+                .map(PathBuf::from)
+                .collect::<Vec<_>>(),
+            vec![cwd.join("one.md"), absolute]
         );
     }
 
     #[test]
     fn markdown_paths_from_args_normalizes_relative_paths_against_cwd() {
+        let directory = tempfile::tempdir().unwrap();
+        let cwd = directory.path().join("docs");
         let args = vec![
             "gpad".to_string(),
             "./notes/../draft.md".to_string(),
             "../outside.markdown".to_string(),
         ];
-
         assert_eq!(
-            super::markdown_paths_from_args(&args, Path::new("/tmp/project/docs")),
+            super::markdown_paths_from_args(&args, &cwd)
+                .into_iter()
+                .map(PathBuf::from)
+                .collect::<Vec<_>>(),
             vec![
-                "/tmp/project/docs/draft.md".to_string(),
-                "/tmp/project/outside.markdown".to_string()
+                cwd.join("draft.md"),
+                directory.path().join("outside.markdown")
             ]
         );
     }
 
     #[test]
     fn markdown_paths_from_args_resolves_creation_paths_from_cli_cwd() {
-        let cwd = Path::new("/tmp/project/docs");
+        let directory = tempfile::tempdir().unwrap();
+        let cwd = directory.path().join("docs");
+        let absolute = directory.path().join("new-file.markdown");
         let args = vec![
             "gpad".to_string(),
             "new-file.md".to_string(),
-            "/tmp/absolute/new-file.markdown".to_string(),
+            absolute.to_str().unwrap().to_owned(),
         ];
-
         assert_eq!(
-            super::markdown_paths_from_args(&args, cwd),
-            vec![
-                "/tmp/project/docs/new-file.md".to_string(),
-                "/tmp/absolute/new-file.markdown".to_string()
-            ]
+            super::markdown_paths_from_args(&args, &cwd)
+                .into_iter()
+                .map(PathBuf::from)
+                .collect::<Vec<_>>(),
+            vec![cwd.join("new-file.md"), absolute]
         );
     }
 
@@ -1430,6 +1623,7 @@ mod tests {
         ));
     }
 
+    #[cfg(unix)]
     #[test]
     fn normalize_path_clamps_parent_dirs_at_absolute_root() {
         assert_eq!(
@@ -1445,7 +1639,7 @@ mod tests {
     #[test]
     fn markdown_paths_from_urls_accepts_file_urls_only() {
         let markdown_path = std::env::temp_dir().join("README.MD");
-        let text_path = std::env::temp_dir().join("notes.txt");
+        let text_path = std::env::temp_dir().join("notes.pdf");
         let urls = vec![
             Url::parse("https://example.com/readme.md").expect("parse https url"),
             Url::from_file_path(&markdown_path).expect("create markdown file url"),
@@ -1507,6 +1701,41 @@ mod tests {
         assert_eq!(item.label, "Word Wrap");
         assert_eq!(item.accelerator, "Alt+Z");
         assert!(item.checked);
+    }
+
+    #[test]
+    fn secondary_window_positions_cascade_with_bounded_offsets() {
+        assert_eq!(
+            super::cascade_position("main", (100.0, 200.0), (300.0, 400.0)),
+            None
+        );
+        assert_eq!(
+            super::cascade_position("markdown-file-1", (100.0, 200.0), (300.0, 400.0)),
+            Some((124.0, 224.0))
+        );
+        assert_eq!(
+            super::cascade_position("markdown-file-8", (100.0, 200.0), (130.0, 200.0)),
+            Some((130.0, 200.0))
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_display_startup_timeout_reaps_the_child_and_permits_fallback() {
+        let mut child = std::process::Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let result = super::wait_for_linux_display_child(
+            &mut child,
+            &temp.path().join("ready"),
+            "wayland",
+            std::time::Duration::from_millis(25),
+        )
+        .unwrap();
+        assert!(super::should_retry_x11_after_wayland_child(&result));
+        assert!(child.try_wait().unwrap().is_some());
     }
 
     #[test]

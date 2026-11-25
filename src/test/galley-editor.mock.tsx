@@ -16,6 +16,7 @@ type TableControlIconRenderer = ({
 }) => HTMLElement | null;
 
 export const mockGalleyOpenSearch = vi.fn(() => true);
+export const mockGalleyRender = vi.fn<(docKey: string | number | undefined) => void>();
 export const mockGalleyFocus = vi.fn();
 export const mockGalleyRevealPosition = vi.fn();
 export const mockGalleyGetHeadings = vi.fn((): Array<{
@@ -69,6 +70,7 @@ export const GalleyEditor = forwardRef(function MockGalleyEditor(
   },
   ref,
 ) {
+  mockGalleyRender(docKey);
   useImperativeHandle(ref, () =>
     mockGalleyHandleState.ready
       ? {

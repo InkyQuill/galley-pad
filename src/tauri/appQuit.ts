@@ -1,8 +1,9 @@
+import { listenForCurrentWindow } from "./windowEvents";
 import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 
 type QuitHandlers = {
-  confirm: () => Promise<boolean>;
+  confirm: (signal?: AbortSignal) => Promise<boolean>;
   clear: () => Promise<void>;
   cancelled: () => void;
   onError: (error: unknown) => void;
@@ -11,19 +12,24 @@ type QuitHandlers = {
 export async function listenForAppQuit(handlers: QuitHandlers): Promise<UnlistenFn> {
   if (!("__TAURI_INTERNALS__" in globalThis)) return () => undefined;
   let activeId: number | undefined;
+  let confirmation: AbortController | undefined;
   const unlisten = await Promise.all([
-    listen<number>("app-quit-check", async ({ payload: requestId }) => {
+    listenForCurrentWindow<number>("app-quit-check", async ({ payload: requestId }) => {
       if (activeId !== undefined) return;
       activeId = requestId;
+      const abort = new AbortController();
+      confirmation = abort;
       let approved = false;
       try {
-        approved = await handlers.confirm();
+        approved = await handlers.confirm(abort.signal);
       } catch (error) {
         handlers.onError(error);
       }
-      void invoke("answer_app_quit_check", { requestId, approved }).catch(handlers.onError);
+      if (!abort.signal.aborted) {
+        void invoke("answer_app_quit_check", { requestId, approved }).catch(handlers.onError);
+      }
     }),
-    listen<number>("app-quit-clear", async ({ payload: requestId }) => {
+    listenForCurrentWindow<number>("app-quit-clear", async ({ payload: requestId }) => {
       if (requestId !== activeId) return;
       try {
         await handlers.clear();
@@ -33,11 +39,22 @@ export async function listenForAppQuit(handlers: QuitHandlers): Promise<Unlisten
         void invoke("finish_app_quit_clear", { requestId }).catch(handlers.onError);
       }
     }),
-    listen<number>("app-quit-cancelled", ({ payload: requestId }) => {
+    listenForCurrentWindow<number>("app-quit-cancelled", ({ payload: requestId }) => {
       if (requestId !== activeId) return;
       activeId = undefined;
+      confirmation?.abort();
+      confirmation = undefined;
       handlers.cancelled();
     }),
   ]);
-  return () => unlisten.forEach((remove) => remove());
+  try {
+    await invoke("register_app_quit_window");
+  } catch (error) {
+    unlisten.forEach((remove) => remove());
+    throw error;
+  }
+  return () => {
+    confirmation?.abort();
+    unlisten.forEach((remove) => remove());
+  };
 }

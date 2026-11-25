@@ -1,3 +1,4 @@
+import { listenForCurrentWindow } from "./windowEvents";
 import { convertFileSrc, invoke, isTauri } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
@@ -45,4 +46,23 @@ export async function openEditorUrl(url: string): Promise<boolean> {
     window.open(target.href, "_blank", "noopener,noreferrer");
   }
   return true;
+}
+
+export async function watchDocumentImages(documentPath: string, paths: string[], changed: () => void) {
+  if (!isTauri() || !paths.length) return () => {};
+  const subscription = crypto.randomUUID();
+  const args = { subscription, documentPath, paths };
+  const unlisten = await listenForCurrentWindow<string>("document-images-changed", ({payload}) => {
+    if (payload === subscription) changed();
+  });
+  try {
+    await invoke("watch_document_images", args);
+  } catch (error) {
+    unlisten();
+    throw error;
+  }
+  return () => {
+    unlisten();
+    void invoke("watch_document_images", { ...args, paths: [] }).catch(() => {});
+  };
 }

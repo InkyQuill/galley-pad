@@ -26,29 +26,18 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
+import { tableControlMarkup } from "./tableControlMarkup";
 import {
-  TbAlignCenter,
-  TbAlignLeft,
-  TbAlignRight,
   TbBold,
-  TbClearFormatting,
   TbCode,
   TbCodeblock,
-  TbColumnInsertLeft,
-  TbColumnInsertRight,
-  TbColumnRemove,
   TbLayoutSidebarRight,
   TbListDetails,
   TbLink,
   TbList,
   TbListCheck,
   TbListNumbers,
-  TbMarkdown,
   TbPhoto,
-  TbRowInsertBottom,
-  TbRowInsertTop,
-  TbRowRemove,
   TbSeparatorHorizontal,
   TbStrikethrough,
   TbTable,
@@ -69,6 +58,8 @@ import type { AppMenuCommand } from "../tauri/menuEvents";
 type EditorSurfaceStyle = CSSProperties & Record<`--${string}`, string>;
 
 export type DocumentViewHandle = {
+  hasOutline(): boolean;
+  revealFragment(fragment: string): boolean;
   openSearch(): boolean;
   focus(): void;
   setMode(mode: GalleyMode): void;
@@ -86,7 +77,7 @@ export type DocumentViewProps = {
   allowRemoteImages?: boolean;
   outlineOpen?: boolean;
   onToggleOutline?: () => void;
-  onOpenDocument?: (path: string) => void;
+  onOpenDocument?: (path: string, fragment?: string) => void;
   onLinkError?: (message: string) => void;
   labelledBy?: string;
   toolbarVisible?: boolean;
@@ -135,11 +126,23 @@ export const DocumentView = forwardRef<DocumentViewHandle, DocumentViewProps>(
     const [mode, setMode] = useState<GalleyMode>("live");
     const [headings, setHeadings] = useState<readonly GalleyHeading[]>([]);
     const [viewport, setViewport] = useState<GalleyViewport>({ from: 0, to: 0 });
-    const resolveImageSource = useDocumentImages(path, allowRemoteImages);
+    const resolveImageSource = useDocumentImages(path, allowRemoteImages, active);
 
     useImperativeHandle(
       ref,
       () => ({
+        hasOutline: () => {
+          const current = editorRef.current?.getHeadings() ?? [];
+          setHeadings(current);
+          return current.length >= 2;
+        },
+        revealFragment: (fragment) => {
+          const editor = editorRef.current;
+          const heading = editor?.getHeadings().find(item => item.slug === fragment);
+          if (!editor || !heading) return false;
+          editor.revealPosition(heading.from, { align: "start", select: true, focus: true });
+          return true;
+        },
         openSearch: () => editorRef.current?.openSearch() ?? false,
         focus: () => editorRef.current?.focus(),
         setMode,
@@ -156,12 +159,12 @@ export const DocumentView = forwardRef<DocumentViewHandle, DocumentViewProps>(
     }, [path, onOpenDocument, onLinkError]);
 
     useEffect(() => {
-      if (!active || !outlineOpen) return;
+      if (!active) return;
 
       const timer = window.setTimeout(() => {
         setHeadings(editorRef.current?.getHeadings() ?? []);
-        const current = editorRef.current?.getViewport();
-        if (current) setViewport(current);
+        const current = outlineOpen && editorRef.current?.getViewport();
+        if (outlineOpen && current) setViewport(current);
       }, 200);
       return () => window.clearTimeout(timer);
     }, [active, content, outlineOpen]);
@@ -178,7 +181,8 @@ export const DocumentView = forwardRef<DocumentViewHandle, DocumentViewProps>(
         if (await openEditorUrl(url)) return;
         const target = path && await resolveDocumentReference(path, url, "document");
         if (target && onOpenDocument) {
-          onOpenDocument(target);
+          const index = url.indexOf("#");
+          onOpenDocument(target, index < 0 ? undefined : decodeURIComponent(url.slice(index + 1)));
         } else {
           onLinkError?.("Unable to open this link.");
         }
@@ -230,7 +234,7 @@ export const DocumentView = forwardRef<DocumentViewHandle, DocumentViewProps>(
               spellcheck={spellcheck}
               resolveImageSource={resolveImageSource}
               onLinkClick={handleLinkClick}
-              onViewportChange={handleViewportChange}
+              onViewportChange={active && outlineOpen ? handleViewportChange : undefined}
               layout="fill"
               horizontalScroll={!wordWrap}
               theme={editorScheme ?? "auto"}
@@ -258,6 +262,7 @@ export const DocumentView = forwardRef<DocumentViewHandle, DocumentViewProps>(
                       <FooterMenuButton
                         wordWrap={wordWrap}
                         outlineOpen={outlineOpen}
+                        outlineAvailable={headings.length >= 2}
                         onCommand={onMenuCommand}
                       />
                     ) : null}
@@ -271,7 +276,7 @@ export const DocumentView = forwardRef<DocumentViewHandle, DocumentViewProps>(
                       <option value="markdown">Source</option>
                       <option value="preview">Preview</option>
                     </select>
-                    {onToggleOutline ? (
+                    {onToggleOutline && headings.length >= 2 ? (
                       <button
                         type="button"
                         className="document-footer-outline"
@@ -305,7 +310,7 @@ export const DocumentView = forwardRef<DocumentViewHandle, DocumentViewProps>(
             />
           </EditorErrorBoundary>
         </div>
-        {outlineOpen && active ? (
+        {outlineOpen && active && headings.length >= 2 ? (
           <DocumentOutline
             id={outlineId}
             headings={headings}
@@ -350,17 +355,17 @@ const GALLEY_TABLE_CONTROL_ICONS: Record<
   GalleyTableControlIconName,
   ({ label }: { label: string }) => HTMLElement | null
 > = {
-  insertRowBefore: tableControlIcon(TbRowInsertTop),
-  insertRowAfter: tableControlIcon(TbRowInsertBottom),
-  insertColumnBefore: tableControlIcon(TbColumnInsertLeft),
-  insertColumnAfter: tableControlIcon(TbColumnInsertRight),
-  deleteRow: tableControlIcon(TbRowRemove),
-  deleteColumn: tableControlIcon(TbColumnRemove),
-  alignLeft: tableControlIcon(TbAlignLeft),
-  alignCenter: tableControlIcon(TbAlignCenter),
-  alignRight: tableControlIcon(TbAlignRight),
-  clearAlignment: tableControlIcon(TbClearFormatting),
-  editSource: tableControlIcon(TbMarkdown),
+  insertRowBefore: tableControlIcon(tableControlMarkup.insertRowBefore),
+  insertRowAfter: tableControlIcon(tableControlMarkup.insertRowAfter),
+  insertColumnBefore: tableControlIcon(tableControlMarkup.insertColumnBefore),
+  insertColumnAfter: tableControlIcon(tableControlMarkup.insertColumnAfter),
+  deleteRow: tableControlIcon(tableControlMarkup.deleteRow),
+  deleteColumn: tableControlIcon(tableControlMarkup.deleteColumn),
+  alignLeft: tableControlIcon(tableControlMarkup.alignLeft),
+  alignCenter: tableControlIcon(tableControlMarkup.alignCenter),
+  alignRight: tableControlIcon(tableControlMarkup.alignRight),
+  clearAlignment: tableControlIcon(tableControlMarkup.clearAlignment),
+  editSource: tableControlIcon(tableControlMarkup.editSource),
 };
 
 function toolbarIcon(Icon: IconType) {
@@ -371,7 +376,7 @@ function toolbarIcon(Icon: IconType) {
   );
 }
 
-function tableControlIcon(Icon: IconType) {
+function tableControlIcon(markup: string) {
   let cachedSvg: HTMLElement | null | undefined;
 
   function getCachedSvg() {
@@ -380,16 +385,8 @@ function tableControlIcon(Icon: IconType) {
     }
 
     const template = document.createElement("template");
-    template.innerHTML = renderToStaticMarkup(
-      <Icon size={16} strokeWidth={2} />,
-    );
+    template.innerHTML = markup;
     cachedSvg = template.content.firstElementChild as HTMLElement | null;
-
-    if (cachedSvg) {
-      cachedSvg.classList.add("galley-table-control-icon");
-      cachedSvg.setAttribute("aria-hidden", "true");
-      cachedSvg.setAttribute("focusable", "false");
-    }
 
     return cachedSvg;
   }

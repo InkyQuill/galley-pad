@@ -35,7 +35,7 @@ describe("external Markdown file opens", () => {
   });
 
   it("uses Tauri commands and events when Tauri internals are present", async () => {
-    (globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
+    (globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = { metadata: { currentWindow: { label: "main" } } };
     invokeMock.mockResolvedValue(["/tmp/opened.md"]);
     listenMock.mockResolvedValue(() => undefined);
 
@@ -46,6 +46,7 @@ describe("external Markdown file opens", () => {
     expect(listenMock).toHaveBeenCalledWith(
       MARKDOWN_FILE_OPENED_EVENT,
       expect.any(Function),
+      { target: "main" },
     );
   });
 

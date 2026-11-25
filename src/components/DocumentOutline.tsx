@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { TbX } from "react-icons/tb";
 import type { GalleyHeading, GalleyViewport } from "@inkyquill/galley-editor";
 
@@ -55,6 +55,21 @@ export function DocumentOutline({
     ? Math.max(0, current)
     : Math.min(focusedIndex, headings.length - 1);
 
+  const names = useMemo(() => {
+    const totals = new Map<string, number>();
+    const seen = new Map<string, number>();
+    const labels = headings.map(heading => heading.text || `Untitled heading (level ${heading.level})`);
+    for (const label of labels) totals.set(label, (totals.get(label) ?? 0) + 1);
+    return labels.map(label => {
+      const index = (seen.get(label) ?? 0) + 1;
+      seen.set(label, index);
+      const total = totals.get(label);
+      return total === 1 ? undefined : `${label} (${index} of ${total})`;
+    });
+  }, [headings]);
+
+  useLayoutEffect(() => { items.current[0]?.focus(); }, []);
+
   useEffect(() => {
     const item = items.current[current];
     if (!item?.closest("nav")?.contains(document.activeElement)) {
@@ -110,6 +125,7 @@ export function DocumentOutline({
                 ref={(item) => { items.current[index] = item; }}
                 type="button"
                 tabIndex={index === tabStop ? 0 : -1}
+                aria-label={names[index]}
                 aria-current={index === current ? "location" : undefined}
                 onFocus={() => setFocusedIndex(index)}
                 onClick={() => onNavigate(heading.from)}

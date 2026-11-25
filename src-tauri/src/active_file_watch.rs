@@ -5,7 +5,7 @@ use std::{
 };
 
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use tauri::{Emitter, State, WebviewWindow};
+use tauri::{State, WebviewWindow};
 
 use crate::document_ownership::canonical_document_path;
 
@@ -65,7 +65,8 @@ pub(super) fn watch_active_document(
         let watched_path =
             canonical_document_path(Path::new(&path)).map_err(|error| error.to_string())?;
         let watcher = watch_parent(watched_path, move || {
-            let _ = window.emit("active-document-changed", &path);
+            let _ =
+                super::window_events::emit_editor_event(&window, "active-document-changed", &path);
         })?;
         active.insert(label, watcher);
     }

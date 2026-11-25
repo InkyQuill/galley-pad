@@ -85,6 +85,10 @@ textarea {
   overflow-y: hidden;
 }
 
+.tabstrip-tabs [role="tab"] {
+  touch-action: pan-y;
+}
+
 .tabstrip-tabs::-webkit-scrollbar {
   display: none;
 }
@@ -677,7 +681,7 @@ textarea {
 
 .settings-dialog {
   position: relative;
-  width: min(360px, 100%);
+  width: min(400px, 100%);
   max-width: calc(100vw - 32px);
   max-height: calc(100vh - 32px);
   margin: auto;
@@ -690,12 +694,26 @@ textarea {
   color: var(--app-text);
 }
 
+.settings-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-dialog-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scroll-padding-block: 10px;
+}
+
 .settings-dialog::backdrop {
   background: var(--app-backdrop);
 }
 
 .settings-dialog-header {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -1040,8 +1058,13 @@ textarea {
   width: min(32rem, calc(100vw - 2rem));
 }
 
+.recent-files-empty {
+  margin: 14px;
+  color: var(--app-text-muted);
+}
+
 .recent-file-list {
-  padding: 0;
+  padding: 10px 14px;
   margin: 0;
   display: grid;
   gap: 0.35rem;
@@ -1064,6 +1087,14 @@ textarea {
   border: 1px solid var(--app-border);
   border-radius: 0.35rem;
   padding: 0.45rem 0.55rem;
+  cursor: pointer;
+}
+
+.recent-file-row > .button-secondary {
+  padding: 5px 8px;
+  border: 1px solid var(--app-border);
+  border-radius: 4px;
+  font-size: 13px;
   cursor: pointer;
 }
 

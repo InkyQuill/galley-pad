@@ -5,7 +5,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{Mutex, MutexGuard},
 };
-use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
+use tauri::{AppHandle, Manager, State, WebviewWindow};
 
 const ACTIVATE_DOCUMENT_EVENT: &str = "activate-document-tab";
 
@@ -158,12 +158,25 @@ pub(crate) fn canonical_document_path(path: &Path) -> io::Result<PathBuf> {
 pub(crate) fn activate_document_owner<R: tauri::Runtime>(
     app: &AppHandle<R>,
     owner: &DocumentOwner,
+    fragment: Option<&str>,
 ) {
     if let Some(window) = app.get_webview_window(&owner.window_label) {
         let _ = window.unminimize();
         let _ = window.set_focus();
         if let Some(tab_id) = &owner.tab_id {
-            let _ = window.emit(ACTIVATE_DOCUMENT_EVENT, tab_id);
+            if let Some(fragment) = fragment {
+                let _ = super::window_events::emit_editor_event(
+                    &window,
+                    ACTIVATE_DOCUMENT_EVENT,
+                    serde_json::json!({ "tabId": tab_id, "fragment": fragment }),
+                );
+            } else {
+                let _ = super::window_events::emit_editor_event(
+                    &window,
+                    ACTIVATE_DOCUMENT_EVENT,
+                    tab_id,
+                );
+            }
         }
     }
 }
@@ -174,6 +187,7 @@ pub(crate) fn claim_document_path(
     owners: State<'_, DocumentOwners>,
     path: String,
     tab_id: String,
+    fragment: Option<String>,
 ) -> Result<Option<String>, String> {
     match owners.claim(window.label(), Some(&tab_id), Path::new(&path)) {
         Ok(path) => path
@@ -182,7 +196,7 @@ pub(crate) fn claim_document_path(
             .map(Some)
             .map_err(|_| "Document path is not valid Unicode".into()),
         Err(DocumentOwnershipError::AlreadyOpen { owner, .. }) => {
-            activate_document_owner(window.app_handle(), &owner);
+            activate_document_owner(window.app_handle(), &owner, fragment.as_deref());
             Ok(None)
         }
         Err(error) => Err(error.to_string()),

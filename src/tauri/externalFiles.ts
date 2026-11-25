@@ -1,5 +1,6 @@
+import { listenForCurrentWindow } from "./windowEvents";
 import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 
 export const MARKDOWN_FILE_OPENED_EVENT = "markdown-file-opened";
 
@@ -26,7 +27,7 @@ export function listenForMarkdownFileOpen(
     return Promise.resolve(() => undefined);
   }
 
-  return listen<MarkdownFileOpen | null>(MARKDOWN_FILE_OPENED_EVENT, (event) => {
+  return listenForCurrentWindow<MarkdownFileOpen | null>(MARKDOWN_FILE_OPENED_EVENT, (event) => {
     handler(event.payload);
   });
 }

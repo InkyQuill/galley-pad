@@ -35,4 +35,4 @@ recorded transitive advisories no longer occur with the current lockfile.
 - Expected: Vite starts on `http://127.0.0.1:1420/` and a native window titled `Galley Pad` opens.
 - Actual: Previously, in this local KDE Wayland session, the default run reached `target/debug/galley-pad`, then exited with `Gdk-Message: Error 71 (Protocol error) dispatching to Wayland display`.
 - Owner: Galley Pad Linux startup.
-- Next action: Fixed by the Linux display startup supervisor. Galley Pad now tries Wayland first with WebKitGTK Wayland safeguards and retries X11 only if the Wayland child process fails during startup.
+- Next action: Fixed by the Linux display startup supervisor. Galley Pad tries Wayland first with WebKitGTK safeguards when both backends are available. It retries X11 if the Wayland child exits unsuccessfully or fails to register its webview within 20 seconds.

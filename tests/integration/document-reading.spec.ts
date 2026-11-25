@@ -20,7 +20,7 @@ test("navigates the live document outline and updates entries after editing", as
   const first = outline.getByRole("button", { name: "First" });
   const details = outline.getByRole("button", { name: "Details" });
   await expect(first).toHaveAttribute("aria-current", "location");
-  await first.focus();
+  await expect(first).toBeFocused();
   await page.keyboard.press("ArrowDown");
   await expect(details).toBeFocused();
   await page.keyboard.press("Enter");
@@ -70,7 +70,10 @@ test("overlays the outline at a narrow width and dismisses it after navigation",
   await expect(activeEditor(page)).toBeFocused();
 });
 
-test("reorders tabs and supports tab shortcuts and context actions", async ({ page }) => {
+test("reorders tabs without a WebView HTML drag backend and supports tab shortcuts", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.addEventListener("dragstart", (event) => event.preventDefault(), true);
+  });
   await page.goto("/");
   const tabs = page.getByRole("tab");
   const first = await tabs.first().getAttribute("id");
@@ -90,7 +93,17 @@ test("reorders tabs and supports tab shortcuts and context actions", async ({ pa
   await expect(tabs.first()).toHaveAttribute("id", second!);
   await expect(tabs.last()).toHaveAttribute("id", first!);
 
-  await tabs.first().dragTo(tabs.last());
+  await activeEditor(page).click();
+  await page.keyboard.insertText("Keep tab order");
+  await expect(tabs.first()).toHaveAttribute("id", second!);
+
+  const from = await tabs.first().boundingBox();
+  const to = await tabs.last().boundingBox();
+  expect(from && to).toBeTruthy();
+  await page.mouse.move(from!.x + from!.width / 2, from!.y + from!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(to!.x + to!.width / 2, to!.y + to!.height / 2, { steps: 10 });
+  await page.mouse.up();
   await expect(tabs.first()).toHaveAttribute("id", first!);
   await expect(tabs.last()).toHaveAttribute("id", second!);
 
@@ -143,4 +156,53 @@ test("font search supports arrow navigation and Escape inside Settings", async (
   await page.keyboard.press("Escape");
   await expect(settings).toBeVisible();
   await expect(trigger).toBeFocused();
+});
+
+test("keeps Settings and its font picker usable at the minimum window size", async ({ page }) => {
+  await page.setViewportSize({ width: 640, height: 420 });
+  await page.goto("/");
+  await expect(activeEditor(page)).toBeFocused();
+  await page.keyboard.press("ControlOrMeta+,");
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  await expect(settings).toBeVisible();
+  const scrollbar = await settings.boundingBox();
+  expect(scrollbar).not.toBeNull();
+  await page.mouse.move(scrollbar!.x + 100, scrollbar!.y + 100);
+  await page.mouse.wheel(0, 600);
+  const editorFont = settings.getByRole("button", { name: /System default/ });
+  await expect(editorFont).toBeInViewport({ ratio: 1 });
+  await expect(settings.getByRole("button", { name: "Close settings" })).toBeInViewport();
+  await editorFont.click();
+  await expect(settings.getByRole("combobox", { name: "Search fonts" })).toBeInViewport({ ratio: 1 });
+  await page.keyboard.press("ArrowDown");
+  await expect(settings.getByRole("option", { name: "System default" })).toBeInViewport({ ratio: 1 });
+});
+
+
+test("offers the outline only for navigable documents and distinguishes repeated headings", async ({ page }) => {
+  await page.goto("/");
+  await replaceContent(page, "# Only");
+  const toggle = page.getByRole("button", { name: "Table of contents", exact: true });
+  await expect(toggle).toHaveCount(0);
+  await page.keyboard.press("ControlOrMeta+Shift+o");
+  await expect(page.getByRole("navigation", { name: "Table of contents" })).toHaveCount(0);
+  await replaceContent(page, "# Details\n\n## Details");
+  await toggle.click();
+  const outline = page.getByRole("navigation", { name: "Table of contents" });
+  await expect(outline.getByRole("button", { name: "Details (1 of 2)" })).toBeFocused();
+  await expect(outline.getByRole("button", { name: "Details (2 of 2)" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(activeEditor(page)).toBeFocused();
+});
+
+test("keeps the outline closed when a new tab grows a second heading", async ({ page }) => {
+  await page.goto("/");
+  await replaceContent(page, "# One\n\n## Two");
+  await page.getByRole("button", { name: "Table of contents", exact: true }).click();
+  const outline = page.getByRole("navigation", { name: "Table of contents" });
+  await expect(outline).toBeVisible();
+  await page.getByRole("button", { name: "New tab", exact: true }).click();
+  await replaceContent(page, "# Three\n\n## Four");
+  await expect(page.getByRole("button", { name: "Table of contents", exact: true })).toHaveAttribute("aria-expanded", "false");
+  await expect(outline).toHaveCount(0);
 });

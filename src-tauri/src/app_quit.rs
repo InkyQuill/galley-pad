@@ -1,11 +1,15 @@
 use std::{
     collections::{HashSet, VecDeque},
     sync::Mutex,
+    thread,
+    time::Duration,
 };
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 
 const CHECK_EVENT: &str = "app-quit-check";
 const CLEAR_EVENT: &str = "app-quit-clear";
+const CHECK_TIMEOUT: Duration = Duration::from_secs(120);
+const CLEAR_TIMEOUT: Duration = Duration::from_secs(10);
 const CANCEL_EVENT: &str = "app-quit-cancelled";
 
 #[derive(Default)]
@@ -13,6 +17,7 @@ pub(super) struct AppQuit(Mutex<QuitState>);
 
 #[derive(Default)]
 struct QuitState {
+    ready: HashSet<String>,
     next_id: u64,
     request: Option<QuitRequest>,
     exit_approved: bool,
@@ -91,7 +96,23 @@ impl QuitState {
         Step::Clear(participants, id)
     }
 
+    fn expire_check(&mut self, id: u64, label: &str) -> Step {
+        self.checked(id, label, false)
+    }
+
+    fn expire_clear(&mut self, id: u64) -> Step {
+        if !self.request.as_ref().is_some_and(|request| {
+            request.id == id && matches!(request.phase, Phase::Clearing { .. })
+        }) {
+            return Step::Wait;
+        }
+        let code = self.request.take().expect("active clear phase").code;
+        self.exit_approved = true;
+        Step::Exit(code)
+    }
+
     fn window_destroyed(&mut self, label: &str) -> Step {
+        self.ready.remove(label);
         let Some(request) = &self.request else {
             return Step::Wait;
         };
@@ -133,9 +154,22 @@ fn advance(app: &AppHandle, step: Step) {
             let delivered = app.get_webview_window(&label).is_some_and(|window| {
                 let _ = window.unminimize();
                 let _ = window.set_focus();
-                window.emit(CHECK_EVENT, id).is_ok()
+                super::window_events::emit_editor_event(&window, CHECK_EVENT, id).is_ok()
             });
-            if !delivered {
+            if delivered {
+                let app = app.clone();
+                thread::spawn(move || {
+                    thread::sleep(CHECK_TIMEOUT);
+                    let state = app.state::<AppQuit>();
+                    let step = state
+                        .0
+                        .lock()
+                        .map(|mut state| state.expire_check(id, &label));
+                    if let Ok(step) = step {
+                        advance(&app, step);
+                    }
+                });
+            } else {
                 let state = app.state::<AppQuit>();
                 let next = state
                     .0
@@ -147,11 +181,19 @@ fn advance(app: &AppHandle, step: Step) {
             }
         }
         Step::Clear(labels, id) => {
+            let deadline_app = app.clone();
+            thread::spawn(move || {
+                thread::sleep(CLEAR_TIMEOUT);
+                let state = deadline_app.state::<AppQuit>();
+                let step = state.0.lock().map(|mut state| state.expire_clear(id));
+                if let Ok(step) = step {
+                    advance(&deadline_app, step);
+                }
+            });
             for label in labels {
-                if !app
-                    .get_webview_window(&label)
-                    .is_some_and(|window| window.emit(CLEAR_EVENT, id).is_ok())
-                {
+                if !app.get_webview_window(&label).is_some_and(|window| {
+                    super::window_events::emit_editor_event(&window, CLEAR_EVENT, id).is_ok()
+                }) {
                     let state = app.state::<AppQuit>();
                     let next = state.0.lock().map(|mut state| state.cleared(id, &label));
                     if let Ok(next) = next {
@@ -202,6 +244,13 @@ pub(super) fn guard_exit(app: &AppHandle, code: Option<i32>, api: &tauri::ExitRe
         return;
     }
     api.prevent_exit();
+    if windows
+        .iter()
+        .any(|window| !state.ready.contains(window.label()))
+    {
+        eprintln!("Quit deferred until all Galley Pad windows finish starting up");
+        return;
+    }
     windows.sort_by_key(|window| {
         (
             !window.is_focused().unwrap_or(false),
@@ -217,6 +266,23 @@ pub(super) fn guard_exit(app: &AppHandle, code: Option<i32>, api: &tauri::ExitRe
     );
     drop(state);
     advance(app, step);
+}
+
+#[tauri::command]
+pub(super) fn register_app_quit_window(
+    window: WebviewWindow,
+    quit: State<'_, AppQuit>,
+) -> Result<(), String> {
+    quit.0
+        .lock()
+        .map_err(|_| "Quit request is unavailable")?
+        .ready
+        .insert(window.label().to_owned());
+    #[cfg(target_os = "linux")]
+    if window.label() == super::MAIN_WINDOW_LABEL {
+        super::signal_linux_display_ready_once();
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -283,5 +349,36 @@ mod tests {
         assert!(matches!(state.cleared(1, "main"), Step::Wait));
         assert!(matches!(state.cleared(1, "secondary"), Step::Exit(0)));
         assert!(state.exit_approved);
+    }
+}
+
+#[cfg(test)]
+mod deadline_tests {
+    use super::*;
+
+    #[test]
+    fn an_expired_check_cancels_only_the_current_window() {
+        let mut state = QuitState::default();
+        state.begin(vec!["main".into(), "secondary".into()], 0);
+        state.checked(1, "main", true);
+        assert!(matches!(state.expire_check(1, "main"), Step::Wait));
+        assert!(matches!(
+            state.expire_check(1, "secondary"),
+            Step::Cancel(1)
+        ));
+        assert!(matches!(state.checked(1, "secondary", true), Step::Wait));
+        assert!(matches!(
+            state.begin(vec!["main".into()], 0),
+            Step::Check(_, 2)
+        ));
+    }
+
+    #[test]
+    fn cleanup_timeout_exits_only_after_every_window_approved() {
+        let mut state = QuitState::default();
+        state.begin(vec!["main".into()], 0);
+        assert!(matches!(state.expire_clear(1), Step::Wait));
+        state.checked(1, "main", true);
+        assert!(matches!(state.expire_clear(1), Step::Exit(0)));
     }
 }

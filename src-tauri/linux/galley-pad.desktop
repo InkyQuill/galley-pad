@@ -6,5 +6,5 @@ Exec=/usr/bin/gpad --open-existing %F
 Icon=gpad
 Terminal=false
 Categories=Utility;TextEditor;
-MimeType=text/markdown;text/x-markdown;
+MimeType=text/markdown;text/x-markdown;text/plain;
 StartupWMClass=gpad

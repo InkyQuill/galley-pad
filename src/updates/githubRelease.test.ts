@@ -21,7 +21,7 @@ it("returns a newer stable GitHub release", async () => {
   });
   expect(fetchImpl).toHaveBeenCalledWith(
     "https://api.github.com/repos/InkyQuill/galley-pad/releases/latest",
-    { headers: { Accept: "application/vnd.github+json" } },
+    { headers: { Accept: "application/vnd.github+json" }, signal: expect.any(AbortSignal) },
   );
 });
 
@@ -104,4 +104,33 @@ it("returns null when release JSON parsing rejects", async () => {
   } as unknown as Response);
 
   await expect(checkForGitHubUpdate("1.5.0", fetchImpl)).resolves.toBeNull();
+});
+
+it("bounds a pending network request and aborts the fetch", async () => {
+  vi.useFakeTimers();
+  try {
+    const fetchImpl = vi.fn<typeof fetch>(() => new Promise(() => undefined));
+    const check = checkForGitHubUpdate("1.5.0", fetchImpl, { timeoutMs: 200 });
+    await vi.advanceTimersByTimeAsync(200);
+    expect(fetchImpl.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    await expect(check).resolves.toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("reuses a fresh release cache and re-evaluates it for the installed version", async () => {
+  const storage = new Map<string, string>();
+  const cache = {
+    getItem: (key: string) => storage.get(key) ?? null,
+    setItem: (key: string, value: string) => { storage.set(key, value); },
+  };
+  const fetchImpl = vi.fn().mockResolvedValue(response({
+    draft: false, prerelease: false, tag_name: "v2.0.0",
+    html_url: "https://github.com/InkyQuill/galley-pad/releases/tag/v2.0.0",
+  }));
+
+  await expect(checkForGitHubUpdate("1.5.0", fetchImpl, { storage: cache, now: () => 1000 })).resolves.toMatchObject({ version: "2.0.0" });
+  await expect(checkForGitHubUpdate("2.0.0", fetchImpl, { storage: cache, now: () => 2000 })).resolves.toBeNull();
+  expect(fetchImpl).toHaveBeenCalledTimes(1);
 });
