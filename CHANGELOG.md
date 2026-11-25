@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.9.0](https://github.com/InkyQuill/galley-pad/compare/v1.8.0...v1.9.0) (2026-11-25)
+
+
+### Features
+
+* **pad:** protect document recovery and integrate editor navigation ([8d8b88f](https://github.com/InkyQuill/galley-pad/commit/8d8b88f20de6298777b26c677d0316126a855461))
+* **pad:** protect document recovery and integrate editor navigation ([85f9dda](https://github.com/InkyQuill/galley-pad/commit/85f9ddae48fbf06afea2361947d8be07027bb3ba))
+
+
+### Bug Fixes
+
+* **release:** wait for the previous version tag before drafting notes ([7d88bca](https://github.com/InkyQuill/galley-pad/commit/7d88bcab80ee758db47fbcd566e5a453418560b0))
+
 ## [1.8.0](https://github.com/InkyQuill/galley-pad/compare/v1.7.0...v1.8.0) (2026-11-25)
 
 - Release metadata update. The application source and dependencies are the same as in 1.7.0.
