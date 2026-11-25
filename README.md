@@ -16,10 +16,10 @@ It is not a notes workspace, not a second brain, and not an IDE. It is a documen
 
 ## What It Does
 
-- Opens `.md` and `.markdown` files from the file manager, desktop launcher, or command line.
+- Opens `.md` and `.markdown` files from the file manager, desktop launcher, command line, or a file drop. Reopen a recent document from **File → Open Recent**.
 - Provides a focused Markdown editing surface powered by Galley Editor.
 - Saves normal files on disk instead of hiding content in a workspace database.
-- Handles multiple files by opening separate document windows.
+- Opens multiple documents in tabs or separate windows and switches to the existing tab when the same file is requested again.
 - Supports creating a new file by opening a path that does not exist yet.
 - Provides native desktop packaging for Linux, Windows, and macOS.
 
@@ -55,6 +55,34 @@ gpad new-draft.md
 
 Relative paths are resolved from the directory where `gpad` is run. Absolute paths stay absolute. The file is created on disk when it is saved.
 
+File-manager opens require an existing file. Use `gpad --open-existing file.md`
+when launching from scripts that should treat a missing path as an error.
+Each open window has its own crash-recovery snapshot. It stores text for
+unsaved edits and reloads saved tabs from disk. Galley Pad displays a notice
+when it restores unsaved edits. Closing a window clears its snapshot, and
+quitting asks about unsaved work in every open window.
+Changes to application settings are shared across windows.
+
+Galley Pad opens UTF-8 files and UTF-16 files with a byte-order mark. If Galley Pad
+reports an unsupported encoding for a legacy Cyrillic file, choose **Open as
+Windows-1251** in the error banner. Saving preserves the document’s encoding
+and line endings.
+
+### Reading and navigation
+
+Use the editor footer to switch between **Live Preview**, **Source**, and
+**Preview**. Open the table of contents from the footer or press
+**Ctrl+Shift+O** (**Cmd+Shift+O** on macOS). Choose a heading to jump to it.
+Settings controls reading width, spellcheck, and whether HTTPS images load.
+Relative raster images and links to Markdown or text files resolve within the
+document's directory. Hold Ctrl or Cmd when activating a link in the editor.
+
+Use **Ctrl+Tab** to switch tabs and **Ctrl+W** (**Cmd+W** on macOS) to close
+the current tab. **Ctrl+Shift+T** (**Cmd+Shift+T** on macOS) reopens the
+last file closed in the current window. Drag tabs to reorder them, or use the
+tab context menu. Changing the open mode applies to new documents and leaves
+the current tabs open.
+
 ## Local Development
 
 Install and activate project toolchains:
@@ -78,17 +106,22 @@ bun run tauri:dev
 Run the main checks:
 
 ```bash
-bun run test:unit
+bun run lint
+bun run test:coverage
 bun run test:scripts
 cargo test --manifest-path src-tauri/Cargo.toml
 bun run build
 ```
 
-Run the full verification suite:
+Run the local verification suite:
 
 ```bash
+bunx playwright install chromium
 mise run verify
 ```
+
+CI also tests WebKit. On a supported Playwright host, run it locally with
+`bunx playwright install webkit` and `bun run test:integration --project=webkit`.
 
 Build release installers locally:
 
@@ -122,7 +155,7 @@ Create a desktop entry at `~/.local/share/applications/net.inkyquill.GalleyPad.d
 Type=Application
 Name=Galley Pad
 Comment=A simple desktop Markdown editor powered by Galley.
-Exec=/replace/with/absolute/path/to/gpad %F
+Exec=/replace/with/absolute/path/to/gpad --open-existing %F
 Icon=gpad
 Terminal=false
 StartupWMClass=gpad

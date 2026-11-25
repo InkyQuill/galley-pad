@@ -5,6 +5,9 @@ import {
   type ReactNode,
 } from "react";
 import { vi } from "vitest";
+import editorPackage from "@inkyquill/galley-editor/package.json";
+
+const editorCredit = `Galley Editor v${editorPackage.version} by Inky Quill`;
 
 type TableControlIconRenderer = ({
   label,
@@ -13,26 +16,21 @@ type TableControlIconRenderer = ({
 }) => HTMLElement | null;
 
 export const mockGalleyOpenSearch = vi.fn(() => true);
-export const mockGalleySelect = vi.fn();
-export const mockGalleyScrollTo = vi.fn();
+export const mockGalleyFocus = vi.fn();
+export const mockGalleyRevealPosition = vi.fn();
+export const mockGalleyGetHeadings = vi.fn((): Array<{
+  from: number; to: number; level: number; text: string; slug: string;
+}> => []);
 export const mockGalleyHandleState = { ready: true };
-export const mockGalleyCallbacks: {
-  onSelectionChange?: (selection: {
-    from: number;
-    to: number;
-    anchor: number;
-    head: number;
-  }) => void;
-  onScroll?: (fraction: number) => void;
-} = {};
 
 export const GalleyEditor = forwardRef(function MockGalleyEditor(
   {
     value,
     onChange,
     docKey,
-    onSelectionChange,
-    onScroll,
+    ariaLabel,
+    mode = "live",
+    spellcheck = false,
     toolbar = true,
     footer = true,
     layout = "autosize",
@@ -44,13 +42,9 @@ export const GalleyEditor = forwardRef(function MockGalleyEditor(
     value: string;
     onChange: (content: string) => void;
     docKey?: string | number;
-    onSelectionChange?: (selection: {
-      from: number;
-      to: number;
-      anchor: number;
-      head: number;
-    }) => void;
-    onScroll?: (fraction: number) => void;
+    ariaLabel?: string;
+    mode?: string;
+    spellcheck?: boolean;
     toolbar?: boolean | { icons?: Record<string, unknown> };
     tableControlIcons?: Record<string, TableControlIconRenderer>;
     footer?:
@@ -75,15 +69,14 @@ export const GalleyEditor = forwardRef(function MockGalleyEditor(
   },
   ref,
 ) {
-  mockGalleyCallbacks.onSelectionChange = onSelectionChange;
-  mockGalleyCallbacks.onScroll = onScroll;
-
   useImperativeHandle(ref, () =>
     mockGalleyHandleState.ready
       ? {
           openSearch: mockGalleyOpenSearch,
-          select: mockGalleySelect,
-          scrollTo: mockGalleyScrollTo,
+          focus: mockGalleyFocus,
+          getHeadings: mockGalleyGetHeadings,
+          getViewport: () => ({ from: 0, to: value.length }),
+          revealPosition: mockGalleyRevealPosition,
         }
       : null,
   );
@@ -120,6 +113,9 @@ export const GalleyEditor = forwardRef(function MockGalleyEditor(
     <div
       data-testid="mock-galley-editor-shell"
       data-doc-key={docKey}
+      data-mode={mode}
+      data-spellcheck={String(spellcheck)}
+      data-editor-aria-label={ariaLabel}
       data-layout={layout}
       data-theme={theme}
       data-horizontal-scroll={String(horizontalScroll)}
@@ -171,7 +167,7 @@ export const GalleyEditor = forwardRef(function MockGalleyEditor(
           {footerOptions.logo === false ? null : (
             <span
               className="ge-footer-logo-wrap"
-              aria-label="Galley Editor v.0.10.0 by Inky Quill"
+              aria-label={editorCredit}
             >
               <svg
                 className="ge-footer-logo"
@@ -179,7 +175,7 @@ export const GalleyEditor = forwardRef(function MockGalleyEditor(
                 focusable="false"
               />
               <span className="ge-footer-tooltip" role="tooltip">
-                Galley Editor v.0.10.0 by Inky Quill
+                {editorCredit}
               </span>
             </span>
           )}

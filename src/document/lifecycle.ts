@@ -1,9 +1,11 @@
 import {
   createSessionFromFile,
   createUntitledSession,
+  fileExists,
   markSessionSaved,
   type DocumentSession,
   type FileReadResult,
+  type FileWriteOptions,
   type FileWriteResult,
 } from "./session";
 
@@ -16,13 +18,28 @@ export class ExternalFileChangedError extends Error {
   }
 }
 
+export class FileNotFoundError extends Error {
+  constructor(path: string) {
+    super(`The file no longer exists: ${path}`);
+    this.name = "FileNotFoundError";
+  }
+}
+
+export class UnsupportedFileEncodingError extends Error {
+  constructor(public readonly path: string, message: string) {
+    super(message);
+    this.name = "UnsupportedFileEncodingError";
+  }
+}
+
 export type LifecycleDependencies = {
   pickOpenFile: () => Promise<string | null>;
   pickSaveFile: (defaultPath: string | null) => Promise<string | null>;
-  readTextFile: (path: string) => Promise<FileReadResult>;
+  readTextFile: (path: string, encoding?: "windows1251") => Promise<FileReadResult>;
   writeTextFile: (
     path: string,
     content: string,
+    options: FileWriteOptions,
   ) => Promise<FileWriteResult>;
 };
 
@@ -63,39 +80,93 @@ export async function openDocument(
 export async function openDocumentPath(
   path: string,
   dependencies: LifecycleDependencies,
+  { allowMissing = false, encoding }: { allowMissing?: boolean; encoding?: "windows1251" } = {},
 ): Promise<DocumentSession> {
-  return createSessionFromFile(await dependencies.readTextFile(path));
+  const file = encoding
+    ? await dependencies.readTextFile(path, encoding)
+    : await dependencies.readTextFile(path);
+  if (!allowMissing && !fileExists(file)) {
+    throw new FileNotFoundError(path);
+  }
+  return createSessionFromFile(file);
 }
 
 export async function saveDocument(
   session: DocumentSession,
   dependencies: LifecycleDependencies,
+  tabId?: string,
 ): Promise<DocumentSession | null> {
   if (!session.path) {
-    return saveDocumentAs(session, dependencies);
+    return saveDocumentAs(session, dependencies, tabId);
   }
 
-  await assertFileUnchanged(session, dependencies);
+  const current = await readSessionFile(session.path, session, dependencies);
+  if (!fileExists(current)) {
+    if (
+      session.fileExists !== false &&
+      session.acknowledgedDeletedPath !== session.path
+    ) {
+      throw new ExternalFileChangedError(session.path);
+    }
+  } else if (session.fileExists === false || !matchesSavedContent(session, current)) {
+    throw new ExternalFileChangedError(session.path);
+  }
 
-  return markSessionSaved(
-    session,
-    await dependencies.writeTextFile(session.path, session.content),
-  );
+  return writeDocument(session, session.path, current, dependencies, tabId);
 }
 
 export async function saveDocumentAs(
   session: DocumentSession,
   dependencies: LifecycleDependencies,
+  tabId?: string,
 ): Promise<DocumentSession | null> {
   const path = await dependencies.pickSaveFile(session.path ?? session.displayName);
   if (!path) {
     return null;
   }
+  if (path === session.path) {
+    return saveDocument(session, dependencies, tabId);
+  }
 
-  return markSessionSaved(
-    session,
-    await dependencies.writeTextFile(path, session.content),
-  );
+  const current = await dependencies.readTextFile(path);
+  return writeDocument(session, path, current, dependencies, tabId);
+}
+
+async function writeDocument(
+  session: DocumentSession,
+  path: string,
+  current: FileReadResult,
+  dependencies: LifecycleDependencies,
+  tabId?: string,
+): Promise<DocumentSession> {
+  const normalized = session.content.replace(/\r\n/g, "\n");
+  const content = session.lineEnding === "crlf"
+    ? normalized.replace(/\n/g, "\r\n")
+    : normalized;
+  const options: FileWriteOptions = {
+    encoding: session.encoding ?? "utf8",
+    expected: fileExists(current)
+      ? { kind: "present", content: current.content, encoding: current.encoding ?? "utf8" }
+      : { kind: "missing" },
+    ...(tabId ? { tabId } : {}),
+  };
+
+  try {
+    const result = await dependencies.writeTextFile(path, content, options);
+    return markSessionSaved(
+      session,
+      content.includes("\n") ? result : { ...result, lineEnding: session.lineEnding },
+      content,
+    );
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "kind" in error && error.kind === "conflict") {
+      throw new ExternalFileChangedError(path);
+    }
+    if (typeof error === "object" && error !== null && "message" in error && typeof error.message === "string") {
+      throw error instanceof Error ? error : new Error(error.message);
+    }
+    throw error;
+  }
 }
 
 export async function checkExternalFileChange(
@@ -106,13 +177,12 @@ export async function checkExternalFileChange(
     return { kind: "unchanged" };
   }
 
-  const external = await dependencies.readTextFile(session.path);
-  if (external.lastModifiedAt === null) {
-    if (session.lastKnownModifiedAt === null) {
-      return { kind: "unchanged" };
-    }
-
-    if (session.acknowledgedDeletedPath === session.path) {
+  const external = await readSessionFile(session.path, session, dependencies);
+  if (!fileExists(external)) {
+    if (
+      (session.fileExists ?? (session.lastKnownModifiedAt !== null)) === false ||
+      session.acknowledgedDeletedPath === session.path
+    ) {
       return { kind: "unchanged" };
     }
 
@@ -123,37 +193,41 @@ export async function checkExternalFileChange(
     session.acknowledgedDeletedPath === null
       ? session
       : { ...session, acknowledgedDeletedPath: null };
-
+  const noticed = session.lastNoticedExternalContent;
   if (
     session.acknowledgedDeletedPath === null &&
-    (external.lastModifiedAt === session.lastKnownModifiedAt ||
-      external.lastModifiedAt === session.lastNoticedExternalModifiedAt)
+    noticed?.content === external.content &&
+    noticed.encoding === external.encoding
   ) {
     return { kind: "unchanged" };
   }
 
-  if (external.content === session.savedContent) {
+  if (matchesSavedContent(session, external)) {
+    if (
+      session.fileExists !== false &&
+      existingFileSession === session &&
+      noticed === undefined &&
+      external.lastModifiedAt === session.lastKnownModifiedAt
+    ) {
+      return { kind: "unchanged" };
+    }
     return {
       kind: "metadata-refresh",
-      session: {
-        ...existingFileSession,
-        lineEnding: external.lineEnding,
-        lastKnownModifiedAt: external.lastModifiedAt,
-        lastNoticedExternalModifiedAt: null,
-      },
+      session: refreshDiskMetadata(existingFileSession, external),
     };
   }
 
-  if (external.content === session.content) {
+  if (
+    external.content === session.content &&
+    (external.encoding ?? "utf8") === (session.encoding ?? "utf8")
+  ) {
     return {
       kind: "metadata-refresh",
       session: {
-        ...existingFileSession,
+        ...refreshDiskMetadata(existingFileSession, external),
         savedContent: external.content,
+        ...(session.savedDiskContent !== undefined ? { savedDiskContent: undefined } : {}),
         dirty: false,
-        lineEnding: external.lineEnding,
-        lastKnownModifiedAt: external.lastModifiedAt,
-        lastNoticedExternalModifiedAt: null,
       },
     };
   }
@@ -175,28 +249,28 @@ export async function checkExternalFileChange(
   };
 }
 
-async function assertFileUnchanged(
+function readSessionFile(
+  path: string,
   session: DocumentSession,
   dependencies: LifecycleDependencies,
-): Promise<void> {
-  if (!session.path) {
-    return;
-  }
+): Promise<FileReadResult> {
+  return session.encoding === "windows1251"
+    ? dependencies.readTextFile(path, "windows1251")
+    : dependencies.readTextFile(path);
+}
 
-  const current = await dependencies.readTextFile(session.path);
-  if (current.lastModifiedAt === null) {
-    if (session.acknowledgedDeletedPath === session.path) {
-      return;
-    }
+function matchesSavedContent(session: DocumentSession, file: FileReadResult): boolean {
+  return file.content === (session.savedDiskContent ?? session.savedContent) &&
+    (file.encoding ?? "utf8") === (session.encoding ?? "utf8");
+}
 
-    throw new ExternalFileChangedError(session.path);
-  }
-
-  if (current.content === session.savedContent) {
-    return;
-  }
-
-  if (current.lastModifiedAt !== session.lastKnownModifiedAt) {
-    throw new ExternalFileChangedError(session.path);
-  }
+function refreshDiskMetadata(session: DocumentSession, file: FileReadResult): DocumentSession {
+  return {
+    ...session,
+    ...(file.exists !== undefined || session.fileExists !== undefined ? { fileExists: true } : {}),
+    lineEnding: file.lineEnding,
+    lastKnownModifiedAt: file.lastModifiedAt,
+    lastNoticedExternalModifiedAt: null,
+    ...(session.lastNoticedExternalContent !== undefined ? { lastNoticedExternalContent: undefined } : {}),
+  };
 }

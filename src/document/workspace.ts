@@ -40,8 +40,9 @@ export function getActiveDocumentTab(
 export function addDocumentTab(
   workspace: DocumentWorkspace,
   session: DocumentSession = createUntitledSession(),
+  id?: string,
 ): DocumentWorkspace {
-  const tab = createDocumentTab(session);
+  const tab = createDocumentTab(session, id);
 
   return {
     ...workspace,
@@ -53,6 +54,7 @@ export function addDocumentTab(
 export function openDocumentTab(
   workspace: DocumentWorkspace,
   session: DocumentSession,
+  id?: string,
 ): DocumentWorkspace {
   const existing = session.path
     ? workspace.tabs.find((tab) => tab.session.path === session.path)
@@ -64,7 +66,7 @@ export function openDocumentTab(
 
   const activeTab = getActiveDocumentTab(workspace);
   if (isReplaceableUntitledTab(activeTab)) {
-    const tab = createDocumentTab(session);
+    const tab = createDocumentTab(session, id);
 
     return {
       ...workspace,
@@ -75,7 +77,7 @@ export function openDocumentTab(
     };
   }
 
-  return addDocumentTab(workspace, session);
+  return addDocumentTab(workspace, session, id);
 }
 
 export function setActiveDocumentTab(
@@ -157,9 +159,9 @@ export function closeDocumentTab(
   };
 }
 
-function createDocumentTab(session: DocumentSession): DocumentTab {
+function createDocumentTab(session: DocumentSession, id = `${session.id}:${crypto.randomUUID()}`): DocumentTab {
   return {
-    id: `${session.id}:${crypto.randomUUID()}`,
+    id,
     session,
   };
 }
@@ -171,4 +173,19 @@ function isReplaceableUntitledTab(tab: DocumentTab): boolean {
     !tab.session.dirty &&
     tab.session.content === tab.session.savedContent
   );
+}
+
+export function moveDocumentTab(
+  workspace: DocumentWorkspace,
+  tabId: string,
+  targetId: string,
+): DocumentWorkspace {
+  const from = workspace.tabs.findIndex((tab) => tab.id === tabId);
+  const to = workspace.tabs.findIndex((tab) => tab.id === targetId);
+  if (from === -1 || to === -1 || from === to) return workspace;
+
+  const tabs = [...workspace.tabs];
+  const [tab] = tabs.splice(from, 1);
+  tabs.splice(to, 0, tab);
+  return { ...workspace, tabs };
 }

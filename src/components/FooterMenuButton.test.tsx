@@ -6,18 +6,23 @@ import { FooterMenuButton } from "./FooterMenuButton";
 const labels = [
   "New",
   "Open...",
+  "Open Recent...",
   "Save",
   "Save As...",
+  "Close",
   "Toggle Editor Toolbar",
   "Word WrapAlt+Z",
+  "Table of contentsCtrl+Shift+O",
   "Settings...",
 ];
 
 const commands = [
   ["New", "new"],
   ["Open...", "open"],
+  ["Open Recent...", "open-recent"],
   ["Save", "save"],
   ["Save As...", "save-as"],
+  ["Close", "close"],
   ["Toggle Editor Toolbar", "toggle-toolbar"],
   ["Settings...", "settings"],
 ] as const;
@@ -80,7 +85,7 @@ describe("FooterMenuButton", () => {
     const items = getMenuItems(menu);
 
     fireEvent.keyDown(menu, { key: "ArrowUp" });
-    expect(items[6]).toHaveFocus();
+    expect(items[items.length - 1]).toHaveFocus();
 
     fireEvent.keyDown(menu, { key: "ArrowDown" });
     expect(items[0]).toHaveFocus();
@@ -93,7 +98,7 @@ describe("FooterMenuButton", () => {
     const items = getMenuItems(menu);
 
     fireEvent.keyDown(menu, { key: "End" });
-    expect(items[6]).toHaveFocus();
+    expect(items[items.length - 1]).toHaveFocus();
 
     fireEvent.keyDown(menu, { key: "Home" });
     expect(items[0]).toHaveFocus();

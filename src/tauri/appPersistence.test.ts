@@ -90,14 +90,13 @@ describe("app persistence", () => {
   });
 
   it("rejects malformed theme settings writes at type level", () => {
-    if (false) {
+    const invalidPayloads = () => {
       // @ts-expect-error write payloads require valid ThemeSettings
       void writeAppSettings({ themeSettings: "broken" });
       // @ts-expect-error write payloads require valid legacy appearance ids
       void writeAppSettings({ appearanceTheme: "broken" });
-    }
-
-    expect(true).toBe(true);
+    };
+    expect(invalidPayloads).toBeTypeOf("function");
   });
 
   it("returns old app settings without themeSettings from Tauri", async () => {

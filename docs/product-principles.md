@@ -6,11 +6,11 @@ Markdown on disk is the source of truth.
 
 Galley Pad must not silently convert documents into a private model, normalize formatting unnecessarily, or make round-tripping fragile. Opening and saving a file should preserve the user's text as much as possible.
 
-## 2. One Document Is Enough
+## 2. Keep the Document in Focus
 
-The first version should use one document per window.
-
-Tabs, sidebars, sessions, and single-instance behavior can be designed for later, but they should not shape the first user experience. The window manager can handle multiple documents.
+Open several documents in tabs or choose separate windows. Each tab has its
+own editing history and scroll position. The optional table of contents
+navigates the active document.
 
 ## 3. The App Is Thin
 
@@ -19,7 +19,7 @@ Galley Pad should wrap Galley Editor, not fork it.
 Desktop concerns belong in the app:
 
 - native file open/save dialogs
-- recent files
+- recent files and file drops
 - window title and dirty state
 - unsaved changes confirmation
 - file association
@@ -62,7 +62,10 @@ The visible interface should remain minimal, but not mysterious.
 
 The user must always know whether the document has unsaved changes. Closing a dirty document should be safe and predictable.
 
-The app should handle external changes calmly and explicitly instead of guessing.
+Each window keeps its own crash recovery. Quitting goes through unsaved-change
+confirmation in every window. When two paths resolve to the same file, the app
+focuses the existing editor and protects it from an overlapping Save As. The
+active document watches for external changes in its containing directory.
 
 ## 7. Banners Warn, Modals Decide
 

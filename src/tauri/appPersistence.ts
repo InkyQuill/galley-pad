@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { TextEncoding } from "../document/session";
 import type { OpenMode } from "../document/workspace";
 import type { AppearanceThemeId, EditorFontSettings } from "../settings/appearance";
 import type { ThemeSettings } from "../themes/settings";
@@ -18,6 +19,9 @@ export type PersistedAppSettings = {
   editorFontSize?: EditorFontSettings["size"] | null;
   openMode?: OpenMode | null;
   wordWrap?: boolean | null;
+  editorLineWidth?: number | null;
+  spellcheck?: boolean | null;
+  allowRemoteImages?: boolean | null;
 };
 
 export type RawPersistedAppSettings = Omit<
@@ -40,11 +44,14 @@ export type PersistedSwapState = {
       id: string;
       path: string | null;
       displayName: string;
-      content: string;
-      savedContent: string;
+      content?: string;
+      savedContent?: string;
       dirty: boolean;
       lineEnding: "lf" | "crlf";
       lastKnownModifiedAt: number | null;
+      fileExists?: boolean;
+      encoding?: TextEncoding;
+      savedDiskContent?: string;
     };
   }>;
 };
@@ -138,9 +145,12 @@ function isPersistedSession(
     typeof session.id === "string" &&
     (typeof session.path === "string" || session.path === null) &&
     typeof session.displayName === "string" &&
-    typeof session.content === "string" &&
-    typeof session.savedContent === "string" &&
     typeof session.dirty === "boolean" &&
+    ((typeof session.content === "string" && typeof session.savedContent === "string") ||
+      (!session.dirty && session.content === undefined && session.savedContent === undefined)) &&
+    (session.fileExists === undefined || typeof session.fileExists === "boolean") &&
+    (session.savedDiskContent === undefined || typeof session.savedDiskContent === "string") &&
+    (session.encoding === undefined || ["utf8", "utf8Bom", "utf16Le", "utf16Be", "windows1251"].includes(session.encoding)) &&
     (session.lineEnding === "lf" || session.lineEnding === "crlf") &&
     (typeof session.lastKnownModifiedAt === "number" ||
       session.lastKnownModifiedAt === null)

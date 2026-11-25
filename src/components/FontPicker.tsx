@@ -1,6 +1,7 @@
 import { TbSearch } from "react-icons/tb";
 import {
   type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
   useEffect,
   useId,
   useLayoutEffect,
@@ -23,6 +24,9 @@ type FontPickerProps = {
   onChange: (family: string) => void;
 };
 
+const OPTION_HEIGHT = 52;
+const OVERSCAN = 3;
+
 const defaultPreviewText = "Aa Bb Cc 0123456789 The quick brown fox";
 
 export function FontPicker({
@@ -34,12 +38,16 @@ export function FontPicker({
 }: FontPickerProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [listHeight, setListHeight] = useState(360);
   const [popoverStyle, setPopoverStyle] = useState<CSSProperties>({});
   const listboxId = useId();
   const searchId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const sampleText = previewText || defaultPreviewText;
   const selectedLabel =
     value === SYSTEM_EDITOR_FONT_FAMILY ? "System default" : value;
@@ -54,13 +62,83 @@ export function FontPicker({
       normalizeSearch(font.family).includes(normalizedQuery),
     );
   }, [fonts, query]);
+  const choices = useMemo(() => [
+    { family: SYSTEM_EDITOR_FONT_FAMILY, label: "System default" },
+    ...filteredFonts.map(({ family }) => ({ family, label: family })),
+  ], [filteredFonts]);
+  const start = Math.max(0, Math.floor(scrollTop / OPTION_HEIGHT) - OVERSCAN);
+  const end = Math.min(choices.length, Math.ceil((scrollTop + listHeight) / OPTION_HEIGHT) + OVERSCAN);
   const portalRoot = rootRef.current?.closest("dialog") ?? document.body;
 
   function selectFont(family: string) {
     onChange(family);
     setOpen(false);
-    setQuery("");
+    triggerRef.current?.focus();
   }
+
+  function togglePicker() {
+    if (!open) {
+      setQuery("");
+      setActiveIndex(-1);
+      setScrollTop(0);
+    }
+    setOpen(!open);
+  }
+
+  function activate(index: number) {
+    const next = Math.max(0, Math.min(index, choices.length - 1));
+    setActiveIndex(next);
+    const list = listRef.current;
+    if (!list) return;
+
+    const top = next * OPTION_HEIGHT;
+    const bottom = top + OPTION_HEIGHT;
+    if (top < list.scrollTop) {
+      list.scrollTop = top;
+    } else if (bottom > list.scrollTop + list.clientHeight) {
+      list.scrollTop = bottom - list.clientHeight;
+    }
+    setScrollTop(list.scrollTop);
+  }
+
+  function handleSearchKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
+    switch (event.key) {
+      case "ArrowDown":
+        activate(activeIndex + 1);
+        break;
+      case "ArrowUp":
+        activate(activeIndex < 0 ? choices.length - 1 : activeIndex - 1);
+        break;
+      case "Enter":
+        if (activeIndex < 0 || !choices[activeIndex]) return;
+        selectFont(choices[activeIndex].family);
+        break;
+      case "Escape":
+        setOpen(false);
+        triggerRef.current?.focus();
+        break;
+      default:
+        return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!open || !list) return;
+
+    function measure() {
+      if (list?.clientHeight) setListHeight(list.clientHeight);
+    }
+
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [open]);
 
   useLayoutEffect(() => {
     if (!open) {
@@ -143,20 +221,8 @@ export function FontPicker({
       setOpen(false);
     }
 
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setOpen(false);
-        triggerRef.current?.focus();
-      }
-    }
-
     document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, [open]);
 
   return (
@@ -171,8 +237,8 @@ export function FontPicker({
         className="font-picker__trigger"
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-controls={listboxId}
-        onClick={() => setOpen((current) => !current)}
+        aria-controls={open ? listboxId : undefined}
+        onClick={togglePicker}
       >
         <span className="font-picker__trigger-label">{selectedLabel}</span>
         <span
@@ -194,38 +260,54 @@ export function FontPicker({
                 <input
                   id={searchId}
                   type="search"
+                  role="combobox"
                   aria-label="Search fonts"
+                  aria-expanded="true"
+                  aria-autocomplete="list"
+                  aria-controls={listboxId}
+                  aria-activedescendant={activeIndex >= start && activeIndex < end ? `${listboxId}-${activeIndex}` : undefined}
                   value={query}
                   autoFocus
                   placeholder="Search fonts"
-                  onChange={(event) => setQuery(event.currentTarget.value)}
+                  onKeyDown={handleSearchKeyDown}
+                  onBlur={(event) => {
+                    if (event.relatedTarget !== triggerRef.current) setOpen(false);
+                  }}
+                  onChange={(event) => {
+                    setQuery(event.currentTarget.value);
+                    setActiveIndex(-1);
+                    if (listRef.current) listRef.current.scrollTop = 0;
+                    setScrollTop(0);
+                  }}
                 />
               </label>
               <div
                 id={listboxId}
+                ref={listRef}
                 className="font-picker__list"
                 role="listbox"
                 aria-label="Editor font family"
+                onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
               >
-                <FontOption
-                  family={SYSTEM_EDITOR_FONT_FAMILY}
-                  label="System default"
-                  cssValue={editorFontCssValue(SYSTEM_EDITOR_FONT_FAMILY)}
-                  previewText={sampleText}
-                  selected={value === SYSTEM_EDITOR_FONT_FAMILY}
-                  onSelect={selectFont}
-                />
-                {filteredFonts.map((font) => (
-                  <FontOption
-                    key={font.family}
-                    family={font.family}
-                    label={font.family}
-                    cssValue={editorFontCssValue(font.family)}
-                    previewText={sampleText}
-                    selected={value === font.family}
-                    onSelect={selectFont}
-                  />
-                ))}
+                <div className="font-picker__virtual-list" role="presentation" style={{ height: choices.length * OPTION_HEIGHT }}>
+                  {choices.slice(start, end).map(({ family, label }, visibleIndex) => {
+                    const index = start + visibleIndex;
+                    return (
+                      <FontOption
+                        key={family}
+                        id={`${listboxId}-${index}`}
+                        index={index}
+                        count={choices.length}
+                        family={family}
+                        label={label}
+                        previewText={sampleText}
+                        selected={value === family}
+                        active={index === activeIndex}
+                        onSelect={selectFont}
+                      />
+                    );
+                  })}
+                </div>
                 {!loading && filteredFonts.length === 0 ? (
                   <div className="font-picker__empty">No fonts found</div>
                 ) : null}
@@ -244,32 +326,46 @@ export function FontPicker({
 type FontOptionProps = {
   family: string;
   label: string;
-  cssValue: string;
+  id: string;
+  index: number;
+  count: number;
   previewText: string;
   selected: boolean;
+  active: boolean;
   onSelect: (family: string) => void;
 };
 
 function FontOption({
   family,
   label,
-  cssValue,
+  id,
+  index,
+  count,
   previewText,
   selected,
+  active,
   onSelect,
 }: FontOptionProps) {
   return (
     <button
+      id={id}
       type="button"
       className="font-picker__option"
       role="option"
+      tabIndex={-1}
+      aria-label={label}
       aria-selected={selected}
+      aria-posinset={index + 1}
+      aria-setsize={count}
+      data-active={active || undefined}
+      style={{ top: index * OPTION_HEIGHT, height: OPTION_HEIGHT }}
+      onMouseDown={(event) => event.preventDefault()}
       onClick={() => onSelect(family)}
     >
       <span className="font-picker__option-name">{label}</span>
       <span
         className="font-picker__option-preview"
-        style={{ fontFamily: cssValue }}
+        style={{ fontFamily: editorFontCssValue(family) }}
       >
         {previewText}
       </span>

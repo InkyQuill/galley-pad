@@ -5,6 +5,7 @@ import {
   closeDocumentTab,
   createDocumentWorkspace,
   getActiveDocumentTab,
+  moveDocumentTab,
   openDocumentTab,
   setActiveDocumentTab,
   updateActiveDocumentTab,
@@ -125,5 +126,16 @@ describe("document workspace", () => {
     const workspace = createDocumentWorkspace();
 
     expect(setActiveDocumentTab(workspace, "missing")).toBe(workspace);
+  });
+});
+
+describe("moveDocumentTab", () => {
+  it("moves a tab without changing the selected document", () => {
+    const before = addDocumentTab(createDocumentWorkspace());
+    const [first, second] = before.tabs;
+    const after = moveDocumentTab(before, second.id, first.id);
+    expect(after.tabs).toEqual([second, first]);
+    expect(after.activeTabId).toBe(second.id);
+    expect(moveDocumentTab(after, "missing", first.id)).toBe(after);
   });
 });

@@ -1,5 +1,9 @@
 import {
+  Suspense,
+  lazy,
   type MouseEvent as ReactMouseEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -19,14 +23,15 @@ import {
 import { APP_VERSION } from "./appInfo";
 import { ExternalFileBanner } from "./components/ExternalFileBanner";
 import { ExternalReconcileView } from "./components/ExternalReconcileView";
-import { FontPicker } from "./components/FontPicker";
+import { RecentFilesDialog } from "./components/RecentFilesDialog";
+import { TabActionsMenu } from "./components/TabActionsMenu";
 import {
   checkExternalFileChange,
   createLifecycleDependencies,
   openDocumentPath,
-  openDocument,
   saveDocument,
   saveDocumentAs,
+  UnsupportedFileEncodingError,
   type ExternalFileChangeResult,
   type LifecycleDependencies,
 } from "./document/lifecycle";
@@ -35,21 +40,21 @@ import {
   createUntitledSession,
   markExternalDeletionAcknowledged,
   markExternalUpdateNoticed,
-  normalizeExternalUpdateRuntimeState,
   setExternalUpdatePolicy,
   updateSessionContent,
   type DocumentSession,
 } from "./document/session";
+import { createSwapState, restoreWorkspaceFromSwap } from "./document/recovery";
 import { computeTabPathHints } from "./document/tabLabels";
 import {
   addDocumentTab,
   closeDocumentTab,
   createDocumentWorkspace,
   getActiveDocumentTab,
+  moveDocumentTab,
   openDocumentTab,
   setActiveDocumentTab,
   setOpenMode,
-  updateActiveDocumentTab,
   updateDocumentTab,
   type DocumentWorkspace,
   type OpenMode,
@@ -67,6 +72,7 @@ import {
 } from "./settings/appearance";
 import { loadOpenMode, saveOpenMode } from "./settings/openMode";
 import { normalizeWordWrap } from "./settings/wordWrap";
+import { EDITOR_LINE_WIDTHS, normalizeEditorLineWidth } from "./settings/reading";
 import {
   clearSwapState,
   readAppSettings,
@@ -74,22 +80,37 @@ import {
   writeAppSettings,
   writeSwapState,
   type PersistedAppSettings,
-  type PersistedSwapState,
+  type RawPersistedAppSettings,
 } from "./tauri/appPersistence";
+import {
+  claimDocumentPath,
+  listenForDocumentActivation,
+  releaseDocumentTab,
+} from "./tauri/documentOwnership";
+import { listenForAppQuit } from "./tauri/appQuit";
 import { pickOpenFile, pickSaveFile } from "./tauri/dialogs";
 import {
   getPendingMarkdownFileOpens,
   getWindowMarkdownFileOpen,
   listenForMarkdownFileOpen,
+  type MarkdownFileOpen,
 } from "./tauri/externalFiles";
 import { readTextFile, writeTextFile } from "./tauri/files";
 import {
   listenForAppMenuCommand,
   type AppMenuCommand,
 } from "./tauri/menuEvents";
-import { syncWordWrapMenuChecked } from "./tauri/nativeMenu";
+import {
+  listenForActiveDocumentChanges,
+  listenForMarkdownDrop,
+  readRecentFiles,
+  setActiveDocumentWatch,
+  updateRecentFile,
+} from "./tauri/nativeFiles";
+import { setFileMenuBusy, syncWordWrapMenuChecked } from "./tauri/nativeMenu";
 import { openReleasePage } from "./tauri/opener";
-import { openMarkdownFileWindow } from "./tauri/windows";
+import { listenForAppSettingsUpdates } from "./tauri/settingsEvents";
+import { openDraftWindow, openMarkdownFileWindow, setCurrentWindowTitle } from "./tauri/windows";
 import {
   closeCurrentWindow,
   listenForWindowCloseRequest,
@@ -115,13 +136,18 @@ import {
   type ThemeSettings,
 } from "./themes/settings";
 import { themeToCssVariables } from "./themes/style";
+import { focusForeground } from "./themes/focusForeground";
 import type { ThemeId, ThemeScheme } from "./themes/tokens";
 import {
   checkForGitHubUpdate,
   type AvailableUpdate,
 } from "./updates/githubRelease";
 
-type CommandName = "Open" | "Save" | "Save As" | "Open File";
+const FontPicker = lazy(() => import("./components/FontPicker").then(
+  ({ FontPicker }) => ({ default: FontPicker }),
+));
+
+type CommandName = "New" | "Open" | "Save" | "Save As" | "Open File";
 type UnsavedChoice = "save" | "save-as" | "discard" | "cancel";
 type UnsavedPromptState = {
   session: DocumentSession;
@@ -151,12 +177,22 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
   const [workspace, setWorkspace] = useState(() =>
     createDocumentWorkspace(loadOpenMode()),
   );
+  const [quitApproved, setQuitApproved] = useState(false);
+  const quitApprovedRef = useRef(false);
+  const closeConfirmation = useRef<Promise<boolean> | null>(null);
   const [pendingCommand, setPendingCommand] = useState<CommandName | null>(null);
   const [commandError, setCommandError] = useState<string | null>(null);
+  const [encodingRetry, setEncodingRetry] = useState<UnsupportedFileEncodingError | null>(null);
   const [availableUpdate, setAvailableUpdate] =
     useState<AvailableUpdate | null>(null);
   const [toolbarVisible, setToolbarVisible] = useState(false);
+  const [outlineOpen, setOutlineOpen] = useState(false);
+  const [editorLineWidth, setEditorLineWidth] = useState(() => normalizeEditorLineWidth(null));
+  const [spellcheck, setSpellcheck] = useState(false);
+  const [allowRemoteImages, setAllowRemoteImages] = useState(false);
   const [wordWrap, setWordWrap] = useState(true);
+  const [recoveryNotice, setRecoveryNotice] = useState<string | null>(null);
+  const [recentFiles, setRecentFiles] = useState<string[] | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [themeSettings, setThemeSettings] = useState<ThemeSettings>(() =>
     loadNormalizedThemeSettings(),
@@ -173,6 +209,11 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
   });
   const [fontsLoading, setFontsLoading] = useState(false);
   const [swapReady, setSwapReady] = useState(false);
+  const [tabActions, setTabActions] = useState<{ tabId: string; x: number; y: number } | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const draggingTab = useRef<string | null>(null);
+  const recentlyClosedPaths = useRef<string[]>([]);
+  const closeTabInFlight = useRef(false);
   const [tabMenuOpen, setTabMenuOpen] = useState(false);
   const [tabScrollState, setTabScrollState] = useState({
     canScrollLeft: false,
@@ -201,6 +242,9 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
   );
   const appSettingsWriteInFlight = useRef<Promise<void> | null>(null);
   const touchedPreferences = useRef({
+    editorLineWidth: false,
+    spellcheck: false,
+    allowRemoteImages: false,
     appearanceTheme: false,
     editorFont: false,
     openMode: false,
@@ -230,12 +274,23 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
   latestEditorFontSettings.current = editorFontSettings;
   const activeTab = getActiveDocumentTab(workspace);
   const document = activeTab.session;
+  const activeTabIndex = workspace.tabs.indexOf(activeTab);
 
   useEffect(() => {
-    globalThis.document.title = `${document.dirty ? "* " : ""}${
-      document.displayName
-    } - Galley Pad`;
+    const title = `${document.dirty ? "* " : ""}${document.displayName} - Galley Pad`;
+    globalThis.document.title = title;
+    if ("__TAURI_INTERNALS__" in globalThis) {
+      void setCurrentWindowTitle(title).catch((error: unknown) => setCommandError(errorMessage(error)));
+    }
   }, [document.dirty, document.displayName]);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      globalThis.document.getElementById(tabButtonId(workspace.activeTabId))
+        ?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [workspace.activeTabId, activeTabIndex]);
 
   useEffect(() => {
     let disposed = false;
@@ -427,108 +482,33 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
 
   useEffect(() => {
     let disposed = false;
+    let unlisten: (() => void) | undefined;
+    const earlyPatches: RawPersistedAppSettings[] = [];
+    let readComplete = false;
 
-    void readAppSettings()
-      .then((settings) => {
-        if (disposed) {
-          return;
-        }
-
-        if (!touchedPreferences.current.wordWrap) {
-          const nextWordWrap = normalizeWordWrap(settings?.wordWrap);
-          latestWordWrap.current = nextWordWrap;
-          setWordWrap(nextWordWrap);
-          void syncWordWrapMenuChecked(nextWordWrap).catch((error: unknown) => {
-            if (!disposed) {
-              setCommandError(errorMessage(error));
-            }
-          });
-        }
-
-        if (!settings) {
-          releaseAppSettingsReadBarrier();
-          return;
-        }
-
-        if (!touchedPreferences.current.appearanceTheme) {
-          const parsedThemeSettings = parseThemeSettings(settings.themeSettings);
-
-          if (parsedThemeSettings) {
-            const normalizedThemeSettings =
-              normalizeThemeSettings(parsedThemeSettings);
-            latestThemeSettings.current = normalizedThemeSettings;
-            setThemeSettings(normalizedThemeSettings);
-            saveThemeSettings(normalizedThemeSettings);
-            if (!themeSettingsEqual(parsedThemeSettings, normalizedThemeSettings)) {
-              persistAppSettings(
-                repairedStartupThemeSettings(settings, normalizedThemeSettings),
-              );
-            }
-          } else if (isAppearanceThemeId(settings.appearanceTheme)) {
-            const migratedThemeSettings = normalizeThemeSettings(
-              themeSettingsFromAppearanceThemeId(
-                settings.appearanceTheme,
-                latestThemeSettings.current,
-              ),
-            );
-            latestThemeSettings.current = migratedThemeSettings;
-            setThemeSettings(migratedThemeSettings);
-            saveThemeSettings(migratedThemeSettings);
-            saveAppearanceThemeId(settings.appearanceTheme);
-            persistAppSettings(
-              repairedStartupThemeSettings(settings, migratedThemeSettings),
-            );
-          }
-        }
-
-        if (!touchedPreferences.current.editorFont) {
-          const editorFontSize = settings.editorFontSize;
-          if (isEditorFontSize(editorFontSize)) {
-            const next = {
-              family:
-                settings.editorFontFamily && settings.editorFontFamily.trim()
-                  ? settings.editorFontFamily
-                  : latestEditorFontSettings.current.family,
-              size: editorFontSize,
-            };
-            latestEditorFontSettings.current = next;
-            saveEditorFontSettings(next);
-            setEditorFontSettings(next);
-          } else if (settings.editorFontFamily?.trim()) {
-            const next = {
-              ...latestEditorFontSettings.current,
-              family: settings.editorFontFamily,
-            };
-            latestEditorFontSettings.current = next;
-            saveEditorFontSettings(next);
-            setEditorFontSettings(next);
-          }
-        }
-
-        if (
-          !touchedPreferences.current.openMode &&
-          isOpenMode(settings.openMode)
-        ) {
-          saveOpenMode(settings.openMode);
-          const nextWorkspace = setOpenMode(
-            latestWorkspace.current,
-            settings.openMode,
-          );
-          latestWorkspace.current = nextWorkspace;
-          setWorkspace(nextWorkspace);
-        }
-
-        releaseAppSettingsReadBarrier();
-      })
-      .catch((error: unknown) => {
-        if (!disposed) {
-          setCommandError(errorMessage(error));
-          releaseAppSettingsReadBarrier();
-        }
-      });
+    void listenForAppSettingsUpdates((patch) => {
+      if (disposed) return;
+      if (readComplete) applyAppSettings(patch, false);
+      else earlyPatches.push(patch);
+    }).then((remove) => {
+      if (disposed) remove();
+      else unlisten = remove;
+    }).catch((error: unknown) => {
+      if (!disposed) setCommandError(errorMessage(error));
+    }).then(readAppSettings).then((settings) => {
+      if (!disposed) applyAppSettings(settings ?? {}, true);
+    }).catch((error: unknown) => {
+      if (!disposed) setCommandError(errorMessage(error));
+    }).finally(() => {
+      if (disposed) return;
+      readComplete = true;
+      for (const patch of earlyPatches) applyAppSettings(patch, false);
+      releaseAppSettingsReadBarrier();
+    });
 
     return () => {
       disposed = true;
+      unlisten?.();
     };
   }, []);
 
@@ -536,18 +516,19 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
     let disposed = false;
 
     void readSwapState()
-      .then((swap) => {
-        if (disposed) {
-          return;
-        }
-
-        if (getWindowMarkdownFileOpen()) {
-          return;
-        }
-
-        const restored = restoreWorkspaceFromSwap(swap);
-        if (restored) {
-          setWorkspace(restored);
+      .then(async (swap) => {
+        if (disposed || !swap || getWindowMarkdownFileOpen()) return;
+        const restored = await restoreWorkspaceFromSwap(swap, {
+          claim: claimDocumentPath,
+          release: releaseDocumentTab,
+          read: readTextFile,
+        });
+        if (!disposed && restored) {
+          setWorkspace(restored.workspace);
+          const unavailable = restored.unavailableCount;
+          setRecoveryNotice(unavailable > 0
+            ? `Recovered unsaved changes. Could not reopen ${unavailable} saved ${unavailable === 1 ? "tab" : "tabs"}.`
+            : "Recovered unsaved changes.");
         }
       })
       .catch((error: unknown) => {
@@ -623,56 +604,119 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
       return;
     }
 
-    let unlisten: (() => void) | null = null;
     let disposed = false;
 
-    function enqueueExternalOpen(path: string) {
+    function enqueueExternalOpen(request: MarkdownFileOpen, startup = false) {
       externalOpenQueue.current = externalOpenQueue.current.then(async () => {
         if (!disposed) {
-          await openExternalFile(path);
+          const file = typeof request === "string"
+            ? { path: request, allowMissing: startup }
+            : request;
+          await openExternalFile(file.path, file.allowMissing);
         }
       });
     }
 
-    void listenForMarkdownFileOpen((path) => {
-      enqueueExternalOpen(path);
-    }).then((nextUnlisten) => {
-      if (disposed) {
-        nextUnlisten();
-      } else {
-        unlisten = nextUnlisten;
-      }
-    });
+    let drains = Promise.resolve();
+    const stopListeners: Array<() => void> = [];
 
-    const windowLaunchPath = getWindowMarkdownFileOpen();
-    if (windowLaunchPath) {
-      void openFileInCurrentWindow(windowLaunchPath);
-      return () => {
-        disposed = true;
-        unlisten?.();
+    function takePendingOpens() {
+      const read = async () => {
+        if (disposed) return;
+        const pending = await getPendingMarkdownFileOpens();
+        pending.forEach((request) => enqueueExternalOpen(request, true));
       };
+      drains = drains.then(read, read);
+      return drains;
     }
 
-    void getPendingMarkdownFileOpens()
-      .then((paths) => {
-        paths.forEach(enqueueExternalOpen);
-      })
-      .catch((error: unknown) => {
-        setCommandError(errorMessage(error));
-      });
+    function reportOpenError(error: unknown) {
+      if (!disposed) setCommandError(errorMessage(error));
+    }
+
+    function rememberListener(remove: () => void) {
+      if (disposed) remove();
+      else stopListeners.push(remove);
+    }
+
+    void listenForMarkdownFileOpen((request) => {
+      if (request === null) void takePendingOpens().catch(reportOpenError);
+      else enqueueExternalOpen(request);
+    }).then(async (remove) => {
+      rememberListener(remove);
+      if (disposed) return;
+      const windowLaunchPath = getWindowMarkdownFileOpen();
+      if (windowLaunchPath) {
+        const allowMissing = new URLSearchParams(globalThis.location.search).get("allowMissing") === "1";
+        await openFileInCurrentWindow(windowLaunchPath, allowMissing);
+      }
+      await takePendingOpens();
+    }).catch(reportOpenError);
+
+    void listenForMarkdownDrop((paths) => {
+      paths.forEach((path) => enqueueExternalOpen({ path, allowMissing: false }));
+    }).then(rememberListener).catch(reportOpenError);
 
     return () => {
       disposed = true;
-      unlisten?.();
+      stopListeners.forEach((remove) => remove());
     };
   }, [swapReady]);
+
+  useEffect(() => {
+    let disposed = false;
+    let timeout: number | undefined;
+    let unlisten: (() => void) | undefined;
+    const path = document.path;
+    const tabId = workspace.activeTabId;
+    void listenForActiveDocumentChanges((changedPath) => {
+      if (disposed || changedPath !== path) return;
+      window.clearTimeout(timeout);
+      timeout = window.setTimeout(() => enqueueExternalFileChecks([tabId]), 120);
+    }).then(async (remove) => {
+      if (disposed) { remove(); return; }
+      unlisten = remove;
+      await setActiveDocumentWatch(path);
+    }).catch((error: unknown) => {
+      if (!disposed) console.warn("Could not watch the active file", error);
+    });
+    return () => {
+      disposed = true;
+      window.clearTimeout(timeout);
+      unlisten?.();
+    };
+  }, [document.path, workspace.activeTabId]);
+
+  useEffect(() => {
+    const sync = () => {
+      void setFileMenuBusy(pendingCommand !== null || quitApproved).catch((error: unknown) => {
+        console.warn("Could not update native file menu", error);
+      });
+    };
+    sync();
+    window.addEventListener("focus", sync);
+    return () => window.removeEventListener("focus", sync);
+  }, [pendingCommand, quitApproved]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    void listenForDocumentActivation((tabId) => {
+      setWorkspace((current) => setActiveDocumentTab(current, tabId));
+    }).then((remove) => {
+      if (disposed) remove();
+      else unlisten = remove;
+    });
+    return () => { disposed = true; unlisten?.(); };
+  }, []);
 
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     let disposed = false;
 
     void listenForWindowCloseRequest(async () => {
-      const canClose = await resolveAllDirtyTabsForClose();
+      if (quitApprovedRef.current) return false;
+      const canClose = await confirmClosingAllTabs();
       if (canClose) {
         await prepareApprovedClose();
       }
@@ -689,6 +733,31 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
       disposed = true;
       unlisten?.();
     };
+  }, []);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    void listenForAppQuit({
+      confirm: async () => {
+        const confirmed = await confirmClosingAllTabs();
+        if (confirmed) {
+          quitApprovedRef.current = true;
+          setQuitApproved(true);
+        }
+        return confirmed;
+      },
+      clear: prepareApprovedClose,
+      cancelled: () => {
+        quitApprovedRef.current = false;
+        setQuitApproved(false);
+      },
+      onError: (error) => setCommandError(errorMessage(error)),
+    }).then((remove) => {
+      if (disposed) remove();
+      else unlisten = remove;
+    }).catch((error: unknown) => setCommandError(errorMessage(error)));
+    return () => { disposed = true; unlisten?.(); };
   }, []);
 
   useEffect(() => {
@@ -733,8 +802,40 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
+      if (event.defaultPrevented || event.altKey) return;
       const key = event.key.toLowerCase();
-      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && key === "n") {
+      const primary = event.metaKey || event.ctrlKey;
+      const current = latestWorkspace.current;
+      const inDialog = event.target instanceof Element && event.target.closest("dialog");
+
+      if (primary && !inDialog && !event.shiftKey && key === "w") {
+        if ("__TAURI_INTERNALS__" in globalThis && event.metaKey) return;
+        event.preventDefault();
+        void requestCloseTab(current.activeTabId);
+        return;
+      }
+      if (primary && !inDialog && !event.repeat && event.shiftKey && key === "t") {
+        event.preventDefault();
+        reopenClosedTab();
+        return;
+      }
+      if (event.ctrlKey && !event.metaKey && !inDialog && key === "tab") {
+        event.preventDefault();
+        const index = current.tabs.findIndex((tab) => tab.id === current.activeTabId);
+        const delta = event.shiftKey ? -1 : 1;
+        const target = current.tabs[(index + delta + current.tabs.length) % current.tabs.length];
+        selectDocumentTab(target.id);
+        return;
+      }
+      if (primary && !inDialog && !event.shiftKey && /^[1-9]$/.test(key)) {
+        const target = key === "9" ? current.tabs[current.tabs.length - 1] : current.tabs[Number(key) - 1];
+        if (target) {
+          event.preventDefault();
+          selectDocumentTab(target.id);
+        }
+        return;
+      }
+      if (primary && !inDialog && !event.shiftKey && key === "n") {
         event.preventDefault();
         addNewTab();
         return;
@@ -746,7 +847,13 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
         return;
       }
 
-      if ((event.metaKey || event.ctrlKey) && event.shiftKey && key === "t") {
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && key === "o") {
+        event.preventDefault();
+        setOutlineOpen((open) => !open);
+        return;
+      }
+
+      if (primary && event.shiftKey && key === "l") {
         event.preventDefault();
         setToolbarVisible((visible) => !visible);
       }
@@ -799,7 +906,14 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
       } else if (dialog.open) {
         dialog.removeAttribute("open");
       }
-      settingsReturnFocusRef.current?.focus();
+      if (
+        settingsReturnFocusRef.current?.isConnected &&
+        settingsReturnFocusRef.current !== globalThis.document.body
+      ) {
+        settingsReturnFocusRef.current.focus();
+      } else {
+        documentViewRef.current?.focus();
+      }
       settingsReturnFocusRef.current = null;
     };
   }, [settingsOpen]);
@@ -867,28 +981,48 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
 
   function addNewTab() {
     setCommandError(null);
+    if (latestWorkspace.current.openMode === "windows" && "__TAURI_INTERNALS__" in globalThis) {
+      void runOpenWindowCommand("New", openDraftWindow);
+      return;
+    }
     setWorkspace((current) => addDocumentTab(current));
   }
 
-  function runOpenCommand(
+  async function runOpenCommand(
     name: CommandName,
-    command: () => Promise<DocumentSession | null>,
+    pickPath: () => Promise<string | null>,
+    allowMissing = false,
+    encoding?: "windows1251",
   ): Promise<void> {
     setCommandError(null);
+    setEncodingRetry(null);
     setPendingCommand(name);
-
-    return command()
-      .then((next) => {
-        if (next) {
-          setWorkspace((current) => openDocumentTab(current, next));
-        }
-      })
-      .catch((error: unknown) => {
-        setCommandError(errorMessage(error));
-      })
-      .finally(() => {
-        setPendingCommand(null);
-      });
+    const tabId = crypto.randomUUID();
+    let claimed = false;
+    try {
+      const requestedPath = await pickPath();
+      if (!requestedPath || quitApprovedRef.current) return;
+      const alreadyOpen = latestWorkspace.current.tabs.find((tab) => tab.session.path === requestedPath);
+      if (alreadyOpen) {
+        setWorkspace((current) => setActiveDocumentTab(current, alreadyOpen.id));
+        if (alreadyOpen.session.fileExists !== false) rememberRecentDocument(requestedPath);
+        return;
+      }
+      const path = await claimDocumentPath(requestedPath, tabId);
+      if (!path) return;
+      claimed = true;
+      const next = await openDocumentPath(path, dependencies, { allowMissing, encoding });
+      setWorkspace((current) => openDocumentTab(current, next, tabId));
+      if (next.path && next.fileExists !== false) rememberRecentDocument(next.path);
+    } catch (error: unknown) {
+      if (claimed) await releaseDocumentTab(tabId).catch(() => undefined);
+      if (!encoding && error instanceof UnsupportedFileEncodingError) {
+        setEncodingRetry(error);
+      }
+      setCommandError(errorMessage(error));
+    } finally {
+      setPendingCommand(null);
+    }
   }
 
   function runOpenWindowCommand(
@@ -910,7 +1044,7 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
 
   function runSaveCommand(
     name: "Save" | "Save As",
-    command: (session: DocumentSession) => Promise<DocumentSession | null>,
+    command: (session: DocumentSession, tabId: string) => Promise<DocumentSession | null>,
   ) {
     const tabId = latestWorkspace.current.activeTabId;
     const commandSnapshot = getActiveDocumentTab(latestWorkspace.current).session;
@@ -935,15 +1069,20 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
     setCommandError(null);
     setPendingCommand(name);
 
-    void command(commandSnapshot)
-      .then((next) => {
+    void command(commandSnapshot, tabId)
+      .then(async (next) => {
         if (next) {
+          if (!latestWorkspace.current.tabs.some((tab) => tab.id === tabId)) {
+            await releaseDocumentTab(tabId);
+            return;
+          }
           updateWorkspaceNow((current) =>
             updateDocumentTab(current, tabId, (currentSession) =>
               applySaveResult(commandSnapshot, next, currentSession),
             ),
           );
           clearExternalWarningForTab(tabId);
+          if (next.path) rememberRecentDocument(next.path);
         }
       })
       .catch((error: unknown) => {
@@ -954,22 +1093,39 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
       });
   }
 
-  function openExternalFile(path: string): Promise<void> {
-    if (latestWorkspace.current.openMode === "windows") {
-      return runOpenWindowCommand("Open File", () => openMarkdownFileWindow(path));
-    }
-
-    return runOpenCommand("Open File", () => openDocumentPath(path, dependencies));
+  function rememberRecentDocument(path: string) {
+    void updateRecentFile(path, true).catch((error: unknown) => {
+      console.warn("Could not update recent files", error);
+    });
   }
 
-  function openFileInCurrentWindow(path: string) {
-    return runOpenCommand("Open File", () => openDocumentPath(path, dependencies));
+  function openExternalFile(path: string, allowMissing = false): Promise<void> {
+    if (quitApprovedRef.current) return Promise.resolve();
+    if (latestWorkspace.current.openMode === "windows") {
+      return runOpenWindowCommand("Open File", () =>
+        allowMissing ? openMarkdownFileWindow(path, true) : openMarkdownFileWindow(path)
+      );
+    }
+    return openFileInCurrentWindow(path, allowMissing);
+  }
+
+  function openFileInCurrentWindow(path: string, allowMissing = false) {
+    return runOpenCommand("Open File", async () => path, allowMissing);
   }
 
   function runMenuCommand(command: AppMenuCommand) {
+    if (quitApprovedRef.current) return;
     switch (command) {
       case "new":
         addNewTab();
+        break;
+      case "open-recent":
+        void readRecentFiles().then(setRecentFiles).catch((error: unknown) => setCommandError(errorMessage(error)));
+        break;
+      case "mode-live":
+      case "mode-markdown":
+      case "mode-preview":
+        documentViewRef.current?.setMode(command === "mode-live" ? "live" : command === "mode-markdown" ? "markdown" : "preview");
         break;
       case "open":
         if (latestWorkspace.current.openMode === "windows") {
@@ -982,15 +1138,18 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
             return openMarkdownFileWindow(path);
           });
         } else {
-          runOpenCommand("Open", () => openDocument(dependencies));
+          runOpenCommand("Open", dependencies.pickOpenFile);
         }
         break;
+      case "close":
+        void requestCloseTab(latestWorkspace.current.activeTabId);
+        break;
       case "save":
-        runSaveCommand("Save", (session) => saveDocument(session, dependencies));
+        runSaveCommand("Save", (session, tabId) => saveDocument(session, dependencies, tabId));
         break;
       case "save-as":
-        runSaveCommand("Save As", (session) =>
-          saveDocumentAs(session, dependencies),
+        runSaveCommand("Save As", (session, tabId) =>
+          saveDocumentAs(session, dependencies, tabId),
         );
         break;
       case "find":
@@ -1002,29 +1161,67 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
       case "toggle-toolbar":
         setToolbarVisible((visible) => !visible);
         break;
+      case "toggle-outline":
+        setOutlineOpen((open) => !open);
+        break;
       case "toggle-word-wrap":
         toggleWordWrap();
         break;
     }
   }
 
-  async function requestCloseTab(tabId: string) {
-    const tab = workspace.tabs.find((candidate) => candidate.id === tabId);
-    if (!tab) {
-      return;
+  function reopenClosedTab() {
+    const path = recentlyClosedPaths.current.pop();
+    if (path) void openExternalFile(path);
+  }
+
+  async function requestCloseTab(tabId: string): Promise<boolean> {
+    if (
+      closeTabInFlight.current || closingRef.current || closeConfirmation.current ||
+      !latestWorkspace.current.tabs.some((tab) => tab.id === tabId)
+    ) {
+      return false;
     }
 
-    const confirmed = await resolveDirtyTabForClose(tabId);
-    if (confirmed && latestWorkspace.current.tabs.length === 1) {
-      await prepareApprovedClose();
-      closeCurrentWindow();
-      return;
-    }
+    closeTabInFlight.current = true;
+    try {
+      if (!(await resolveDirtyTabForClose(tabId))) return false;
+      if (latestWorkspace.current.tabs.length === 1) {
+        await prepareApprovedClose();
+        closeCurrentWindow();
+        return true;
+      }
 
-    const result = closeDocumentTab(latestWorkspace.current, tabId, confirmed);
-    if (result.closed) {
-      setWorkspace(result.workspace);
+      const closedTab = latestWorkspace.current.tabs.find((candidate) => candidate.id === tabId);
+      const result = closeDocumentTab(latestWorkspace.current, tabId, true);
+      if (result.closed) {
+        latestWorkspace.current = result.workspace;
+        setWorkspace(result.workspace);
+        if (closedTab?.session.path && closedTab.session.fileExists !== false) {
+          recentlyClosedPaths.current.push(closedTab.session.path);
+        }
+        await releaseDocumentTab(tabId).catch((error: unknown) => setCommandError(errorMessage(error)));
+      }
+      return result.closed;
+    } finally {
+      closeTabInFlight.current = false;
     }
+  }
+
+  async function closeOtherTabs(keepId: string) {
+    const others = latestWorkspace.current.tabs.filter((tab) => tab.id !== keepId);
+    for (const tab of others) {
+      if (!(await requestCloseTab(tab.id))) return;
+    }
+    selectDocumentTab(keepId);
+  }
+
+  function moveTabBy(tabId: string, delta: number) {
+    setWorkspace((current) => {
+      const index = current.tabs.findIndex((tab) => tab.id === tabId);
+      const target = current.tabs[index + delta];
+      return target ? moveDocumentTab(current, tabId, target.id) : current;
+    });
   }
 
   function handleTabMouseDown(
@@ -1118,10 +1315,7 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
     touchedPreferences.current.editorFont = true;
     const next = { ...editorFontSettings, family };
     saveEditorFontSettings(next);
-    persistAppSettings({
-      editorFontFamily: next.family,
-      editorFontSize: next.size,
-    });
+    persistAppSettings({ editorFontFamily: family });
     setEditorFontSettings(next);
   }
 
@@ -1129,10 +1323,7 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
     touchedPreferences.current.editorFont = true;
     const next = { ...editorFontSettings, size };
     saveEditorFontSettings(next);
-    persistAppSettings({
-      editorFontFamily: next.family,
-      editorFontSize: next.size,
-    });
+    persistAppSettings({ editorFontSize: size });
     setEditorFontSettings(next);
   }
 
@@ -1177,6 +1368,15 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
     }
   }
 
+  function confirmClosingAllTabs() {
+    if (closeConfirmation.current) return closeConfirmation.current;
+    const confirmation = resolveAllDirtyTabsForClose().finally(() => {
+      if (closeConfirmation.current === confirmation) closeConfirmation.current = null;
+    });
+    closeConfirmation.current = confirmation;
+    return confirmation;
+  }
+
   async function resolveAllDirtyTabsForClose(): Promise<boolean> {
     const dirtyTabIds = latestWorkspace.current.tabs
       .filter((tab) => tab.session.dirty)
@@ -1208,8 +1408,8 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
 
     try {
       const next = forceSaveAs
-        ? await saveDocumentAs(commandSnapshot, dependencies)
-        : await saveDocument(commandSnapshot, dependencies);
+        ? await saveDocumentAs(commandSnapshot, dependencies, tabId)
+        : await saveDocument(commandSnapshot, dependencies, tabId);
 
       if (!next) {
         return false;
@@ -1340,10 +1540,13 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
     clearExternalWarningForTab(tabId);
   }
 
-  function markExternalUpdateHandled(tabId: string, modifiedAt: number | null) {
+  function markExternalUpdateHandled(
+    tabId: string,
+    external: Extract<ExternalFileChangeResult, { kind: "clean-update" | "conflict" }>["external"],
+  ) {
     updateWorkspaceNow((current) =>
       updateDocumentTab(current, tabId, (session) =>
-        markExternalUpdateNoticed(session, modifiedAt),
+        markExternalUpdateNoticed(session, external.lastModifiedAt, external),
       ),
     );
     clearExternalWarningForTab(tabId);
@@ -1380,9 +1583,14 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
     setCommandError(null);
     setPendingCommand("Save As");
 
-    void saveDocumentAs(commandSnapshot, dependencies)
-      .then((next) => {
+    void saveDocumentAs(commandSnapshot, dependencies, tabId)
+      .then(async (next) => {
         if (!next) {
+          return;
+        }
+
+        if (!latestWorkspace.current.tabs.some((tab) => tab.id === tabId)) {
+          await releaseDocumentTab(tabId);
           return;
         }
 
@@ -1463,54 +1671,86 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
     };
   }
 
+  function applyAppSettings(settings: RawPersistedAppSettings, startup: boolean) {
+    const touched = touchedPreferences.current;
+    if ((!startup || !touched.editorLineWidth) && settings.editorLineWidth !== undefined) {
+      setEditorLineWidth(normalizeEditorLineWidth(settings.editorLineWidth));
+    }
+    if ((!startup || !touched.spellcheck) && settings.spellcheck !== undefined) {
+      setSpellcheck(settings.spellcheck === true);
+    }
+    if ((!startup || !touched.allowRemoteImages) && settings.allowRemoteImages !== undefined) {
+      setAllowRemoteImages(settings.allowRemoteImages === true);
+    }
+    if ((!startup || !touched.wordWrap) && (startup || settings.wordWrap !== undefined)) {
+      const wordWrap = normalizeWordWrap(settings.wordWrap);
+      latestWordWrap.current = wordWrap;
+      setWordWrap(wordWrap);
+      void syncWordWrapMenuChecked(wordWrap).catch((error: unknown) => setCommandError(errorMessage(error)));
+    }
+    if (!startup || !touched.appearanceTheme) {
+      const themeSettings = parseThemeSettings(settings.themeSettings);
+      const legacyTheme = isAppearanceThemeId(settings.appearanceTheme) ? settings.appearanceTheme : undefined;
+      if (themeSettings || legacyTheme) {
+        const next = normalizeThemeSettings(
+          themeSettings ?? themeSettingsFromAppearanceThemeId(legacyTheme!, latestThemeSettings.current),
+        );
+        const appearanceTheme = appearanceThemeIdFromThemeSettings(next);
+        latestThemeSettings.current = next;
+        setThemeSettings(next);
+        saveThemeSettings(next);
+        saveAppearanceThemeId(appearanceTheme);
+        if (startup && (!themeSettings || !themeSettingsEqual(themeSettings, next))) {
+          persistAppSettings({ appearanceTheme, themeSettings: next });
+        }
+      }
+    }
+    if (!startup || !touched.editorFont) {
+      const current = latestEditorFontSettings.current;
+      const next = {
+        family: settings.editorFontFamily?.trim() ? settings.editorFontFamily : current.family,
+        size: isEditorFontSize(settings.editorFontSize) ? settings.editorFontSize : current.size,
+      };
+      if (next.family !== current.family || next.size !== current.size) {
+        latestEditorFontSettings.current = next;
+        saveEditorFontSettings(next);
+        setEditorFontSettings(next);
+      }
+    }
+    if ((!startup || !touched.openMode) && isOpenMode(settings.openMode)) {
+      const openMode = settings.openMode;
+      saveOpenMode(openMode);
+      setWorkspace((current) => {
+        const next = setOpenMode(current, openMode);
+        latestWorkspace.current = next;
+        return next;
+      });
+    }
+  }
+
   function persistAppSettings(settings: Partial<PersistedAppSettings>) {
     pendingAppSettingsWrite.current = {
       ...(pendingAppSettingsWrite.current ?? {}),
       ...settings,
     };
-
-    if (!appSettingsReadComplete.current) {
-      return;
-    }
-
-    pendingAppSettingsWrite.current = {
-      ...currentAppSettingsSnapshot(),
-      ...pendingAppSettingsWrite.current,
-    };
-    return startAppSettingsWriteLoop();
+    if (appSettingsReadComplete.current) return startAppSettingsWriteLoop();
   }
 
   function releaseAppSettingsReadBarrier() {
-    if (appSettingsReadComplete.current) {
-      return;
-    }
-
+    if (appSettingsReadComplete.current) return;
     appSettingsReadComplete.current = true;
-    if (!pendingAppSettingsWrite.current) {
-      return;
-    }
-
-    pendingAppSettingsWrite.current = {
-      ...currentAppSettingsSnapshot(),
-      ...pendingAppSettingsWrite.current,
-    };
-    void startAppSettingsWriteLoop();
+    if (pendingAppSettingsWrite.current) void startAppSettingsWriteLoop();
   }
 
   function startAppSettingsWriteLoop() {
-    if (appSettingsWriteInFlight.current) {
-      return appSettingsWriteInFlight.current;
-    }
+    if (appSettingsWriteInFlight.current) return appSettingsWriteInFlight.current;
 
     const writeLoop = (async () => {
       while (pendingAppSettingsWrite.current) {
-        const next = {
-          ...currentAppSettingsSnapshot(),
-          ...pendingAppSettingsWrite.current,
-        };
+        const patch = pendingAppSettingsWrite.current;
         pendingAppSettingsWrite.current = null;
         try {
-          await writeAppSettings(next);
+          await writeAppSettings(patch);
         } catch (error: unknown) {
           setCommandError(errorMessage(error));
         }
@@ -1522,51 +1762,6 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
     });
     appSettingsWriteInFlight.current = writeLoop;
     return writeLoop;
-  }
-
-  function currentAppSettingsSnapshot(): PersistedAppSettings {
-    return {
-      appearanceTheme: appearanceThemeIdFromThemeSettings(
-        latestThemeSettings.current,
-      ),
-      themeSettings: latestThemeSettings.current,
-      editorFontFamily: latestEditorFontSettings.current.family,
-      editorFontSize: latestEditorFontSettings.current.size,
-      openMode: latestWorkspace.current.openMode,
-      wordWrap: latestWordWrap.current,
-    };
-  }
-
-  function repairedStartupThemeSettings(
-    settings: NonNullable<Awaited<ReturnType<typeof readAppSettings>>>,
-    themeSettings: ThemeSettings,
-  ): PersistedAppSettings {
-    const snapshot = currentAppSettingsSnapshot();
-
-    return {
-      ...snapshot,
-      appearanceTheme: appearanceThemeIdFromThemeSettings(themeSettings),
-      themeSettings,
-      editorFontFamily:
-        !touchedPreferences.current.editorFont &&
-        settings.editorFontFamily?.trim()
-          ? settings.editorFontFamily
-          : snapshot.editorFontFamily,
-      editorFontSize:
-        !touchedPreferences.current.editorFont &&
-        isEditorFontSize(settings.editorFontSize)
-          ? settings.editorFontSize
-          : snapshot.editorFontSize,
-      openMode:
-        !touchedPreferences.current.openMode && isOpenMode(settings.openMode)
-          ? settings.openMode
-          : snapshot.openMode,
-      wordWrap:
-        !touchedPreferences.current.wordWrap &&
-        typeof settings.wordWrap === "boolean"
-          ? settings.wordWrap
-          : snapshot.wordWrap,
-    };
   }
 
   function clearPendingSwapWrite() {
@@ -1613,12 +1808,41 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
     setReconcileOpen(false);
     setTabMenuOpen(false);
     enqueueExternalFileChecks([tabId]);
-    window.requestAnimationFrame(() => {
-      globalThis.document
-        .getElementById(tabButtonId(tabId))
-        ?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
-    });
   }
+
+  function handleTabKeys(event: ReactKeyboardEvent<HTMLDivElement>) {
+    const tab = (event.target as HTMLElement).closest<HTMLButtonElement>('button[role="tab"]');
+    if (!tab || event.metaKey || event.ctrlKey || event.altKey) return;
+    const index = workspace.tabs.findIndex(({ id }) => tab.id === tabButtonId(id));
+    let next: number;
+    switch (event.key) {
+      case "ArrowLeft": next = (index - 1 + workspace.tabs.length) % workspace.tabs.length; break;
+      case "ArrowRight": next = (index + 1) % workspace.tabs.length; break;
+      case "Home": next = 0; break;
+      case "End": next = workspace.tabs.length - 1; break;
+      case "ContextMenu":
+      case "F10": {
+        if (event.key === "F10" && !event.shiftKey) return;
+        const rect = tab.getBoundingClientRect();
+        event.preventDefault();
+        setTabActions({ tabId: workspace.tabs[index].id, x: rect.left, y: rect.bottom });
+        return;
+      }
+      default: return;
+    }
+
+    event.preventDefault();
+    const target = workspace.tabs[next];
+    selectDocumentTab(target.id);
+    window.requestAnimationFrame(() => globalThis.document.getElementById(tabButtonId(target.id))?.focus());
+  }
+
+  const dismissTabActions = useCallback((restoreFocus: boolean) => {
+    if (restoreFocus && tabActions) {
+      globalThis.document.getElementById(tabButtonId(tabActions.tabId))?.focus();
+    }
+    setTabActions(null);
+  }, [tabActions]);
 
   function scrollTabs(direction: "left" | "right") {
     const scroller = tabScrollerRef.current;
@@ -1632,8 +1856,6 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
     });
   }
 
-  const activeTabButtonId = tabButtonId(workspace.activeTabId);
-  const activeTabPanelId = tabPanelId(workspace.activeTabId);
   const tabPathHints = computeTabPathHints(
     workspace.tabs.map((tab) => ({
       id: tab.id,
@@ -1641,12 +1863,23 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
       path: tab.session.path,
     })),
   );
+  const untitledTabs = workspace.tabs.filter(({ session }) => !session.path);
+  if (untitledTabs.length > 1) {
+    untitledTabs.forEach(({ id }, index) => {
+      tabPathHints.set(id, `Draft ${index + 1}`);
+    });
+  }
+  const tabstripHidden = workspace.openMode === "windows" && workspace.tabs.length === 1;
   const tabAccessibleName = (tabId: string, displayName: string) => {
-    const hint = tabPathHints.get(tabId);
-    return hint ? `${displayName} — ${hint}` : displayName;
+    const tab = workspace.tabs.find(({ id }) => tabId === id);
+    return [displayName, tabPathHints.get(tabId), tab?.session.dirty ? "Unsaved changes" : null]
+      .filter(Boolean).join(" — ");
   };
   const resolvedTheme = resolveTheme(themeSettings, systemScheme);
-  const themeStyle = themeToCssVariables(resolvedTheme);
+  const themeStyle = {
+    ...themeToCssVariables(resolvedTheme),
+    "--app-focus-foreground": focusForeground(resolvedTheme.tokens.app.focus),
+  };
   const editorScheme =
     themeSettings.mode === "constant" ? resolvedTheme.scheme : "auto";
   const appearanceThemeId = appearanceThemeIdFromThemeSettings(themeSettings);
@@ -1665,11 +1898,13 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
 
   return (
     <div
+      inert={quitApproved}
       className={`app-shell ${appearanceTheme.appClassName}`}
       data-testid="app-shell"
+      data-tabstrip-hidden={tabstripHidden || undefined}
       style={themeStyle}
     >
-      <nav className="tabstrip" aria-label="Open documents">
+      <nav className="tabstrip" aria-label="Open documents" hidden={tabstripHidden}>
         <div className="tabstrip-menu" ref={tabMenuRef}>
           <button
             type="button"
@@ -1733,6 +1968,7 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
           role="tablist"
           aria-label="Open documents"
           ref={tabScrollerRef}
+          onKeyDown={handleTabKeys}
         >
           {workspace.tabs.map((tab) => (
             <div
@@ -1740,6 +1976,35 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
                 tab.id === workspace.activeTabId ? "tab tab-active" : "tab"
               }
               key={tab.id}
+              draggable
+              data-drop-target={dropTarget === tab.id || undefined}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                setTabActions({ tabId: tab.id, x: event.clientX, y: event.clientY });
+              }}
+              onDragStart={(event) => {
+                draggingTab.current = tab.id;
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData("application/x-galley-pad-tab", tab.id);
+              }}
+              onDragOver={(event) => {
+                if (!draggingTab.current) return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+                setDropTarget(draggingTab.current === tab.id ? null : tab.id);
+              }}
+              onDrop={(event) => {
+                if (!draggingTab.current) return;
+                event.preventDefault();
+                const moved = draggingTab.current;
+                draggingTab.current = null;
+                setDropTarget(null);
+                setWorkspace((current) => moveDocumentTab(current, moved, tab.id));
+              }}
+              onDragEnd={() => {
+                draggingTab.current = null;
+                setDropTarget(null);
+              }}
               onMouseDown={(event) => handleTabMouseDown(event, tab.id)}
             >
               <button
@@ -1749,6 +2014,7 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
                 aria-controls={tabPanelId(tab.id)}
                 aria-label={tabAccessibleName(tab.id, tab.session.displayName)}
                 aria-selected={tab.id === workspace.activeTabId}
+                tabIndex={tab.id === workspace.activeTabId ? 0 : -1}
                 onClick={() => selectDocumentTab(tab.id)}
               >
                 <span aria-hidden="true">{tab.session.displayName}</span>
@@ -1798,6 +2064,21 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
         </button>
       </nav>
 
+      {tabActions ? (
+        <TabActionsMenu
+          x={tabActions.x}
+          y={tabActions.y}
+          onDismiss={dismissTabActions}
+          actions={[
+            { label: "Close tab", run: () => void requestCloseTab(tabActions.tabId) },
+            { label: "Close other tabs", run: () => void closeOtherTabs(tabActions.tabId), disabled: workspace.tabs.length < 2 },
+            { label: "Reopen closed tab", run: reopenClosedTab, disabled: recentlyClosedPaths.current.length === 0 },
+            { label: "Move tab left", run: () => moveTabBy(tabActions.tabId, -1), disabled: workspace.tabs[0]?.id === tabActions.tabId },
+            { label: "Move tab right", run: () => moveTabBy(tabActions.tabId, 1), disabled: workspace.tabs[workspace.tabs.length - 1]?.id === tabActions.tabId },
+          ]}
+        />
+      ) : null}
+
       <div className="command-error-slot">
         {commandError ? (
           <div
@@ -1806,10 +2087,27 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
             aria-label="File command error"
           >
             <span>{commandError}</span>
+            {encodingRetry && encodingRetry.message === commandError ? (
+              <button
+                className="command-error-retry"
+                type="button"
+                onClick={() => void runOpenCommand(
+                  "Open File",
+                  async () => encodingRetry.path,
+                  false,
+                  "windows1251",
+                )}
+              >
+                Open as Windows-1251
+              </button>
+            ) : null}
             <button
               type="button"
               aria-label="Dismiss file command error"
-              onClick={() => setCommandError(null)}
+              onClick={() => {
+                setCommandError(null);
+                setEncodingRetry(null);
+              }}
             >
               <TbX size={14} strokeWidth={2} aria-hidden="true" />
             </button>
@@ -1818,6 +2116,18 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
       </div>
 
       <main className="document-area">
+        {recoveryNotice ? (
+          <div className="external-file-banner" role="status" aria-label="Editor recovery">
+            <span>{recoveryNotice}</span>
+            <button
+              type="button"
+              className="button-secondary"
+              aria-label="Dismiss recovery notice"
+              onClick={() => setRecoveryNotice(null)}
+            >Dismiss</button>
+          </div>
+        ) : null}
+
         {activeExternalFileWarning && !reconcileOpen ? (
           activeExternalFileWarning.kind === "deleted" ? (
             <ExternalFileBanner
@@ -1856,14 +2166,14 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
                   ? () =>
                       markExternalUpdateHandled(
                         activeExternalFileWarning.tabId,
-                        activeExternalFileWarning.result.external.lastModifiedAt,
+                        activeExternalFileWarning.result.external,
                       )
                   : undefined
               }
               onKeepEditing={() =>
                 markExternalUpdateHandled(
                   activeExternalFileWarning.tabId,
-                  activeExternalFileWarning.result.external.lastModifiedAt,
+                  activeExternalFileWarning.result.external,
                 )
               }
               onSaveAs={
@@ -1892,41 +2202,75 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
             }
             onSaveAs={() => saveWarningTabAs(activeExternalFileWarning.tabId)}
           />
-        ) : (
-          <DocumentView
-            ref={documentViewRef}
-            wordWrap={wordWrap}
-            content={document.content}
-            documentKey={workspace.activeTabId}
-            panelId={activeTabPanelId}
-            labelledBy={activeTabButtonId}
-            toolbarVisible={toolbarVisible}
-            editorScheme={editorScheme}
-            editorStyle={themeStyle}
-            fontSettings={editorFontSettings}
-            onMenuCommand={runMenuCommand}
-            updateReleaseUrl={availableUpdate?.releaseUrl}
-            onOpenUpdate={handleOpenUpdate}
-            status={
-              pendingCommand
-                ? `${pendingCommand}...`
-                : document.dirty
-                  ? "Unsaved"
-                  : document.path
-                    ? "Saved"
-                    : "Draft"
-            }
-            onContentChange={(content) =>
-              setWorkspace((current) =>
-                updateActiveDocumentTab(current, (session) =>
-                  updateSessionContent(session, content),
-                ),
-              )
-            }
-          />
-        )}
+        ) : null}
+
+        {workspace.tabs.map((tab) => {
+          const selected = tab.id === workspace.activeTabId;
+          const visible = selected && !(reconcileOpen && activeExternalFileWarning && reconcileResult);
+          const session = tab.session;
+
+          return (
+            <DocumentView
+              key={tab.id}
+              ref={visible ? documentViewRef : undefined}
+              active={visible}
+              path={session.path}
+              wordWrap={wordWrap}
+              content={session.content}
+              documentKey={tab.id}
+              panelId={tabPanelId(tab.id)}
+              labelledBy={tabstripHidden ? undefined : tabButtonId(tab.id)}
+              toolbarVisible={toolbarVisible}
+              editorScheme={editorScheme}
+              editorStyle={themeStyle}
+              fontSettings={editorFontSettings}
+              lineWidth={editorLineWidth}
+              spellcheck={spellcheck}
+              allowRemoteImages={allowRemoteImages}
+              outlineOpen={visible && outlineOpen}
+              onToggleOutline={() => setOutlineOpen((open) => !open)}
+              onOpenDocument={openExternalFile}
+              onLinkError={setCommandError}
+              onMenuCommand={runMenuCommand}
+              updateReleaseUrl={availableUpdate?.releaseUrl}
+              onOpenUpdate={handleOpenUpdate}
+              status={
+                selected && pendingCommand
+                  ? `${pendingCommand}...`
+                  : session.path && session.fileExists === false
+                    ? "New file — will be created on save"
+                    : session.dirty
+                      ? "Unsaved"
+                      : session.path
+                        ? "Saved"
+                        : "Draft"
+              }
+              onContentChange={(content) =>
+                setWorkspace((current) =>
+                  updateDocumentTab(current, tab.id, (previous) =>
+                    updateSessionContent(previous, content),
+                  ),
+                )
+              }
+            />
+          );
+        })}
       </main>
 
+      {recentFiles ? (
+        <RecentFilesDialog
+          paths={recentFiles}
+          onClose={() => setRecentFiles(null)}
+          onOpen={(path) => {
+            setRecentFiles(null);
+            void openExternalFile(path);
+          }}
+          onRemove={(path) => {
+            setRecentFiles((current) => current?.filter((entry) => entry !== path) ?? null);
+            void updateRecentFile(path, false).catch((error: unknown) => setCommandError(errorMessage(error)));
+          }}
+        />
+      ) : null}
       {settingsOpen ? (
         <dialog
           ref={settingsDialogRef}
@@ -2065,16 +2409,65 @@ export default function App({ onUnsavedPrompt }: AppProps = {}) {
             </p>
           </fieldset>
           <fieldset>
+            <legend>Reading</legend>
+            <label className="settings-field">
+              <span className="settings-field-label">Reading width</span>
+              <select
+                value={editorLineWidth}
+                onChange={(event) => {
+                  const width = normalizeEditorLineWidth(Number(event.target.value));
+                  touchedPreferences.current.editorLineWidth = true;
+                  setEditorLineWidth(width);
+                  persistAppSettings({ editorLineWidth: width });
+                }}
+              >
+                {EDITOR_LINE_WIDTHS.map((width) => (
+                  <option key={width} value={width}>
+                    {width === 0 ? "Full width" : `${width} characters`}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="settings-field">
+              <input
+                type="checkbox"
+                checked={spellcheck}
+                onChange={(event) => {
+                  const enabled = event.target.checked;
+                  touchedPreferences.current.spellcheck = true;
+                  setSpellcheck(enabled);
+                  persistAppSettings({ spellcheck: enabled });
+                }}
+              />
+              Spellcheck
+            </label>
+            <label className="settings-field">
+              <input
+                type="checkbox"
+                checked={allowRemoteImages}
+                onChange={(event) => {
+                  const enabled = event.target.checked;
+                  touchedPreferences.current.allowRemoteImages = true;
+                  setAllowRemoteImages(enabled);
+                  persistAppSettings({ allowRemoteImages: enabled });
+                }}
+              />
+              Load remote HTTPS images
+            </label>
+          </fieldset>
+          <fieldset>
             <legend>Editor font</legend>
             <div className="settings-field settings-field-stacked">
               <span className="settings-field-label">Family</span>
-              <FontPicker
-                value={editorFontSettings.family}
-                fonts={fontCatalog.fonts}
-                previewText={fontCatalog.previewText}
-                loading={fontsLoading}
-                onChange={updateEditorFontFamily}
-              />
+              <Suspense fallback={<span role="status">Loading font picker…</span>}>
+                <FontPicker
+                  value={editorFontSettings.family}
+                  fonts={fontCatalog.fonts}
+                  previewText={fontCatalog.previewText}
+                  loading={fontsLoading}
+                  onChange={updateEditorFontFamily}
+                />
+              </Suspense>
             </div>
             <label className="settings-field">
               Size
@@ -2189,11 +2582,15 @@ function sessionStillMatches(
     current.path === snapshot.path &&
     current.content === snapshot.content &&
     current.savedContent === snapshot.savedContent &&
+    current.savedDiskContent === snapshot.savedDiskContent &&
+    current.fileExists === snapshot.fileExists &&
+    current.encoding === snapshot.encoding &&
     current.dirty === snapshot.dirty &&
     current.lineEnding === snapshot.lineEnding &&
     current.lastKnownModifiedAt === snapshot.lastKnownModifiedAt &&
     current.lastNoticedExternalModifiedAt ===
-      snapshot.lastNoticedExternalModifiedAt
+      snapshot.lastNoticedExternalModifiedAt &&
+    current.lastNoticedExternalContent === snapshot.lastNoticedExternalContent
   );
 }
 
@@ -2261,104 +2658,6 @@ function localizedFontPreviewText(locale: string | undefined): string {
   return "Aa Bb Cc 0123456789 The quick brown fox";
 }
 
-function createSwapState(workspace: DocumentWorkspace): PersistedSwapState | null {
-  if (!workspace.tabs.some((tab) => tab.session.dirty)) {
-    return null;
-  }
-
-  return {
-    version: 1,
-    savedAt: Date.now(),
-    activeTabId: workspace.activeTabId,
-    openMode: workspace.openMode,
-    tabs: workspace.tabs.map((tab) => ({
-      id: tab.id,
-      session: serializeSessionForSwap(tab.session),
-    })),
-  };
-}
-
-function restoreWorkspaceFromSwap(
-  swap: PersistedSwapState | null,
-): DocumentWorkspace | null {
-  if (!swap || swap.version !== 1 || !isOpenMode(swap.openMode)) {
-    return null;
-  }
-
-  const tabs = Array.isArray(swap.tabs)
-    ? swap.tabs.filter((tab) => isPersistedTab(tab)).map((tab) => ({
-        ...tab,
-        session: normalizeExternalUpdateRuntimeState(tab.session),
-      }))
-    : [];
-  if (tabs.length === 0 || !tabs.some((tab) => tab.session.dirty)) {
-    return null;
-  }
-
-  const activeTabId = tabs.some((tab) => tab.id === swap.activeTabId)
-    ? swap.activeTabId
-    : tabs[0].id;
-
-  return {
-    tabs,
-    activeTabId,
-    openMode: swap.openMode,
-  };
-}
-
-function serializeSessionForSwap(
-  session: DocumentSession,
-): PersistedSwapState["tabs"][number]["session"] {
-  const {
-    id,
-    path,
-    displayName,
-    content,
-    savedContent,
-    dirty,
-    lineEnding,
-    lastKnownModifiedAt,
-  } = session;
-
-  return {
-    id,
-    path,
-    displayName,
-    content,
-    savedContent,
-    dirty,
-    lineEnding,
-    lastKnownModifiedAt,
-  };
-}
-
-function isPersistedTab(value: unknown): value is DocumentWorkspace["tabs"][number] {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const tab = value as DocumentWorkspace["tabs"][number];
-  return typeof tab.id === "string" && isDocumentSession(tab.session);
-}
-
-function isDocumentSession(value: unknown): value is DocumentSession {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const session = value as DocumentSession;
-  return (
-    typeof session.id === "string" &&
-    (typeof session.path === "string" || session.path === null) &&
-    typeof session.displayName === "string" &&
-    typeof session.content === "string" &&
-    typeof session.savedContent === "string" &&
-    typeof session.dirty === "boolean" &&
-    (session.lineEnding === "lf" || session.lineEnding === "crlf") &&
-    (typeof session.lastKnownModifiedAt === "number" ||
-      session.lastKnownModifiedAt === null)
-  );
-}
 
 function getSystemScheme(): ThemeScheme {
   return window.matchMedia?.("(prefers-color-scheme: dark)").matches

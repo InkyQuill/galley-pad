@@ -31,5 +31,23 @@ export default defineConfig({
     setupFiles: ["./src/test/setup.ts"],
     globals: true,
     include: ["src/**/*.test.{ts,tsx}"],
+    coverage: {
+      provider: "v8",
+      include: [
+        "src/document/diff.ts",
+        "src/document/lifecycle.ts",
+        "src/document/recovery.ts",
+        "src/document/session.ts",
+        "src/document/workspace.ts",
+      ],
+      reporter: ["text", "lcov"],
+      thresholds: {
+        perFile: true,
+        statements: 90,
+        branches: 77,
+        functions: 95,
+        lines: 90,
+      },
+    },
   },
 });

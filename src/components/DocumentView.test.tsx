@@ -4,11 +4,9 @@ import { createRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  mockGalleyCallbacks,
   mockGalleyHandleState,
   mockGalleyOpenSearch,
-  mockGalleyScrollTo,
-  mockGalleySelect,
+  mockGalleyFocus,
 } from "../test/galley-editor.mock";
 import { DocumentView, type DocumentViewHandle } from "./DocumentView";
 
@@ -386,60 +384,30 @@ describe("DocumentView", () => {
 });
 
 describe("DocumentView per-tab position memory", () => {
-  function renderWithKey(documentKey: string) {
-    return render(
-      <DocumentView
-        content="# Hello"
-        onContentChange={() => undefined}
-        documentKey={documentKey}
-      />,
+  it("focuses a retained editor only when its tab becomes visible", () => {
+    mockGalleyFocus.mockClear();
+    const { rerender } = render(
+      <DocumentView active={false} content="Draft" onContentChange={vi.fn()} />,
     );
-  }
+    expect(screen.queryByRole("tabpanel")).not.toBeInTheDocument();
+    expect(mockGalleyFocus).not.toHaveBeenCalled();
 
-  it("restores the recorded position when switching back to a known tab", () => {
-    const { rerender } = renderWithKey("tab-a");
+    rerender(<DocumentView active content="Draft" onContentChange={vi.fn()} />);
 
-    mockGalleyCallbacks.onSelectionChange?.({ from: 5, to: 5, anchor: 5, head: 5 });
-    mockGalleyCallbacks.onScroll?.(0.4);
-
-    rerender(
-      <DocumentView
-        content="other"
-        onContentChange={() => undefined}
-        documentKey="tab-b"
-      />,
+    expect(screen.getByRole("tabpanel")).toBeVisible();
+    expect(mockGalleyFocus).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+      "data-editor-aria-label", "Markdown document editor",
     );
-    mockGalleySelect.mockClear();
-    mockGalleyScrollTo.mockClear();
-
-    rerender(
-      <DocumentView
-        content="# Hello"
-        onContentChange={() => undefined}
-        documentKey="tab-a"
-      />,
-    );
-
-    expect(mockGalleySelect).toHaveBeenCalledWith(5, 5);
-    expect(mockGalleyScrollTo).toHaveBeenCalledWith(0.4);
   });
 
-  it("does not restore any position for a tab seen for the first time", () => {
-    const { rerender } = renderWithKey("tab-a");
-
-    mockGalleyCallbacks.onSelectionChange?.({ from: 5, to: 5, anchor: 5, head: 5 });
-    mockGalleySelect.mockClear();
-    mockGalleyScrollTo.mockClear();
-
-    rerender(
-      <DocumentView
-        content="fresh"
-        onContentChange={() => undefined}
-        documentKey="tab-new"
-      />,
+  it("exposes source and preview mode with the toolbar hidden", () => {
+    render(<DocumentView content="Draft" onContentChange={vi.fn()} />);
+    fireEvent.change(screen.getByRole("combobox", { name: "Editor mode" }), {
+      target: { value: "preview" },
+    });
+    expect(screen.getByTestId("mock-galley-editor-shell")).toHaveAttribute(
+      "data-mode", "preview",
     );
-
-    expect(mockGalleySelect).not.toHaveBeenCalled();
-    expect(mockGalleyScrollTo).not.toHaveBeenCalled();
   });
 });

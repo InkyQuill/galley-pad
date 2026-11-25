@@ -80,4 +80,36 @@ describe("side-by-side line diff", () => {
       right: "R1099",
     });
   });
+  it("keeps separated insertions and removals aligned in a large document", () => {
+    const original = Array.from({ length: 3_000 }, (_, index) => `Line ${index}`);
+    const inserted = Array.from({ length: 180 }, (_, index) => `Inserted ${index}`);
+    const changed = [
+      ...original.slice(0, 200),
+      ...inserted,
+      ...original.slice(200, 1_400),
+      "Changed",
+      ...original.slice(1_401, 2_100),
+      ...original.slice(2_300),
+    ];
+
+    const rows = createSideBySideLineDiff(original.join("\n"), changed.join("\n"));
+
+    expect(rows.filter((row) => row.kind === "added").map((row) => row.right)).toEqual(inserted);
+    expect(rows.filter((row) => row.kind === "removed").map((row) => row.left)).toEqual(original.slice(2_100, 2_300));
+    expect(rows.filter((row) => row.kind === "changed")).toEqual([
+      { kind: "changed", left: "Line 1400", right: "Changed" },
+    ]);
+    expect(rows.filter((row) => row.kind !== "added").map((row) => row.left)).toEqual(original);
+    expect(rows.filter((row) => row.kind !== "removed").map((row) => row.right)).toEqual(changed);
+  });
+
+  it("retains real blank lines inside an insertion", () => {
+    const original = Array.from({ length: 1_100 }, (_, index) => `Line ${index}`);
+    const changed = [...original.slice(0, 20), "", ...original.slice(20)];
+    const rows = createSideBySideLineDiff(original.join("\n"), changed.join("\n"));
+
+    expect(rows[20]).toEqual({ kind: "added", left: "", right: "" });
+    expect(rows[21]).toEqual({ kind: "unchanged", left: "Line 20", right: "Line 20" });
+  });
+
 });

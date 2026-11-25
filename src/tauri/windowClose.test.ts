@@ -100,7 +100,6 @@ describe("listenForWindowCloseRequest", () => {
   });
 
   it("does not register a listener outside Tauri", async () => {
-    // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
     delete (globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
 
     const unlisten = await listenForWindowCloseRequest(vi.fn());
