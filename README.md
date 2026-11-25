@@ -202,14 +202,16 @@ The release PR updates `version.txt`, the changelog and manifest; the workflow t
 synchronizes package, Cargo and Tauri versions and explicitly dispatches CI on that
 branch. Enable GitHub Actions permission to create pull requests in repository settings.
 
-Merging the release PR creates a draft GitHub release and dispatches installer builds
-with its tag and exact commit SHA. All platforms build that immutable commit. The
+Merging the release PR creates a draft GitHub release, pins the version tag and
+dispatches installer builds with its tag and exact commit SHA. All platforms
+build that immutable commit. The
 release becomes public only after Linux, Windows and both macOS builds upload their
 installers. AUR publication follows if its SSH secret is configured and requires
 a preverified AUR host key in `AUR_SSH_KNOWN_HOSTS`; missing host trust fails the
 publish step instead of trusting a live network scan.
 
 To retry installer publication, dispatch `build-release.yml` with the existing `tag`
-and its full `sha`. To refresh a release PR, dispatch `release-please.yml`. Neither
+and its full `sha`. Once the current version is tagged, dispatch
+`release-please.yml` to refresh a release PR. Neither
 workflow automatically merges PRs. `ci.yml` runs tests, browser integration, the build,
 and release-version consistency checks on normal PRs and explicit release-PR dispatches.
