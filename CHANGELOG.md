@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.9.0](https://github.com/InkyQuill/galley-pad/compare/v1.8.0...v1.9.0) (2026-11-25)
+
+### Saving and recovery
+
+- Saves replace files atomically and check the on-disk contents for changes, even when the file timestamp is unchanged. Saving through a symlink preserves the link and the target’s permissions.
+- The active document detects external edits while you work. The side-by-side comparison stays aligned across insertions and deletions in large files.
+- Each window keeps its own recovery snapshot. Recovered edits are flagged, and quitting checks all open windows for unsaved work.
+- Opening the same file again switches to its existing tab or window. Missing paths open as new drafts only when requested from the command line.
+- Open UTF-8 files and UTF-16 files with a byte-order mark, or explicitly retry a legacy file as Windows-1251. Saves preserve the original encoding and line endings.
+
+### Reading and navigation
+
+- Jump between headings with the document outline. Switch between Live Preview, Source, and Preview from the footer, and adjust reading width and spellcheck in Settings.
+- Follow heading anchors and relative document links. Relative images resolve alongside the document, and remote HTTPS images load only when enabled in Settings.
+- Open recent files from the File menu or drop Markdown files onto the app. Drag tabs to reorder them, reopen a closed tab, and keep each tab’s own undo history.
+- Settings changes are shared across windows, and native window titles follow the active document.
+
+### Editor and themes
+
+- Updated Galley Editor and Galley Themes to 0.18.0, adding the Edda and Thoth light and dark themes.
+
 ## [1.8.0](https://github.com/InkyQuill/galley-pad/compare/v1.7.0...v1.8.0) (2026-11-25)
 
 - Release metadata update. The application source and dependencies are the same as in 1.7.0.
