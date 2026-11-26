@@ -8,6 +8,22 @@ async function replaceContent(page: Page, content: string) {
   await page.keyboard.insertText(content);
 }
 
+async function copyByDragging(page: Page, text: { left: number; right: number; y: number }) {
+  await page.mouse.move(text.left, text.y);
+  await page.mouse.down();
+  await page.mouse.move(text.right, text.y, { steps: 10 });
+  await page.mouse.up();
+  await page.keyboard.press("ControlOrMeta+c");
+  await page.evaluate(() => {
+    const target = document.createElement("textarea");
+    target.setAttribute("aria-label", "Clipboard contents");
+    document.body.append(target);
+    target.focus({ preventScroll: true });
+  });
+  await page.keyboard.press("ControlOrMeta+v");
+  return page.getByRole("textbox", { name: "Clipboard contents" });
+}
+
 test("navigates the live document outline and updates entries after editing", async ({ page }) => {
   await page.goto("/");
   const paragraphs = Array.from({ length: 60 }, (_, index) => `Paragraph ${index + 1}.`).join("\n\n");
@@ -56,6 +72,64 @@ test("offers reading modes with the formatting toolbar hidden", async ({ page })
   await expect(activeEditor(page)).toHaveText("**Read this**");
   await mode.selectOption("preview");
   await expect(activeEditor(page)).toHaveText("Read this");
+});
+
+for (const mode of ["live", "preview"] as const) {
+  test(`selects visible prose after repeated quotes and fences in ${mode} mode`, async ({ page }) => {
+    await page.goto("/");
+    const sections = 20;
+    const paragraph = (section: number) => `Section ${section} prose after the fence.`;
+    const content = Array.from({ length: sections }, (_, index) => {
+      const section = index + 1;
+      return `## Section ${section}
+
+> Quote ${section} alpha.
+> Quote ${section} bravo.
+
+\`\`\`text
+Fence ${section} alpha
+Fence ${section} bravo
+\`\`\`
+
+${paragraph(section)}`;
+    }).join("\n\n");
+    await replaceContent(page, content);
+    await page.getByRole("combobox", { name: "Editor mode" }).selectOption(mode);
+    await page.keyboard.press("ControlOrMeta+End");
+
+    const target = paragraph(sections);
+    const row = activeEditor(page).getByText(target, { exact: true });
+    await expect(row).toBeInViewport();
+    const text = await row.evaluate((line) => {
+      const range = document.createRange();
+      range.selectNodeContents(line);
+      const bounds = range.getBoundingClientRect();
+      return { left: bounds.left, right: bounds.right, y: bounds.top + bounds.height / 2 };
+    });
+    const pasted = await copyByDragging(page, text);
+    await expect(pasted).toHaveValue(target);
+  });
+}
+
+test("copies only the code selected with the pointer in Preview", async ({ page }) => {
+  await page.goto("/");
+  await replaceContent(page, "Before\n\n```text\nalpha bravo charlie delta\n```\n\nAfter");
+  await page.getByRole("combobox", { name: "Editor mode" }).selectOption("preview");
+
+  const code = activeEditor(page).locator("pre code").getByText("alpha bravo charlie delta");
+  await expect(code).toBeVisible();
+  const text = await code.evaluate((element) => {
+    const range = document.createRange();
+    const node = element.firstChild!;
+    range.setStart(node, "alpha ".length);
+    range.setEnd(node, "alpha bravo charlie".length);
+    const bounds = range.getBoundingClientRect();
+    return { left: bounds.left, right: bounds.right, y: bounds.top + bounds.height / 2 };
+  });
+
+  const pasted = await copyByDragging(page, text);
+
+  await expect(pasted).toHaveValue("bravo charlie");
 });
 
 test("overlays the outline at a narrow width and dismisses it after navigation", async ({ page }) => {
