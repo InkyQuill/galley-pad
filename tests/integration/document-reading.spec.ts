@@ -9,19 +9,19 @@ async function replaceContent(page: Page, content: string) {
 }
 
 async function copyByDragging(page: Page, text: { left: number; right: number; y: number }) {
-  await page.evaluate(() => {
-    delete document.body.dataset.copiedText;
-    document.addEventListener("copy", (event) => {
-      document.body.dataset.copiedText = event.defaultPrevented
-        ? event.clipboardData?.getData("text/plain") ?? ""
-        : window.getSelection()?.toString() ?? "";
-    }, { once: true });
-  });
   await page.mouse.move(text.left, text.y);
   await page.mouse.down();
   await page.mouse.move(text.right, text.y, { steps: 10 });
   await page.mouse.up();
   await page.keyboard.press("ControlOrMeta+c");
+  await page.evaluate(() => {
+    const target = document.createElement("textarea");
+    target.setAttribute("aria-label", "Clipboard contents");
+    document.body.append(target);
+    target.focus({ preventScroll: true });
+  });
+  await page.keyboard.press("ControlOrMeta+v");
+  return page.getByRole("textbox", { name: "Clipboard contents" });
 }
 
 test("navigates the live document outline and updates entries after editing", async ({ page }) => {
@@ -106,8 +106,8 @@ ${paragraph(section)}`;
       const bounds = range.getBoundingClientRect();
       return { left: bounds.left, right: bounds.right, y: bounds.top + bounds.height / 2 };
     });
-    await copyByDragging(page, text);
-    await expect(page.locator("body")).toHaveAttribute("data-copied-text", target);
+    const pasted = await copyByDragging(page, text);
+    await expect(pasted).toHaveValue(target);
   });
 }
 
@@ -127,9 +127,9 @@ test("copies only the code selected with the pointer in Preview", async ({ page 
     return { left: bounds.left, right: bounds.right, y: bounds.top + bounds.height / 2 };
   });
 
-  await copyByDragging(page, text);
+  const pasted = await copyByDragging(page, text);
 
-  await expect(page.locator("body")).toHaveAttribute("data-copied-text", "bravo charlie");
+  await expect(pasted).toHaveValue("bravo charlie");
 });
 
 test("overlays the outline at a narrow width and dismisses it after navigation", async ({ page }) => {
