@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.9.2](https://github.com/InkyQuill/galley-pad/compare/v1.9.1...v1.9.2) (2026-11-26)
+
+
+### Bug Fixes
+
+* **editor:** align text selection in Galley Pad ([73dbb1d](https://github.com/InkyQuill/galley-pad/commit/73dbb1d7d798d24ecc59ec931d76a82ed78b5a04))
+* **editor:** align text selection in Live and Preview ([b46705c](https://github.com/InkyQuill/galley-pad/commit/b46705c42aa5878fedd6268156be5ba4b8b396d5))
+
 ## [1.9.1](https://github.com/InkyQuill/galley-pad/compare/v1.9.0...v1.9.1) (2026-11-25)
 
 
