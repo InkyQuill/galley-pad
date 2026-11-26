@@ -12,8 +12,9 @@ async function copyByDragging(page: Page, text: { left: number; right: number; y
   await page.evaluate(() => {
     delete document.body.dataset.copiedText;
     document.addEventListener("copy", (event) => {
-      const text = event.clipboardData?.getData("text/plain") || window.getSelection()?.toString();
-      document.body.dataset.copiedText = text || "";
+      document.body.dataset.copiedText = event.defaultPrevented
+        ? event.clipboardData?.getData("text/plain") ?? ""
+        : window.getSelection()?.toString() ?? "";
     }, { once: true });
   });
   await page.mouse.move(text.left, text.y);
